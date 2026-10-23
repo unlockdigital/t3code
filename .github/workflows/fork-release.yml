@@ -328,7 +328,7 @@ jobs:
 
           These artifacts are unsigned and require manual installation. They carry no automatic update feed. T3 Connect relay services and signing credentials are configured separately.
 
-          Verify downloads against SHA256SUMS. Complete platform smoke checks before publishing this draft. Use a separate T3CODE_HOME when trying the packaged fork beside an existing installation.
+          Verify downloads against SHA256SUMS. Complete platform smoke checks before publishing this draft. Preview packages retain upstream desktop profile identity. Use a disposable OS account or VM for side-by-side testing and a separate T3CODE_HOME for server state.
           NOTES
           gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
             --verify-tag --target "$SHA" --draft --prerelease \
