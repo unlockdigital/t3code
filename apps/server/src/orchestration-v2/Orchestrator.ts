@@ -1096,7 +1096,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .pipe(
             Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
           );
-        if (source !== null) yield* assertPrivateModelSelection(settings, source, selection);
+        if (source !== null) {
+          if (
+            requiredPrivateRoute(settings, source) !== null &&
+            (privateDraft ?? thread).privateModelRoute === undefined
+          )
+            return yield* new ModelRoutingError({ reason: "destination-blocked" });
+          yield* assertPrivateModelSelection(settings, source, selection);
+        }
       }
       if (command.type === "thread.merge_back" && requiredPrivateRoute(settings, thread) !== null) {
         const target = yield* projectionStore.getThread(command.targetThreadId);

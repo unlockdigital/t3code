@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   CommandId,
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   MessageId,
   NodeId,
@@ -50,6 +51,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import { privateProviderConfigHash } from "../privacy/modelRoutingPolicy.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
@@ -2073,16 +2075,19 @@ describe("OrchestratorMcpService provider resolution", () => {
       tasks: ReadonlyArray<ScheduledTask>,
       boundThread: OrchestrationV2ThreadShell | null,
       upserted: Ref.Ref<number>,
+      settings = DEFAULT_SERVER_SETTINGS,
     ) =>
       layerOrchestratorService.pipe(
         Layer.provide(
           Layer.mergeAll(
             NodeServices.layer,
             Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadRecords: () =>
+                Effect.succeed(idleThreadProjection(boundThread ?? liveThreadShell(boundThreadId))),
               getThreadShell: (threadId) =>
                 Effect.succeed(threadId === boundThreadId ? boundThread : null),
             }),
-            ServerSettings.layerTest(),
+            ServerSettings.layerTest(settings),
             Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
             Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
               list: () => Effect.succeed([]),
@@ -2215,7 +2220,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
 
-    it.effect("reports a saved task even when its bound thread cannot be read", () =>
+    it.effect("refuses a task update when bound privacy cannot be established", () =>
       Effect.gen(function* () {
         const upserted = yield* Ref.make(0);
         const bound = task({ threadId: boundThreadId });
@@ -2257,13 +2262,86 @@ describe("OrchestratorMcpService provider resolution", () => {
             ),
           ),
         );
-        const updated = yield* mcp.updateScheduledTask(supervisedClient, {
-          scheduledTaskId: bound.id,
-          prompt: "Something else",
-        });
-        assert.equal(yield* Ref.get(upserted), 1);
-        assert.equal(updated.scheduledTaskId, bound.id);
-        assert.equal(updated.webhookUrl, undefined);
+        const error = yield* Effect.flip(
+          mcp.updateScheduledTask(supervisedClient, {
+            scheduledTaskId: bound.id,
+            prompt: "Something else",
+          }),
+        );
+        assert.equal(yield* Ref.get(upserted), 0);
+        assert.equal(error.code, "orchestration_error");
+      }),
+    );
+
+    it.effect("withholds private bound task prompts from ordinary cloud clients", () =>
+      Effect.gen(function* () {
+        const upserted = yield* Ref.make(0);
+        const bound = task({ threadId: boundThreadId, prompt: "INVENTED_PRIVATE_SCHEDULE_CANARY" });
+        const shell = {
+          ...liveThreadShell(boundThreadId),
+          privateModelRoute: {
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("synthetic-tinfoil"),
+              model: "tinfoil/kimi-k3",
+            },
+            providerConfigHash: "a".repeat(64),
+          },
+        };
+        yield* Effect.gen(function* () {
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const listed = yield* mcp.listScheduledTasks(supervisedClient, { projectId });
+          assert.deepEqual(listed.tasks, []);
+        }).pipe(Effect.provide(service([bound], shell, upserted)));
+      }),
+    );
+
+    it.effect("refuses to unbind a private coordinator's existing scheduled task", () =>
+      Effect.gen(function* () {
+        const upserted = yield* Ref.make(0);
+        const instanceId = ProviderInstanceId.make("synthetic-private-scheduled-update");
+        const modelSelection = { instanceId, model: "tinfoil/kimi-k3" };
+        const settings = {
+          ...DEFAULT_SERVER_SETTINGS,
+          providerInstances: {
+            [instanceId]: {
+              driver: ProviderDriverKind.make("opencode"),
+              enabled: true,
+              config: { privateInference: "tinfoil", serverUrl: "" },
+            },
+          },
+        };
+        const route = {
+          modelSelection,
+          providerConfigHash: privateProviderConfigHash(settings, modelSelection),
+        };
+        const shell = {
+          ...liveThreadShell(boundThreadId),
+          projectId,
+          providerInstanceId: instanceId,
+          modelSelection,
+          privateModelRoute: route,
+        };
+        const bound = task({ threadId: boundThreadId });
+        const scope = {
+          ...supervisedClient,
+          client: undefined,
+          thread: {
+            threadId: boundThreadId,
+            providerSessionId: "synthetic-private-scheduled-session",
+            providerInstanceId: instanceId,
+          },
+        };
+        yield* Effect.gen(function* () {
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const error = yield* Effect.flip(
+            mcp.updateScheduledTask(scope, {
+              scheduledTaskId: bound.id,
+              bindToCurrentThread: false,
+            }),
+          );
+          assert.equal(error.code, "capability_denied");
+          assert.equal(yield* Ref.get(upserted), 0);
+        }).pipe(Effect.provide(service([bound], shell, upserted, settings)));
       }),
     );
   });
@@ -2499,12 +2577,23 @@ describe("OrchestratorMcpService thread lookup", () => {
     capabilities: new Set(["orchestration"]),
     issuedAt: 1,
   };
-  const service = (shells: ReadonlyArray<OrchestrationV2ThreadShell>, sent: Ref.Ref<number>) =>
+  const service = (
+    shells: ReadonlyArray<OrchestrationV2ThreadShell>,
+    sent: Ref.Ref<number>,
+    settings = DEFAULT_SERVER_SETTINGS,
+  ) =>
     layerOrchestratorService.pipe(
       Layer.provide(
         Layer.mergeAll(
           NodeServices.layer,
           Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadRecords: (threadId) =>
+              Effect.succeed({
+                thread: shells.find((shell) => shell.id === threadId),
+                runs: [],
+                runtimeRequests: [],
+                contextTransfers: [],
+              } as unknown as OrchestrationV2ThreadProjection),
             getThreadShell: (threadId) =>
               Effect.succeed(shells.find((shell) => shell.id === threadId) ?? null),
             getProjectThreadRecords: ({ threadId }) =>
@@ -2517,7 +2606,7 @@ describe("OrchestratorMcpService thread lookup", () => {
             getTimelinePage: () => Effect.die("Private thread content reached the timeline read"),
             sendToThread: () => Ref.update(sent, (count) => count + 1).pipe(Effect.as({} as never)),
           }),
-          ServerSettings.layerTest(),
+          ServerSettings.layerTest(settings),
           Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
           Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
             list: () => Effect.succeed([]),
@@ -2562,6 +2651,89 @@ describe("OrchestratorMcpService thread lookup", () => {
           assert.equal(error.code, "capability_denied");
         }).pipe(Effect.provide(service([privateThread], sent)));
       }),
+  );
+
+  it.effect("withholds locked history from an unlocked Standard caller using Tinfoil", () =>
+    Effect.gen(function* () {
+      const sent = yield* Ref.make(0);
+      const instanceId = ProviderInstanceId.make("synthetic-tinfoil");
+      const modelSelection = { instanceId, model: "tinfoil/kimi-k3" };
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("opencode"),
+            enabled: true,
+            config: { privateInference: "tinfoil", serverUrl: "" },
+          },
+        },
+      };
+      const route = {
+        modelSelection,
+        providerConfigHash: privateProviderConfigHash(settings, modelSelection),
+      };
+      const caller = {
+        ...liveThreadShell(ThreadId.make("standard-tinfoil-caller")),
+        providerInstanceId: instanceId,
+        modelSelection,
+      };
+      const target = {
+        ...liveThreadShell(bareId),
+        providerInstanceId: instanceId,
+        modelSelection,
+        privateModelRoute: route,
+      };
+      const scope = {
+        ...client,
+        client: undefined,
+        thread: {
+          threadId: caller.id,
+          providerInstanceId: instanceId,
+          providerSessionId: "synthetic-session",
+        },
+      };
+      yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const error = yield* Effect.flip(mcp.readThread(scope, { threadId: bareId }));
+        assert.equal(error.code, "capability_denied");
+      }).pipe(
+        Effect.provide(service([caller, target], sent, { ...settings, privateModelRoute: route })),
+      );
+    }),
+  );
+
+  it.effect("keeps a private coordinator's scheduled context bound to its locked thread", () =>
+    Effect.gen(function* () {
+      const sent = yield* Ref.make(0);
+      const instanceId = ProviderInstanceId.make("synthetic-private-scheduler");
+      const modelSelection = { instanceId, model: "tinfoil/kimi-k3" };
+      const caller = {
+        ...liveThreadShell(bareId),
+        providerInstanceId: instanceId,
+        modelSelection,
+        privateModelRoute: { modelSelection, providerConfigHash: "a".repeat(64) },
+      };
+      const scope = {
+        ...client,
+        client: undefined,
+        thread: {
+          threadId: caller.id,
+          providerInstanceId: instanceId,
+          providerSessionId: "synthetic-private-session",
+        },
+      };
+      yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const error = yield* Effect.flip(
+          mcp.scheduleTask(scope, {
+            prompt: "INVENTED_PRIVATE_SCHEDULE_CANARY",
+            schedule: { type: "interval", everyMs: 60_000 },
+            bindToCurrentThread: false,
+          }),
+        );
+        assert.equal(error.code, "capability_denied");
+      }).pipe(Effect.provide(service([caller], sent)));
+    }),
   );
 
   it.effect("points a bare uuid at the mcp: thread it belongs to", () =>

@@ -13,6 +13,7 @@ import { modelSelectionCommandType } from "@t3tools/shared/model";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   dispatchFailure,
+  assertReadableThreadPrivacy,
   newCommandId,
   readCaller,
   readThread,
@@ -103,16 +104,25 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_search: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const { caller } = yield* readCaller();
+      const context = yield* readCaller();
+      const { caller } = context;
       const { projectId: requested, ...query } = input;
       const projectId = requested ?? caller?.projectId;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
       const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
+      const matches = yield* Effect.filter(result.matches, (match) => {
+        if (projectId !== undefined && match.projectId !== projectId) return Effect.succeed(false);
+        return Effect.gen(function* () {
+          const shell = yield* context.threads
+            .getThreadShell(match.threadId)
+            .pipe(Effect.mapError(unavailable));
+          if (shell === null || shell.deletedAt !== null) return false;
+          yield* assertReadableThreadPrivacy(context, shell);
+          return true;
+        }).pipe(Effect.catch(() => Effect.succeed(false)));
+      });
       return {
-        matches:
-          projectId === undefined
-            ? result.matches
-            : result.matches.filter((match) => match.projectId === projectId),
+        matches,
       };
     }),
   ),

@@ -163,6 +163,38 @@ it.effect("records an explicit private thread inside a standard project", () =>
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("blocks forwarding private context into an unlocked Tinfoil thread", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const source = create("locked-message-source");
+    const target = create("standard-tinfoil-target", {
+      projectId: ProjectId.make("ordinary-project"),
+    });
+    yield* orchestrator.dispatch(source);
+    yield* orchestrator.dispatch(target);
+    expect((yield* projections.getThread(target.threadId)).privateModelRoute).toBeUndefined();
+    expect(
+      yield* Effect.flip(
+        orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("private-forward"),
+          threadId: target.threadId,
+          senderThreadId: source.threadId,
+          messageId: MessageId.make("private-forward"),
+          modelSelection: selection,
+          text: "INVENTED_PRIVATE_FORWARD_CANARY",
+          attachments: [],
+          dispatchMode: { type: "defer_start" },
+          createdBy: "agent",
+          creationSource: "mcp",
+        }),
+      ),
+    ).toMatchObject({ _tag: "OrchestratorPrivateRoutingError", reason: "destination-blocked" });
+    expect((yield* projections.getThreadProjection(target.threadId)).messages).toHaveLength(0);
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect(
   "enables privacy explicitly on an empty draft and keeps helper controls scoped to private work",
   () =>

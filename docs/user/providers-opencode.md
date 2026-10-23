@@ -78,6 +78,8 @@ in **Settings → General**, enable **Private workflow**, and start a fresh conv
 Existing conversations keep their earlier disclosure history. A private conversation
 keeps its routing lock when project defaults change; start a fresh Standard conversation
 to use another route. An unavailable or changed private connection pauses model work.
+Imports of private conversation context require a locked private destination. Scheduled
+work created through a private coordinator stays bound to its locked conversation.
 
 Private conversations default to **Private + helpers**. Ask the private coordinator to
 prepare a self-contained coding task using synthetic fixtures and interfaces, then open

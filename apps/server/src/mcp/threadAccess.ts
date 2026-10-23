@@ -13,6 +13,11 @@ import * as Effect from "effect/Effect";
 
 import type { OrchestratorV2Error } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import {
+  assertPrivateModelSelection,
+  requiredPrivateRoute,
+} from "../privacy/modelRoutingPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as OrchestrationMcp from "./OrchestratorMcpService.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 
@@ -149,6 +154,34 @@ const resolveThreadId = (context: Caller, threadId: ThreadId | undefined) =>
           }),
         );
 
+export const assertReadableThreadPrivacy = Effect.fn("mcp.assertReadableThreadPrivacy")(
+  function* (
+    context: Caller,
+    target: Pick<OrchestrationV2ThreadShell, "projectId" | "privateModelRoute">,
+  ) {
+    const settings = yield* ServerSettings.ServerSettingsService;
+    const routing = yield* settings.getRoutingSettings;
+    if (requiredPrivateRoute(routing, target) === null) return;
+    if (context.caller?.privateModelRoute === undefined || context.scope.thread === undefined) {
+      return yield* new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message: "Private thread content requires its approved private model connection.",
+      });
+    }
+    yield* assertPrivateModelSelection(routing, target, {
+      ...context.caller.modelSelection,
+      instanceId: context.scope.thread.providerInstanceId,
+    });
+  },
+  Effect.mapError(
+    () =>
+      new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message: "Private thread content requires its approved private model connection.",
+      }),
+  ),
+);
+
 export const readThread = Effect.fn("mcp.readThread")(function* <
   K extends ProjectionRecordField = never,
 >(threadId?: ThreadId, fields: ReadonlyArray<K> = []) {
@@ -162,6 +195,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
       "The thread was not found.",
     );
   }
+  yield* assertReadableThreadPrivacy(context, shell);
   const projection = yield* context.threads
     .getProjectThreadRecords({ projectId: shell.projectId, threadId: targetId }, fields, {
       turnItemTypes: ["user_input_request"],

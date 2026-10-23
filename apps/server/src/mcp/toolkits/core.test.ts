@@ -69,6 +69,7 @@ const decodeMcpAttachmentInput = Schema.decodeUnknownEffect(McpAttachmentInput);
 const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
 
 const layerThreadToolkit = McpHttpServer.layerThreadToolkit.pipe(
+  Layer.provide(ServerSettings.layerTest()),
   Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
   Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
 );
@@ -125,6 +126,60 @@ it.effect("checks capability through the production registration", () =>
     ),
   ),
 );
+
+it.effect("keeps private search snippets out of an ordinary cloud caller", () => {
+  const privateId = ThreadId.make("synthetic-private-search");
+  const publicId = ThreadId.make("synthetic-standard-search");
+  const privateShell = {
+    ...McpToolAccessTestkit.liveThreadShell(privateId),
+    privateModelRoute: {
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("synthetic-tinfoil"),
+        model: "tinfoil/kimi-k3",
+      },
+      providerConfigHash: "a".repeat(64),
+    },
+  };
+  const matches = [privateId, publicId].map((id) => ({
+    threadId: id,
+    projectId: privateShell.projectId,
+    source: "user" as const,
+    snippet: id === privateId ? "SYNTHETIC_PRIVATE_SEARCH_CANARY" : "Ordinary synthetic result",
+    messageCreatedAt: null,
+  }));
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const result = yield* server
+      .callTool({ name: "t3_thread_search", arguments: { query: "synthetic" } })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toEqual({ matches: [matches[1]] });
+    expect(JSON.stringify(result)).not.toContain("SYNTHETIC_PRIVATE_SEARCH_CANARY");
+  }).pipe(
+    Effect.provide(
+      McpHttpServer.layerThreadToolkit.pipe(
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provide(NodeCrypto.layer),
+        Layer.provide(ServerSettings.layerTest()),
+        Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+        Layer.provide(
+          Layer.mock(ThreadSearch.ThreadSearch)({ search: () => Effect.succeed({ matches }) }),
+        ),
+        Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) =>
+              Effect.succeed(
+                id === privateId ? privateShell : McpToolAccessTestkit.liveThreadShell(id),
+              ),
+          }),
+        ),
+      ),
+    ),
+  );
+});
 
 it.effect("an answered question reports already answered instead of not found", () => {
   const shell = McpToolAccessTestkit.liveThreadShell(threadId);
@@ -823,6 +878,7 @@ it.effect("only the caller that prepared a pending upload can discard it", () =>
   }).pipe(
     Effect.provide(
       McpHttpServer.layerAttachmentToolkit.pipe(
+        Layer.provide(ServerSettings.layerTest()),
         Layer.provideMerge(McpServer.McpServer.layer),
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
         Layer.provide(ServerSecretStore.layer),

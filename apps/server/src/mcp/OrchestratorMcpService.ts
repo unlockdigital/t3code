@@ -1223,7 +1223,7 @@ const make = Effect.gen(function* () {
     ) {
       const settings = yield* serverSettings.getRoutingSettings;
       if (requiredPrivateRoute(settings, target) === null) return;
-      if (parent === undefined || scope.thread === undefined)
+      if (parent?.thread.privateModelRoute === undefined || scope.thread === undefined)
         return yield* failure(
           "capability_denied",
           "Private thread content requires its approved private model connection.",
@@ -1573,6 +1573,7 @@ const make = Effect.gen(function* () {
         { messageRoles: ["user"], omitSettledLeafNodes: true },
       )
       .pipe(Effect.mapError(threadManagementFailure));
+    yield* assertReadablePrivacy(scope, parentProjection, childControls.thread);
     const childRun = delegatedTaskRun(childControls, task);
     const terminalRun = latestTerminalResultRun(childControls, childRun);
     const progress = delegatedTaskProgress(childControls);
@@ -1808,6 +1809,7 @@ const make = Effect.gen(function* () {
       },
       task: ScheduledTask,
     ) {
+      yield* assertScheduledTaskPrivacy(scope, caller.parent, task);
       const live =
         caller.parent === undefined
           ? scope.client?.access !== "read-only"
@@ -1819,6 +1821,32 @@ const make = Effect.gen(function* () {
           Option.isSome(modes) &&
           modes.value.every((mode) => withinLimits(caller.limits, mode)),
       );
+    },
+  );
+
+  const assertScheduledTaskPrivacy = Effect.fn("OrchestratorMcpService.assertScheduledTaskPrivacy")(
+    function* (
+      scope: McpInvocationScope,
+      parent: Pick<OrchestrationV2ThreadProjection, "thread"> | undefined,
+      task: ScheduledTask,
+    ) {
+      const bound =
+        task.threadId === null
+          ? null
+          : yield* threadManagement
+              .getThreadShell(task.threadId)
+              .pipe(Effect.mapError(threadManagementFailure));
+      if (task.threadId !== null && (bound === null || bound.deletedAt !== null))
+        return yield* failure(
+          "capability_denied",
+          "The scheduled task's bound thread is unavailable for privacy verification.",
+        );
+      yield* assertReadablePrivacy(scope, parent, {
+        projectId: task.projectId,
+        ...(bound?.privateModelRoute === undefined
+          ? {}
+          : { privateModelRoute: bound.privateModelRoute }),
+      });
     },
   );
 
@@ -1857,10 +1885,17 @@ const make = Effect.gen(function* () {
       const { parent, limits } = yield* loadCaller(scope);
       const projectId = yield* resolveProjectTarget(parent, input.projectId);
       yield* assertLiveCallerForOtherProject(scope, parent, projectId);
-      const project = yield* requireProject(projectId);
       const bindToCurrentThread =
         input.bindToCurrentThread ??
         (parent !== undefined && parent.thread.projectId === projectId);
+      if (
+        parent?.thread.privateModelRoute !== undefined &&
+        (!bindToCurrentThread || parent.thread.projectId !== projectId)
+      )
+        return yield* failure(
+          "capability_denied",
+          "Private scheduled work must stay bound to its locked private thread.",
+        );
       if (bindToCurrentThread && (parent === undefined || parent.thread.projectId !== projectId)) {
         return yield* failure(
           "invalid_request",
@@ -1869,6 +1904,7 @@ const make = Effect.gen(function* () {
             : "bindToCurrentThread binds to this thread, which belongs to a different project.",
         );
       }
+      const project = yield* requireProject(projectId);
       const modelSelection =
         parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project));
       const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
@@ -1921,7 +1957,14 @@ const make = Effect.gen(function* () {
           );
         return {
           tasks: yield* Effect.forEach(
-            tasks.filter((task) => projectId === undefined || task.projectId === projectId),
+            yield* Effect.filter(
+              tasks.filter((task) => projectId === undefined || task.projectId === projectId),
+              (task) =>
+                assertScheduledTaskPrivacy(scope, parent, task).pipe(
+                  Effect.as(true),
+                  Effect.catch(() => Effect.succeed(false)),
+                ),
+            ),
             (task) => summarizeScheduledTask(scope, { parent, limits }, task),
           ),
         };
@@ -1932,6 +1975,16 @@ const make = Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope);
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
+        yield* assertScheduledTaskPrivacy(scope, parent, existing);
+        if (
+          parent?.thread.privateModelRoute !== undefined &&
+          (input.bindToCurrentThread === false ||
+            (input.bindToCurrentThread !== true && existing.threadId !== parent.thread.id))
+        )
+          return yield* failure(
+            "capability_denied",
+            "Private scheduled work must stay bound to its locked private thread.",
+          );
         if (
           input.bindToCurrentThread === true &&
           (parent === undefined || parent.thread.projectId !== existing.projectId)
