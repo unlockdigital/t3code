@@ -18,7 +18,7 @@ import { readEnvironmentScope } from "../state/session";
 
 type ThreadContextCopyFormat = "link" | "markdown" | "handoff";
 
-export function useThreadContextCopy() {
+function useThreadContextCopyCommands() {
   const createHandoff = useAtomCommand(serverEnvironment.createLocalThreadHandoff, {
     reportFailure: false,
   });
@@ -27,6 +27,18 @@ export function useThreadContextCopy() {
     reportFailure: false,
   });
 
+  return { createHandoff, removeHandoff, loadTranscript };
+}
+
+export function useThreadContextCopy() {
+  return createThreadContextCopyAction(useThreadContextCopyCommands());
+}
+
+function createThreadContextCopyAction({
+  createHandoff,
+  removeHandoff,
+  loadTranscript,
+}: ReturnType<typeof useThreadContextCopyCommands>) {
   return async (target: ScopedThreadRef, format: ThreadContextCopyFormat) => {
     try {
       const thread = readThreadShell(target);
