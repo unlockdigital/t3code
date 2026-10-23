@@ -8,7 +8,7 @@ Verified October 23, 2026, America/Chicago.
 - Fork: <https://github.com/unlockdigital/t3code>
 - Base: `v0.1.2`, commit `044f07257c9684ae4543bd1e1ebf9c394e9e3830`.
 - Customization branch: `unlock-digital/main`.
-- Preserved baseline branch: `upstream-v0.1.2`.
+- Preserved baseline tag: `v0.1.2`; upstream development reference: `upstream/main`.
 - macOS 26.5, Apple silicon, 32 GiB RAM.
 - Source lives in the `t3code` folder inside the original setup workspace. The original `START_HERE.md` remains in the parent folder.
 
