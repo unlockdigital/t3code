@@ -266,6 +266,7 @@ export function UsageRouteScreen() {
           {showingLimits ? (
             <UsageLimitsSection
               now={limits.now}
+              historyEnvironments={selectedEnvironments}
               failedLabels={limits.failedLabels}
               selectedEnvironmentIds={selectedEnvironmentIds}
               cursorPrompt={

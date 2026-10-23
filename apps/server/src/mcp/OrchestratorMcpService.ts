@@ -104,6 +104,10 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
+  assertPrivateModelSelection,
+  requiredPrivateRoute,
+} from "../privacy/modelRoutingPolicy.ts";
+import {
   clientRuntimeModeCeiling,
   type McpInvocationScope,
   type McpThreadInvocationScope,
@@ -1211,6 +1215,32 @@ const make = Effect.gen(function* () {
     return yield* loadProjectThread(shell.projectId, threadId);
   });
 
+  const assertReadablePrivacy = Effect.fn("OrchestratorMcpService.assertReadablePrivacy")(
+    function* (
+      scope: McpInvocationScope,
+      parent: Pick<OrchestrationV2ThreadProjection, "thread"> | undefined,
+      target: Pick<OrchestrationV2ThreadShell, "projectId" | "privateModelRoute">,
+    ) {
+      const settings = yield* serverSettings.getRoutingSettings;
+      if (requiredPrivateRoute(settings, target) === null) return;
+      if (parent === undefined || scope.thread === undefined)
+        return yield* failure(
+          "capability_denied",
+          "Private thread content requires its approved private model connection.",
+        );
+      yield* assertPrivateModelSelection(settings, target, {
+        ...parent.thread.modelSelection,
+        instanceId: scope.thread.providerInstanceId,
+      });
+    },
+    Effect.mapError(() =>
+      failure(
+        "capability_denied",
+        "Private thread content requires its approved private model connection.",
+      ),
+    ),
+  );
+
   const loadScopedThread = Effect.fn("OrchestratorMcpService.loadScopedThread")(function* (
     scope: McpInvocationScope,
     threadId: ThreadId,
@@ -1220,6 +1250,7 @@ const make = Effect.gen(function* () {
       caller.parent !== undefined && threadId === caller.parent.thread.id
         ? caller.parent
         : yield* loadTargetThread(threadId);
+    yield* assertReadablePrivacy(scope, caller.parent, target.thread);
     return { ...caller, target } as const;
   });
 
@@ -1294,6 +1325,7 @@ const make = Effect.gen(function* () {
         "contextTransfers",
       ])
       .pipe(Effect.mapError(threadManagementFailure));
+    yield* assertReadablePrivacy(scope, parent, target.thread);
     return { parent, target, shell } as const;
   });
 
@@ -1318,7 +1350,22 @@ const make = Effect.gen(function* () {
         commandId,
         instanceId: target.modelSelection.instanceId,
       })
-      .pipe(Effect.mapError(threadManagementFailure));
+      .pipe(
+        Effect.mapError(threadManagementFailure),
+        Effect.andThen(
+          serverSettings.getRoutingSettings.pipe(
+            Effect.flatMap((settings) =>
+              assertPrivateModelSelection(settings, parent.thread, target.modelSelection),
+            ),
+            Effect.mapError(() =>
+              failure(
+                "capability_denied",
+                "Private work requires its approved private model connection. External helpers need a scoped handoff.",
+              ),
+            ),
+          ),
+        ),
+      );
 
   const resolveTargetRechecking = (input: Parameters<typeof resolveTarget>[0]) => {
     const instanceId =
@@ -2592,6 +2639,9 @@ const make = Effect.gen(function* () {
                   threadId,
                   projectId: parent.thread.projectId,
                   title,
+                  ...(parent.thread.privateModelRoute === undefined
+                    ? {}
+                    : { privateRouteSourceThreadId: parent.thread.id }),
                   modelSelection: target.modelSelection,
                   runtimeMode,
                   interactionMode,
@@ -2702,7 +2752,13 @@ const make = Effect.gen(function* () {
       const nowMs = yield* Clock.currentTimeMillis;
       const statuses = input.statuses === undefined ? null : new Set(input.statuses);
       const titleContains = input.titleContains?.toLocaleLowerCase();
-      const filtered = projectThreads
+      const readableThreads = yield* Effect.filter(projectThreads, (thread) =>
+        assertReadablePrivacy(scope, parent, thread).pipe(
+          Effect.as(true),
+          Effect.catch(() => Effect.succeed(false)),
+        ),
+      );
+      const filtered = readableThreads
         .filter(
           (thread) => statuses === null || statuses.has(thread.activityRunStatus ?? thread.status),
         )

@@ -44,6 +44,7 @@ import {
   OrchestrationGetTurnDiffResult,
 } from "./checkpointDiff.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { PrivateHelpersPolicy, PrivateModelRoute } from "./modelPrivacy.ts";
 import {
   ThreadLinkedPullRequest,
   ThreadPullRequestLink,
@@ -377,6 +378,9 @@ export const OrchestrationV2AppThread = Schema.Struct({
   title: TrimmedNonEmptyString,
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,
+  privateModelRoute: Schema.optional(PrivateModelRoute),
+  privateHelpers: Schema.optional(PrivateHelpersPolicy),
+  privateWorkspacePaths: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
@@ -1813,6 +1817,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   title: Schema.String,
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,
+  privateModelRoute: Schema.optional(PrivateModelRoute),
+  privateHelpers: Schema.optional(PrivateHelpersPolicy),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
@@ -2581,6 +2587,8 @@ export const OrchestrationV2Command = Schema.Union([
     projectId: ProjectId,
     title: TrimmedNonEmptyString,
     modelSelection: ModelSelection,
+    private: Schema.optional(Schema.Boolean),
+    privateRouteSourceThreadId: Schema.optional(ThreadId),
     runtimeMode: RuntimeMode,
     interactionMode: ProviderInteractionMode,
     branch: Schema.NullOr(TrimmedNonEmptyString),
@@ -2691,6 +2699,8 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.metadata.update"),
     commandId: CommandId,
     threadId: ThreadId,
+    modelPrivacy: Schema.optional(Schema.Literal("private")),
+    privateHelpers: Schema.optional(PrivateHelpersPolicy),
     title: Schema.optional(TrimmedNonEmptyString),
     regenerateTitle: Schema.optional(Schema.Boolean),
     branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),

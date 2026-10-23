@@ -571,6 +571,7 @@ interface ProviderInstanceCardProps {
   readonly onSelect?: (() => void) | undefined;
   readonly readOnly?: boolean | undefined;
   readonly canWriteSettings?: boolean;
+  readonly supportsTinfoilBilling?: boolean;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   readonly onDelete?: (() => void) | undefined;
   readonly headerAction?: ReactNode | undefined;
@@ -622,6 +623,7 @@ export function ProviderInstanceCard({
   onSelect,
   readOnly = false,
   canWriteSettings = true,
+  supportsTinfoilBilling = false,
   onUpdate,
   onDelete,
   headerAction,
@@ -803,6 +805,7 @@ export function ProviderInstanceCard({
   const titleIconNode = (
     <ProviderInstanceIcon
       driverKind={driverKind ?? instance.driver}
+      instanceId={instanceId}
       displayName={displayName}
       accentColor={accentColor}
       acpRegistryAgentId={
@@ -1088,14 +1091,42 @@ export function ProviderInstanceCard({
     </div>
   );
 
+  const consoleBilling =
+    instance.config !== null && typeof instance.config === "object"
+      ? (instance.config as Record<string, unknown>).consoleBilling
+      : undefined;
+  const billingConnected =
+    instance.driver === "claudeAgent" &&
+    typeof consoleBilling === "string" &&
+    consoleBilling.length > 0;
   const runtimeFields = driverOption ? (
-    <ProviderSettingsForm
-      definition={driverOption}
-      value={instance.config}
-      idPrefix={`provider-instance-${instanceId}`}
-      variant="settings"
-      onChange={updateConfig}
-    />
+    <>
+      <ProviderSettingsForm
+        definition={driverOption}
+        supportsTinfoilBilling={supportsTinfoilBilling}
+        value={instance.config}
+        idPrefix={`provider-instance-${instanceId}`}
+        variant="settings"
+        onChange={updateConfig}
+      />
+      {billingConnected ? (
+        <SettingsRow
+          title="Claude Console billing"
+          description="Balance refresh uses your saved browser sign-in."
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={readOnly || !canWriteSettings}
+            onClick={() =>
+              updateConfig({ ...(instance.config as Record<string, unknown>), consoleBilling: "" })
+            }
+          >
+            Disconnect billing
+          </Button>
+        </SettingsRow>
+      ) : null}
+    </>
   ) : (
     <SettingsRow
       title="Driver"

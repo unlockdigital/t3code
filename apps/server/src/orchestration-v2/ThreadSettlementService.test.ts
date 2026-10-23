@@ -552,6 +552,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     start: Effect.void,
     ready: Effect.void,
     getSettings: Ref.get(settings),
+    getRoutingSettings: Ref.get(settings),
     updateSettings,
     updateProviderInstance: () => Effect.die("Unexpected provider mutation"),
     withSettingsSnapshot: (use) => Ref.get(settings).pipe(Effect.flatMap(use)),

@@ -12,6 +12,67 @@ import {
 const checkedAt = "2026-07-18T10:00:00.000Z";
 
 describe("codexRateLimitsToLimits", () => {
+  it("keeps a primary weekly allowance separate from the remaining credit balance", () => {
+    const snapshot = {
+      limitId: "codex",
+      planType: "prolite",
+      primary: { usedPercent: 43, windowDurationMins: 10_080 },
+      secondary: null,
+      individualLimit: null,
+      credits: { hasCredits: true, unlimited: false, balance: "840.5000000000" },
+    };
+    const limits = codexRateLimitsToLimits({ checkedAt, snapshot });
+    expect(limits.windows).toEqual([
+      {
+        id: "primary",
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: 43,
+        windowDurationMins: 10_080,
+      },
+    ]);
+    expect(limits.creditBalance?.balance).toBe("840.5000000000");
+    expect(codexRateLimitsToUpdate(snapshot)).toEqual({
+      windows: limits.windows,
+      creditBalance: limits.creditBalance,
+    });
+  });
+
+  it("keeps an undisclosed Edu credit balance distinct from a monthly allowance", () => {
+    const limits = codexRateLimitsToLimits({
+      checkedAt,
+      snapshot: {
+        planType: "edu",
+        primary: { usedPercent: 24, windowDurationMins: 300 },
+        secondary: { usedPercent: 17, windowDurationMins: 10_080 },
+        individualLimit: null,
+        credits: { hasCredits: true, unlimited: false, balance: null },
+      },
+    });
+    expect(limits.creditBalance).toEqual({ hasCredits: true, unlimited: false });
+    expect(limits.windows.map((window) => window.kind)).toEqual(["session", "weekly"]);
+  });
+
+  it("reports usage credits separately from reset credits", () => {
+    const result = codexRateLimitsToLimits({
+      checkedAt,
+      snapshot: { credits: { hasCredits: true, unlimited: false, balance: "840.5000" } },
+      resetCredits: { availableCount: 1 },
+    });
+    expect(result.creditBalance).toEqual({
+      hasCredits: true,
+      unlimited: false,
+      balance: "840.5000",
+    });
+    expect(result.resetCredits?.availableCount).toBe(1);
+    expect(
+      codexRateLimitsToLimits({
+        checkedAt,
+        snapshot: { credits: { hasCredits: true, unlimited: false, balance: null } },
+      }).creditBalance,
+    ).toEqual({ hasCredits: true, unlimited: false });
+  });
+
   it("shows an Enterprise monthly credit allowance in reads and notifications without a duration", () => {
     const snapshot = {
       limitId: "codex",

@@ -22,6 +22,8 @@ export * from "./providerUsageLimits.ts";
 export * from "./usageLimitSourceId.ts";
 export * from "./providerPolicy.ts";
 export * from "./modelSelection.ts";
+export * from "./modelPrivacy.ts";
+export * from "./privateHelpers.ts";
 export * from "./chatAttachment.ts";
 export * from "./threadHandoff.ts";
 export * from "./checkpointDiff.ts";
@@ -68,3 +70,5 @@ export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
 export * from "./upstream.ts";
+
+export * from "./providerBilling.ts";

@@ -11,7 +11,11 @@ import { Button } from "../../components/ui/Button";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 export function ProviderSubagentBar(props: {
-  readonly provider: { readonly driver: string; readonly iconUrl?: string | undefined } | null;
+  readonly provider: {
+    readonly driver: string;
+    readonly instanceId?: string | undefined;
+    readonly iconUrl?: string | undefined;
+  } | null;
   readonly modelLabel: string;
   readonly effortLabel: string | null;
   readonly status: ProviderSubagentStatus | null;
@@ -36,6 +40,7 @@ export function ProviderSubagentBar(props: {
             <ProviderIcon
               iconUrl={props.provider.iconUrl}
               provider={props.provider.driver}
+              instanceId={props.provider.instanceId}
               size={16}
             />
           ) : null}

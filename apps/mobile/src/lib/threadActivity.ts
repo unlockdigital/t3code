@@ -865,7 +865,10 @@ function toFeedActivity(
     icon: workEntry.toolSurface ?? itemIcon(item),
     logo: toolPresentation?.logo ?? null,
     toolLike: itemIsToolLike(item),
-    prominent: itemIsProminent(item) || (item.type === "error" && item.status === "failed"),
+    prominent:
+      itemIsProminent(item) ||
+      (item.type === "error" &&
+        (item.status === "failed" || (item.status === "running" && item.retry !== undefined))),
     status:
       item.type === "error" && item.failure.class === "usage_limit"
         ? itemStatus(item)

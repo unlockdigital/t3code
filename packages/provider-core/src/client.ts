@@ -36,10 +36,21 @@ export interface ProviderClientDefinition {
   readonly driverKind: ProviderDriverKind;
   readonly label: string;
   readonly icon?: ProviderIcon;
+  readonly instanceIcons?: Readonly<Record<string, ProviderIcon>>;
   readonly settingsSchema: ProviderSettingsSchema;
   readonly environmentFields?: ReadonlyArray<ProviderEnvironmentField>;
   readonly hasDefaultInstance?: boolean;
   readonly badgeLabel?: string;
+}
+
+export function resolveProviderIcon(
+  client: ProviderClientDefinition | undefined,
+  instanceId: string | null | undefined,
+): ProviderIcon | undefined {
+  if (instanceId && client?.instanceIcons && Object.hasOwn(client.instanceIcons, instanceId)) {
+    return client.instanceIcons[instanceId];
+  }
+  return client?.icon;
 }
 
 export function defineProviderClient<const Definition extends ProviderClientDefinition>(

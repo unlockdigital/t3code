@@ -1,5 +1,6 @@
 import { ProviderDriverKind } from "@t3tools/contracts";
-import { OpenCodeSettings } from "../settings.ts";
+import { OpenCodeSettings, resolveOpenCodeUsageProvider } from "../settings.ts";
+import { privateInferenceEnvironment } from "./privateInference.ts";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -12,6 +13,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as OpenCode2TextGeneration from "./v2/textGeneration.ts";
+import * as OpenCodeScopedText from "./v2/scopedText.ts";
 import { makeOpenCodeTextGeneration } from "./textGeneration.ts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
@@ -21,7 +23,7 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { openCodeUsageReader, type OpenCodeUsageReaderEnv } from "./usage.ts";
-import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
+import { readOpenCodeUsageLimits } from "./usageLimits.ts";
 import { loadOpenCode2Catalog } from "./openCode2Catalog.ts";
 import {
   checkOpenCodeProviderStatus,
@@ -202,7 +204,16 @@ export const OpenCodeDriver: ProviderDriver<
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const crypto = yield* Crypto.Crypto;
     const host = yield* ProviderHost.ProviderHost;
-    const processEnv = yield* mergeProviderInstanceEnvironment(environment);
+    if (config.privateInference === "tinfoil" && config.serverUrl.trim().length > 0)
+      return yield* new ProviderDriverError({
+        driver: DRIVER_KIND,
+        instanceId,
+        detail: "Private inference requires a locally managed OpenCode server.",
+      });
+    const processEnv = privateInferenceEnvironment(
+      yield* mergeProviderInstanceEnvironment(environment),
+      config,
+    );
     const continuationIdentity = defaultProviderContinuationIdentity({
       driverKind: DRIVER_KIND,
       instanceId,
@@ -342,7 +353,11 @@ export const OpenCodeDriver: ProviderDriver<
         Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
       ),
     );
+    const scopedText = yield* OpenCodeScopedText.make.pipe(
+      Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
+    );
 
+    const usageProvider = resolveOpenCodeUsageProvider(effectiveConfig);
     const checkProvider = Effect.all(
       {
         provider: checkOpenCodeProviderStatus(
@@ -351,15 +366,23 @@ export const OpenCodeDriver: ProviderDriver<
           runtimeProbe.refresh,
           loadOpenCode2Models,
         ),
-        usageLimits: readOpenCodeGoUsageLimits({
+        usageLimits: readOpenCodeUsageLimits({
           enabled: effectiveConfig.enabled,
           serverUrl: effectiveConfig.serverUrl,
           environment: processEnv,
+          usageProvider,
+          tinfoilAdminKey: effectiveConfig.tinfoilAdminKey,
         }),
       },
       { concurrency: "unbounded" },
     ).pipe(
-      Effect.map(({ provider, usageLimits }) => ({ ...provider, usageLimits })),
+      Effect.map(({ provider, usageLimits }) => ({
+        ...provider,
+        usageLimits,
+        ...(usageProvider === "tinfoil"
+          ? { auth: { ...provider.auth, type: "apiKey", label: "Tinfoil API" } }
+          : {}),
+      })),
       Effect.map(stampIdentity),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, pathService),
@@ -526,6 +549,9 @@ export const OpenCodeDriver: ProviderDriver<
             }),
       orchestrationAdapter,
       textGeneration,
+      ...(effectiveConfig.privateInference === "off" && effectiveConfig.serverUrl.length === 0
+        ? { scopedText }
+        : {}),
     } satisfies ProviderInstance;
   }),
 };

@@ -180,6 +180,7 @@ export class ServerSettingsService extends Context.Service<
     readonly ready: Effect.Effect<void, ServerSettingsError>;
 
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
+    readonly getRoutingSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
     readonly updateSettings: (
       patch: ServerSettingsPatch,
@@ -241,6 +242,7 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     start: Effect.void,
     ready: Effect.void,
     getSettings,
+    getRoutingSettings: getSettings,
     updateSettings: (patch) =>
       updateTestSettings((currentSettings) =>
         Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
@@ -1155,6 +1157,20 @@ const make = Effect.gen(function* () {
   return {
     start,
     ready: Deferred.await(startedDeferred),
+    getRoutingSettings: Cache.get(settingsCache, cacheKey).pipe(
+      Effect.flatMap((loaded) =>
+        Option.isSome(loaded.parseFailure)
+          ? Effect.fail(
+              new ServerSettingsError({
+                settingsPath,
+                operation: "read-file",
+                cause: loaded.parseFailure.value,
+              }),
+            )
+          : Effect.succeed(loaded.settings),
+      ),
+      Effect.map(resolveTextGenerationProvider),
+    ),
     getSettings: getSettingsFromCache.pipe(
       Effect.flatMap(materializeSettingsSecrets),
       Effect.map(resolveTextGenerationProvider),

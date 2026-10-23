@@ -251,13 +251,35 @@ describe("Antigravity subscription limits", () => {
         },
       });
       const limits = yield* probe;
-      expect(limits.windows).toHaveLength(2);
-      expect(limits.windows.find((window) => window.id === "gemini-quota")?.usedPercent).toBe(40);
+      expect(limits.windows).toHaveLength(3);
+      expect(limits.windows.find((window) => window.id === "gemini-b-quota")?.usedPercent).toBe(40);
       expect(
         limits.windows.every(
           (window) => window.kind === "other" && window.windowDurationMins === undefined,
         ),
       ).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("includes exhausted Gemini model quotas alongside a healthy third-party summary", () =>
+    Effect.gen(function* () {
+      const { probe } = yield* fixture({
+        summary: { buckets: [{ bucketId: "3p-weekly", window: "weekly", remainingFraction: 1 }] },
+        models: {
+          models: {
+            "gemini-3.8-flash": { quotaInfo: { resetTime: "2026-10-30T04:39:03Z" } },
+            "gemini-unknown": { quotaInfo: {} },
+            "gemini-invalid": { quotaInfo: { resetTime: "invalid" } },
+            "claude-a": { quotaInfo: { remainingFraction: 1 } },
+          },
+        },
+      });
+      const limits = yield* probe;
+      expect(limits.windows).toHaveLength(2);
+      expect(limits.windows.find((window) => window.id === "gemini-3.8-flash-quota")).toMatchObject(
+        { usedPercent: 100, resetsAt: "2026-10-30T04:39:03.000Z" },
+      );
+      expect(limits.windows.find((window) => window.id === "3p-weekly")?.usedPercent).toBe(0);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 

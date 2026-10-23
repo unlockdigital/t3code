@@ -1,3 +1,15 @@
+import {
+  ProviderConnectTinfoilBillingInput,
+  ProviderConfigureClaudeBillingInput,
+  ProviderBillingError,
+} from "./providerBilling.ts";
+import {
+  PrivateHelperDecisionInput,
+  PrivateHelperError,
+  PrivateHelperPacket,
+  PrivateHelperState,
+  PrivateHelperStateInput,
+} from "./privateHelpers.ts";
 import { UpstreamRequest, UpstreamStatus, UpstreamError } from "./upstream.ts";
 import {
   CreateLocalThreadHandoffInput,
@@ -299,7 +311,6 @@ import {
   DeviceSession,
   DeviceShutdownInput,
 } from "./device.ts";
-import {} from "./previewAutomation.ts";
 import {
   ServerConfigStreamEvent,
   DesktopUpdateCommitInput,
@@ -385,6 +396,8 @@ import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
+  privacyGetHelperState: "privacy.getHelperState",
+  privacyDecideHelper: "privacy.decideHelper",
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
@@ -416,6 +429,8 @@ export const WS_METHODS = {
 
   providerUploadFeedback: "provider.uploadFeedback",
   providerAuthStart: "provider.auth.start",
+  providerConnectTinfoilBilling: "provider.connectTinfoilBilling",
+  providerConfigureClaudeBilling: "provider.configureClaudeBilling",
   providerConsumeResetCredit: "provider.consumeResetCredit",
   providerAuthComplete: "provider.auth.complete",
   chatGptReconnectProfile: "provider.chatgpt.reconnect-profile",
@@ -635,6 +650,29 @@ const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
 });
 
 const ProviderSetupRpcError = Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]);
+
+const WsProviderConnectTinfoilBillingRpc = Rpc.make(WS_METHODS.providerConnectTinfoilBilling, {
+  payload: ProviderConnectTinfoilBillingInput,
+  success: Schema.Struct({ configured: Schema.Boolean }),
+  error: Schema.Union([ProviderBillingError, EnvironmentAuthorizationError]),
+});
+
+const WsProviderConfigureClaudeBillingRpc = Rpc.make(WS_METHODS.providerConfigureClaudeBilling, {
+  payload: ProviderConfigureClaudeBillingInput,
+  success: Schema.Struct({ configured: Schema.Boolean }),
+  error: Schema.Union([ProviderBillingError, EnvironmentAuthorizationError]),
+});
+
+const WsPrivacyGetHelperStateRpc = Rpc.make(WS_METHODS.privacyGetHelperState, {
+  payload: PrivateHelperStateInput,
+  success: PrivateHelperState,
+  error: Schema.Union([PrivateHelperError, EnvironmentAuthorizationError]),
+});
+const WsPrivacyDecideHelperRpc = Rpc.make(WS_METHODS.privacyDecideHelper, {
+  payload: PrivateHelperDecisionInput,
+  success: PrivateHelperPacket,
+  error: Schema.Union([PrivateHelperError, EnvironmentAuthorizationError]),
+});
 
 const WsProviderConsumeResetCreditRpc = Rpc.make(WS_METHODS.providerConsumeResetCredit, {
   payload: ProviderConsumeResetCreditInput,
@@ -1911,6 +1949,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
+  WsProviderConnectTinfoilBillingRpc,
+  WsProviderConfigureClaudeBillingRpc,
+  WsPrivacyGetHelperStateRpc,
+  WsPrivacyDecideHelperRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

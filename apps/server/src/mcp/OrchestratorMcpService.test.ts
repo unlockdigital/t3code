@@ -2507,6 +2507,14 @@ describe("OrchestratorMcpService thread lookup", () => {
           Layer.mock(ThreadManagementService.ThreadManagementService)({
             getThreadShell: (threadId) =>
               Effect.succeed(shells.find((shell) => shell.id === threadId) ?? null),
+            getProjectThreadRecords: ({ threadId }) =>
+              Effect.succeed({
+                thread: shells.find((shell) => shell.id === threadId),
+                runs: [],
+                runtimeRequests: [],
+                contextTransfers: [],
+              } as unknown as OrchestrationV2ThreadProjection),
+            getTimelinePage: () => Effect.die("Private thread content reached the timeline read"),
             sendToThread: () => Ref.update(sent, (count) => count + 1).pipe(Effect.as({} as never)),
           }),
           ServerSettings.layerTest(),
@@ -2532,6 +2540,29 @@ describe("OrchestratorMcpService thread lookup", () => {
         return { read, send, sends: yield* Ref.get(sent) };
       }).pipe(Effect.provide(service(shells, sent)));
     });
+
+  it.effect(
+    "withholds private history from an external agent with no approved model destination",
+    () =>
+      Effect.gen(function* () {
+        const sent = yield* Ref.make(0);
+        const privateThread = {
+          ...liveThreadShell(bareId),
+          privateModelRoute: {
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("opencode-tinfoil"),
+              model: "tinfoil/kimi-k3",
+            },
+            providerConfigHash: "a".repeat(64),
+          },
+        };
+        yield* Effect.gen(function* () {
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const error = yield* Effect.flip(mcp.readThread(client, { threadId: bareId }));
+          assert.equal(error.code, "capability_denied");
+        }).pipe(Effect.provide(service([privateThread], sent)));
+      }),
+  );
 
   it.effect("points a bare uuid at the mcp: thread it belongs to", () =>
     Effect.gen(function* () {

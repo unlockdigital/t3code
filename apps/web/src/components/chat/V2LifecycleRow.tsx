@@ -257,12 +257,14 @@ export function SubagentElapsed({ agent }: { agent: Parameters<typeof AgentElaps
 
 function SubagentAvatar({
   driver,
+  instanceId,
   displayName,
   iconUrl,
   status,
   className,
 }: {
   driver?: ProviderDriverKind | undefined;
+  instanceId?: ProviderInstanceId | undefined;
   displayName?: string | undefined;
   iconUrl?: string | undefined;
   status?: OrchestrationV2TurnItem["status"] | undefined;
@@ -279,6 +281,7 @@ function SubagentAvatar({
       {driver ? (
         <ProviderInstanceIcon
           driverKind={driver}
+          instanceId={instanceId}
           displayName={displayName ?? driver}
           acpRegistryIconUrl={iconUrl}
           className="z-auto"
@@ -325,7 +328,14 @@ export function EnvironmentSubagentAvatar({
     (providers) =>
       providers?.find((provider) => provider.instanceId === providerInstanceId)?.iconUrl,
   );
-  return <SubagentAvatar {...props} displayName={displayName} iconUrl={iconUrl} />;
+  return (
+    <SubagentAvatar
+      {...props}
+      instanceId={providerInstanceId}
+      displayName={displayName}
+      iconUrl={iconUrl}
+    />
+  );
 }
 
 const NOTIFICATION_OUTCOME_STATUS: Record<
@@ -660,6 +670,7 @@ function HandoffEndpoint(props: {
           >
             <ProviderInstanceIcon
               driverKind={entry?.driverKind ?? ProviderDriverKind.make(props.instanceId)}
+              instanceId={props.instanceId}
               displayName={entry?.displayName ?? props.instanceId}
               accentColor={entry?.accentColor}
               acpRegistryAgentId={entry?.acpRegistryAgentId}

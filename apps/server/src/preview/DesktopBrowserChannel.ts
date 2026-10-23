@@ -10,10 +10,14 @@ import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import {
   DesktopBrowserCommand,
   DesktopBrowserEvent,
+  ClaudeConsoleBillingReadError,
+  type ClaudeConsoleBillingConnection,
+  type EnvironmentId,
   type DesktopBrowserCommand as DesktopBrowserCommandType,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -44,6 +48,10 @@ export class DesktopBrowserChannel extends Context.Service<
   DesktopBrowserChannel,
   {
     readonly available: boolean;
+    readonly readClaudeBilling: (input: {
+      readonly environmentId: EnvironmentId;
+      readonly connection: ClaudeConsoleBillingConnection;
+    }) => Effect.Effect<unknown, ClaudeConsoleBillingReadError>;
     /**
      * Subscribes before it checks, so an attach landing in between is never
      * missed.
@@ -65,6 +73,10 @@ const make = Effect.gen(function* () {
   const inputFd = config.desktopBrowserFd;
   const controlFd = config.desktopBrowserControlFd;
   const changes = yield* PubSub.unbounded<{ key: DesktopTabKey; attached: boolean }>();
+  const billingRequests = new Map<
+    string,
+    Deferred.Deferred<unknown, ClaudeConsoleBillingReadError>
+  >();
   const attachedTabs = new Set<string>();
   const inbound = new Map<string, Queue.Queue<string>>();
   const writeLock = yield* Semaphore.make(1);
@@ -72,6 +84,8 @@ const make = Effect.gen(function* () {
   if (inputFd === undefined || controlFd === undefined) {
     return DesktopBrowserChannel.of({
       available: false,
+      readClaudeBilling: () =>
+        Effect.fail(new ClaudeConsoleBillingReadError({ reason: "requestFailed" })),
       awaitAttached: () => Effect.succeed(false),
       detached: Stream.empty,
       attached: Stream.empty,
@@ -107,6 +121,13 @@ const make = Effect.gen(function* () {
     Stream.runForEach((decoded) => {
       if (Option.isNone(decoded)) return Effect.void;
       const event = decoded.value;
+      if (event.type === "claudeBilling") {
+        const pending = billingRequests.get(event.requestId);
+        if (!pending) return Effect.void;
+        return event.result._tag === "Success"
+          ? Deferred.succeed(pending, event.result.credits)
+          : Deferred.fail(pending, event.result.error);
+      }
       const key = { threadId: event.threadId, tabId: event.tabId };
       const id = keyOf(key);
       switch (event.type) {
@@ -191,6 +212,23 @@ const make = Effect.gen(function* () {
 
   return DesktopBrowserChannel.of({
     available: true,
+    readClaudeBilling: Effect.fn("DesktopBrowserChannel.readClaudeBilling")(function* (input) {
+      const requestId = NodeCrypto.randomUUID();
+      const pending = yield* Deferred.make<unknown, ClaudeConsoleBillingReadError>();
+      billingRequests.set(requestId, pending);
+      return yield* command({ type: "claudeBilling", requestId, ...input }).pipe(
+        Effect.andThen(Deferred.await(pending)),
+        Effect.timeoutOrElse({
+          duration: "20 seconds",
+          orElse: () => Effect.fail(new ClaudeConsoleBillingReadError({ reason: "requestFailed" })),
+        }),
+        Effect.ensuring(
+          Effect.sync(() => {
+            billingRequests.delete(requestId);
+          }),
+        ),
+      );
+    }),
     awaitAttached: (key, timeout) =>
       Effect.scoped(
         Effect.gen(function* () {

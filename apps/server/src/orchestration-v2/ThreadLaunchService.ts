@@ -346,6 +346,8 @@ const make = Effect.gen(function* () {
                 );
           return yield* textGeneration
             .generateBranchName({
+              projectId: input.projectId,
+              threadId,
               naming: {
                 mode: settings.branchNamingMode,
                 prefix: settings.branchNamePrefix,
@@ -914,6 +916,9 @@ const make = Effect.gen(function* () {
                 threadId: candidateThreadId,
                 projectId: input.projectId,
                 title: input.title,
+                ...(input.initialMessage?.senderThreadId === undefined
+                  ? {}
+                  : { privateRouteSourceThreadId: input.initialMessage.senderThreadId }),
                 modelSelection: input.modelSelection,
                 runtimeMode: input.runtimeMode,
                 interactionMode: input.interactionMode,

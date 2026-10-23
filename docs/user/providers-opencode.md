@@ -39,8 +39,10 @@ session.
 
 ## Approvals
 
-OpenCode follows the shared [permission modes](./permission-modes.md). **Auto** has
-the same rules as **Supervised** because OpenCode has no AI approval reviewer.
+OpenCode follows the shared [permission modes](./permission-modes.md). On OpenCode 2,
+**Auto** approves ordinary existing-file edits and a small set of literal read commands
+inside the workspace. Protected paths, unfamiliar shell syntax, and uncertain paths
+continue through approval. OpenCode 1.x uses the **Supervised** rules for Auto.
 Environment files such as `.env` and `.env.local` need approval in restricted
 modes even though normal file reads do not; `.env.example` is allowed.
 
@@ -64,3 +66,32 @@ restart before T3 Code can see configuration changes.
 
 Existing threads keep their selected model and options even when it disappears
 from the catalog. If OpenCode rejects that model, select an available one and retry.
+
+## Private model workflows
+
+Selecting Tinfoil changes the inference connection. Explicit private workflows add a
+routing lock for the conversation, child tasks, and background model requests. Auto
+continues to control action permissions independently.
+
+After the environment owner approves a verified Tinfoil connection, select a project
+in **Settings → General**, enable **Private workflow**, and start a fresh conversation.
+Existing conversations keep their earlier disclosure history. A private conversation
+keeps its routing lock when project defaults change; start a fresh Standard conversation
+to use another route. An unavailable or changed private connection pauses model work.
+
+Private conversations default to **Private + helpers**. Ask the private coordinator to
+prepare a self-contained coding task using synthetic fixtures and interfaces, then open
+**Private controls** in the composer and refresh the packet list. Inspect the exact
+outbound packet before approving it once. Initial helper support uses local OpenCode 2
+connections, including OpenCode Go. The external provider's data terms apply to everything
+in that packet. Review identities, business details, and proprietary logic yourself.
+
+Helpers receive the approved prompt through a stateless text call. Returned code stays
+an artifact for the private coordinator to inspect with its helper-status tool. Ask it
+to review the result before applying or executing anything. Reviews expire after
+15 minutes or a server restart. Choose **Private only** for tasks that should keep all
+model context inside the private connection, including sensitive financial or legal work.
+
+This feature enforces T3's model routes and helper handoffs. Workspace tools retain their
+selected execution and network permissions, and saved conversations use T3's existing
+local storage. Configure device encryption, backups, and local access for those records.

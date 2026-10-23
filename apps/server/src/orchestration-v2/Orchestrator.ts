@@ -146,6 +146,13 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import {
+  assertPrivateModelSelection,
+  ModelRoutingError,
+  projectRequiresPrivateModels,
+  requiredPrivateRoute,
+  isModelRoutingError,
+} from "../privacy/modelRoutingPolicy.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -277,7 +284,17 @@ function canReplayCommandReceipt(receiptThreadId: ThreadId, commandThreadId: Thr
   return receiptThreadId === commandThreadId;
 }
 
+export class OrchestratorPrivateRoutingError extends Schema.TaggedError<OrchestratorPrivateRoutingError>()(
+  "OrchestratorPrivateRoutingError",
+  { commandId: CommandId, reason: ModelRoutingError.fields.reason },
+) {
+  override get message(): string {
+    return new ModelRoutingError({ reason: this.reason }).message;
+  }
+}
+
 export const OrchestratorV2Error = Schema.Union([
+  OrchestratorPrivateRoutingError,
   OrchestratorDispatchError,
   OrchestratorThreadAlreadyExistsError,
   OrchestratorCommandRejectedError,
@@ -932,6 +949,174 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const runtimePolicy = yield* RuntimePolicyV2;
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+
+  const privateRouteForCreation = Effect.fn("Orchestrator.privateRouteForCreation")(
+    function* (command: Extract<OrchestrationV2Command, { type: "thread.create" }>) {
+      const settings = yield* serverSettings.getRoutingSettings;
+      const source =
+        command.privateRouteSourceThreadId === undefined
+          ? null
+          : yield* projectionStore.getThread(command.privateRouteSourceThreadId).pipe(
+              Effect.catchTags({
+                ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
+              }),
+            );
+      const inherited = source === null ? null : requiredPrivateRoute(settings, source);
+      if (inherited === undefined)
+        return yield* new ModelRoutingError({ reason: "fresh-thread-required" });
+      if (
+        command.private !== true &&
+        !projectRequiresPrivateModels(settings, command.projectId) &&
+        inherited === null
+      ) {
+        yield* assertPrivateModelSelection(
+          settings,
+          { projectId: command.projectId },
+          command.modelSelection,
+        );
+        return null;
+      }
+      const route = inherited ?? settings.privateModelRoute;
+      if (route === null) return yield* new ModelRoutingError({ reason: "setup-required" });
+      if (command.importedNativeThread !== undefined)
+        return yield* new ModelRoutingError({ reason: "fresh-thread-required" });
+      yield* assertPrivateModelSelection(
+        settings,
+        { projectId: command.projectId, privateModelRoute: route },
+        command.modelSelection,
+      );
+      return route;
+    },
+    (effect, command) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorPrivateRoutingError({
+              commandId: command.commandId,
+              reason: isModelRoutingError(cause) ? cause.reason : "context-unavailable",
+            }),
+        ),
+      ),
+  );
+
+  const assertCommandModelRouting = Effect.fn("Orchestrator.assertCommandModelRouting")(
+    function* (command: OrchestrationV2ServerCommand) {
+      if (command.type === "thread.create") {
+        yield* privateRouteForCreation(command);
+        return;
+      }
+      if (
+        command.type === "thread.metadata.update" &&
+        command.modelPrivacy === undefined &&
+        command.privateHelpers === undefined
+      )
+        return;
+      if (
+        ![
+          "message.dispatch",
+          "thread.metadata.update",
+          "thread.model-selection.set",
+          "provider.switch",
+          "delegated_task.request",
+          "thread.merge_back",
+          "thread.fork",
+        ].includes(command.type)
+      )
+        return;
+      const settings = yield* serverSettings.getRoutingSettings;
+      const threadId =
+        command.type === "delegated_task.request"
+          ? command.parentThreadId
+          : command.type === "thread.merge_back" || command.type === "thread.fork"
+            ? command.sourceThreadId
+            : "threadId" in command
+              ? command.threadId
+              : undefined;
+      if (threadId === undefined) return;
+      const thread = yield* projectionStore.getThread(threadId);
+      const selection =
+        command.type === "thread.metadata.update" && command.modelPrivacy === "private"
+          ? (settings.privateModelRoute?.modelSelection ?? thread.modelSelection)
+          : "modelSelection" in command && command.modelSelection !== undefined
+            ? command.modelSelection
+            : thread.modelSelection;
+      let privateDraft: OrchestrationV2AppThread | undefined;
+      if (
+        thread.privateModelRoute === undefined &&
+        (projectRequiresPrivateModels(settings, thread.projectId) ||
+          (command.type === "thread.metadata.update" && command.modelPrivacy === "private"))
+      ) {
+        if (
+          ![
+            "message.dispatch",
+            "thread.model-selection.set",
+            "provider.switch",
+            "thread.metadata.update",
+          ].includes(command.type) ||
+          thread.historyOrigin !== undefined ||
+          thread.forkedFrom !== null ||
+          (yield* projectionStore.getMessageCount(threadId)) > 0
+        )
+          return yield* new ModelRoutingError({ reason: "fresh-thread-required" });
+        const records = yield* projectionStore.getThreadRecords(threadId, [
+          "runs",
+          "providerThreads",
+        ]);
+        if (records.runs.length > 0 || records.providerThreads.length > 0)
+          return yield* new ModelRoutingError({ reason: "fresh-thread-required" });
+        const route = settings.privateModelRoute;
+        if (route === null) return yield* new ModelRoutingError({ reason: "setup-required" });
+        yield* assertPrivateModelSelection(
+          settings,
+          { ...thread, privateModelRoute: route },
+          selection,
+        );
+        const project = yield* projects.get(thread.projectId);
+        privateDraft = {
+          ...thread,
+          modelSelection: selection,
+          providerInstanceId: selection.instanceId,
+          privateModelRoute: route,
+          privateWorkspacePaths: [
+            ...(Option.isSome(project) ? [project.value.workspaceRoot] : []),
+            ...(thread.worktreePath === null ? [] : [thread.worktreePath]),
+          ],
+        };
+      }
+      if (
+        command.type === "thread.metadata.update" &&
+        command.privateHelpers !== undefined &&
+        (privateDraft ?? thread).privateModelRoute === undefined
+      )
+        return yield* new ModelRoutingError({ reason: "destination-blocked" });
+      yield* assertPrivateModelSelection(settings, privateDraft ?? thread, selection);
+      if (command.type === "message.dispatch" && command.senderThreadId !== undefined) {
+        const source = yield* projectionStore
+          .getThread(command.senderThreadId)
+          .pipe(
+            Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+          );
+        if (source !== null) yield* assertPrivateModelSelection(settings, source, selection);
+      }
+      if (command.type === "thread.merge_back" && requiredPrivateRoute(settings, thread) !== null) {
+        const target = yield* projectionStore.getThread(command.targetThreadId);
+        if (target.privateModelRoute === undefined)
+          return yield* new ModelRoutingError({ reason: "destination-blocked" });
+        yield* assertPrivateModelSelection(settings, thread, target.modelSelection);
+      }
+      return privateDraft;
+    },
+    (effect, command) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorPrivateRoutingError({
+              commandId: command.commandId,
+              reason: isModelRoutingError(cause) ? cause.reason : "context-unavailable",
+            }),
+        ),
+      ),
+  );
 
   const mapDispatchError =
     (command: OrchestrationV2ServerCommand) =>
@@ -2445,6 +2630,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const privateModelRoute = yield* privateRouteForCreation(command);
+    const privateSource =
+      privateModelRoute === null || command.privateRouteSourceThreadId === undefined
+        ? null
+        : yield* projectionStore.getThread(command.privateRouteSourceThreadId).pipe(
+            Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
+    const privateProject =
+      privateModelRoute === null
+        ? Option.none()
+        : yield* projects.get(command.projectId).pipe(mapDispatchError(command));
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
@@ -2453,6 +2652,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       title: command.title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
+      ...(privateModelRoute === null ? {} : { privateModelRoute }),
+      ...(privateSource?.privateHelpers === undefined
+        ? {}
+        : { privateHelpers: privateSource.privateHelpers }),
+      ...(privateModelRoute === null
+        ? {}
+        : {
+            privateWorkspacePaths: [
+              ...(Option.isNone(privateProject) ? [] : [privateProject.value.workspaceRoot]),
+              ...(command.worktreePath === null ? [] : [command.worktreePath]),
+            ],
+          }),
       runtimeMode: command.runtimeMode,
       interactionMode: command.interactionMode,
       branch: command.branch,
@@ -2649,16 +2860,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     >,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    routingThread?: OrchestrationV2AppThread,
   ) {
-    const thread = yield* projectionStore.getThread(command.threadId).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestratorProjectionError({
-            threadId: command.threadId,
-            cause,
-          }),
-      ),
-    );
+    const thread =
+      routingThread ??
+      (yield* projectionStore.getThread(command.threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorProjectionError({
+              threadId: command.threadId,
+              cause,
+            }),
+        ),
+      ));
     if (thread.deletedAt !== null) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
@@ -3050,7 +3264,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
     }
-    const updatedThread: OrchestrationV2AppThread = (() => {
+    let updatedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
         case "thread.archive":
           return {
@@ -3187,6 +3401,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   };
           return {
             ...thread,
+            ...(command.privateHelpers === undefined
+              ? {}
+              : { privateHelpers: command.privateHelpers }),
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
@@ -3475,6 +3692,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           };
       }
     })();
+    if (
+      command.type === "thread.metadata.update" &&
+      updatedThread.privateModelRoute !== undefined &&
+      updatedThread.worktreePath !== null
+    )
+      updatedThread = {
+        ...updatedThread,
+        privateWorkspacePaths: [
+          ...new Set([...(updatedThread.privateWorkspacePaths ?? []), updatedThread.worktreePath]),
+        ],
+      };
     if (
       command.type === "thread.pull-request-link.sync" ||
       command.type === "thread.pull-request-watch.sync"
@@ -11253,6 +11481,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           readonly reason: string;
         }
       | undefined;
+    const routingThread = yield* assertCommandModelRouting(command);
+    if (routingThread !== undefined)
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: routingThread.id,
+        providerInstanceId: routingThread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: routingThread,
+      });
     switch (command.type) {
       case "thread.create":
         yield* dispatchThreadCreate(command, events);
@@ -11344,7 +11584,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":
       case "provider.switch":
-        yield* dispatchThreadMutation(command, events, effects);
+        yield* dispatchThreadMutation(command, events, effects, routingThread);
         break;
       case "thread.pull-request-watch.sync":
         yield* dispatchPullRequestWatchSync(command, events, effects);

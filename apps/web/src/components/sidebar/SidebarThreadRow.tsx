@@ -190,6 +190,7 @@ function SidebarProviderStack(props: {
   const current = (
     <ProviderInstanceIcon
       driverKind={currentEntry.driverKind}
+      instanceId={currentEntry.instanceId}
       displayName={currentEntry.displayName}
       accentColor={currentEntry.accentColor}
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
@@ -210,6 +211,7 @@ function SidebarProviderStack(props: {
         return (
           <ProviderInstanceIcon
             key={instanceId}
+            instanceId={instanceId}
             driverKind={entry.driverKind}
             displayName={entry.displayName}
             acpRegistryAgentId={entry.acpRegistryAgentId}
@@ -305,6 +307,7 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-center gap-2">
             <ProviderInstanceIcon
               driverKind={driverKind}
+              instanceId={modelInstanceId}
               displayName={
                 providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
               }

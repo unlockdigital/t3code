@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -21,6 +22,9 @@ import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http
 import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
 import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as PrivateHelpers from "../privacy/PrivateHelpers.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
 import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
@@ -59,12 +63,169 @@ const client = McpSchema.McpServerClient.of({
   },
   getClient: Effect.die("unused"),
 });
+
+it.effect("helper MCP requires a live thread capability and exposes no approval tool", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    expect(server.tools.map(({ tool }) => tool.name).sort()).toEqual([
+      "private_helper_propose",
+      "private_helper_status",
+    ]);
+    const call = (scope: McpInvocationContext.McpInvocationScope) =>
+      server
+        .callTool({ name: "private_helper_status", arguments: {} })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    const allowed = { ...invocation, capabilities: new Set(["orchestration"] as const) };
+    expect((yield* call(allowed)).structuredContent).toEqual({ packets: [] });
+    for (const scope of [
+      { ...allowed, thread: undefined },
+      { ...allowed, capabilities: new Set<never>() },
+      {
+        ...allowed,
+        thread: {
+          ...allowed.thread,
+          providerInstanceId: ProviderInstanceId.make("unapproved-helper"),
+        },
+      },
+    ])
+      expect((yield* call(scope)).isError).toBe(true);
+  }).pipe(
+    Effect.provide(
+      McpHttpServer.layerPrivacyToolkit.pipe(
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+        Layer.provide(
+          Layer.mock(PrivateHelpers.PrivateHelpers)({
+            checkCoordinator: () => Effect.void,
+            state: () => Effect.succeed({ packets: [] }),
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("advertises the shared skill catalog and loads content through authenticated MCP", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const config = yield* ServerConfig.ServerConfig;
+    const skillRoot = `${config.stateDir}/sample`;
+    yield* fs.makeDirectory(skillRoot);
+    yield* fs.writeFileString(`${skillRoot}/SKILL.md`, "Review the source evidence.");
+    yield* fs.writeFileString(
+      `${config.stateDir}/skills.json`,
+      JSON.stringify({
+        skills: [
+          {
+            name: "evidence-review",
+            description: "Review source evidence.",
+            path: `${skillRoot}/SKILL.md`,
+          },
+        ],
+      }),
+    );
+    yield* Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const tool = server.tools.find(({ tool }) => tool.name === "t3_skill_read")?.tool;
+      expect(tool?.description).toContain("evidence-review: Review source evidence.");
+      expect(tool?.description).not.toContain(skillRoot);
+      const result = yield* server
+        .callTool({ name: "t3_skill_read", arguments: { name: "evidence-review" } })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        content: "Review the source evidence.",
+        unchanged: false,
+      });
+      const denied = yield* server
+        .callTool({ name: "t3_skill_read", arguments: { name: "evidence-review" } })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, {
+            ...invocation,
+            thread: undefined,
+          }),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(denied.isError).toBe(true);
+    }).pipe(
+      Effect.provide(
+        McpHttpServer.layerSkillToolkit.pipe(Layer.provideMerge(McpServer.McpServer.layer)),
+      ),
+    );
+  }).pipe(
+    Effect.provide(
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-skills-mcp-" }).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  ),
+);
 const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
   Layer.provideMerge(PreviewAutomationBroker.layer),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-http-server-test-" })),
   Layer.provideMerge(NodeServices.layer),
+);
+
+it.effect("workflow review tools persist a checkpoint and refuse read-only clients", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const scope = { ...invocation, capabilities: new Set(["orchestration"] as const) };
+    const digest = yield* server
+      .callTool({ name: "t3_workflow_digest", arguments: { reviewId: "weekly-skills" } })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(digest.isError).not.toBe(true);
+    const packet = digest.structuredContent as { batchId: string; evidence: unknown[] };
+    expect(packet.evidence).toEqual([]);
+    const saved = yield* server
+      .callTool({
+        name: "t3_workflow_review_save",
+        arguments: {
+          action: "complete",
+          reviewId: "weekly-skills",
+          batchId: packet.batchId,
+          report: "There is no new work in this sample.",
+          proposals: [],
+        },
+      })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(saved.structuredContent).toMatchObject({ saved: true });
+    const denied = yield* server
+      .callTool({ name: "t3_workflow_digest", arguments: { reviewId: "weekly-skills" } })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...scope,
+          thread: undefined,
+          client: { sessionId: "read-only", label: "Read only", access: "read-only" },
+        }),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(denied.isError).toBe(true);
+  }).pipe(
+    Effect.provide(
+      McpHttpServer.layerWorkflowReviewToolkit.pipe(
+        Layer.provide(ServerSettings.layerTest()),
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provideMerge(SqlitePersistence.layerMemory),
+        Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-workflow-mcp-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  ),
 );
 const layerPullRequestsTest = McpHttpServer.layerPullRequestsToolkit.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),

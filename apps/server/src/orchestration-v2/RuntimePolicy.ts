@@ -14,6 +14,13 @@ import * as Schema from "effect/Schema";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import {
+  assertPrivateModelSelection,
+  projectRequiresPrivateModels,
+} from "../privacy/modelRoutingPolicy.ts";
+import * as ModelRouting from "../privacy/ModelRouting.ts";
+import { ModelRoutingError } from "../privacy/modelRoutingPolicy.ts";
 
 export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyResolveError>()(
   "RuntimePolicyResolveError",
@@ -73,14 +80,35 @@ function providerRuntimeMode(
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
-  ProjectStore.ProjectStoreV2 | ProviderInstanceRegistry.ProviderInstanceRegistry
+  | ProjectStore.ProjectStoreV2
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
+  | ServerSettings.ServerSettingsService
+  | ModelRouting.ModelRouting
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
     const projects = yield* ProjectStore.ProjectStoreV2;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const settings = yield* ServerSettings.ServerSettingsService;
+    const routing = yield* ModelRouting.ModelRouting;
     return RuntimePolicyV2.of({
       resolve: Effect.fn("RuntimePolicyV2.resolve")(function* (input) {
+        yield* settings.getRoutingSettings.pipe(
+          Effect.flatMap((current) =>
+            input.thread.privateModelRoute === undefined &&
+            projectRequiresPrivateModels(current, input.thread.projectId)
+              ? Effect.fail(new ModelRoutingError({ reason: "fresh-thread-required" }))
+              : assertPrivateModelSelection(current, input.thread, input.modelSelection),
+          ),
+          Effect.mapError(
+            (cause) =>
+              new RuntimePolicyResolveError({
+                projectId: input.thread.projectId,
+                providerInstanceId: input.modelSelection.instanceId,
+                cause,
+              }),
+          ),
+        );
         const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
         const supportedRuntimeModes =
           instance === undefined
@@ -111,6 +139,31 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
+        yield* routing
+          .backgroundModel({
+            cwd,
+            thread: input.thread,
+            threadId: input.thread.id,
+            projectId: input.thread.projectId,
+            modelSelection: input.modelSelection,
+          })
+          .pipe(
+            Effect.flatMap((route) =>
+              route.private &&
+              (route.modelSelection.instanceId !== input.modelSelection.instanceId ||
+                !input.modelSelection.model.startsWith("tinfoil/"))
+                ? Effect.fail(new ModelRoutingError({ reason: "destination-blocked" }))
+                : Effect.void,
+            ),
+            Effect.mapError(
+              (cause) =>
+                new RuntimePolicyResolveError({
+                  projectId: input.thread.projectId,
+                  providerInstanceId: input.modelSelection.instanceId,
+                  cause,
+                }),
+            ),
+          );
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,

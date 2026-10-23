@@ -7,6 +7,7 @@ import {
   providerInstanceInitials,
 } from "@t3tools/client-runtime/state/provider-instance-display";
 import { useId, useState } from "react";
+import { resolveProviderIcon } from "@t3tools/provider-core/client";
 import { resolveOfficialAcpRegistryIconUrl } from "@t3tools/contracts";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { AppText as Text } from "./ui/AppText";
@@ -14,6 +15,7 @@ import { getProviderClient } from "../lib/providerClients";
 
 type ProviderIconProps = {
   readonly provider: string | null | undefined;
+  readonly instanceId?: string | null | undefined;
   readonly iconUrl?: string | null | undefined;
   readonly size?: number;
 };
@@ -98,7 +100,7 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  const packageIcon = getProviderClient(props.provider)?.icon;
+  const packageIcon = resolveProviderIcon(getProviderClient(props.provider), props.instanceId);
   if (packageIcon) {
     const themeFill = (fill: { readonly light: string; readonly dark: string }) =>
       isDarkMode ? fill.dark : fill.light;
@@ -154,6 +156,7 @@ export function ProviderIcon(props: ProviderIconProps) {
 export function ProviderInstanceIcon(props: {
   readonly iconUrl?: string | null;
   readonly provider: string | null | undefined;
+  readonly instanceId?: string | null | undefined;
   readonly size?: number;
   readonly displayName: string;
   readonly accentColor?: string;
@@ -164,7 +167,12 @@ export function ProviderInstanceIcon(props: {
   return (
     <View style={{ position: "relative" }}>
       <View style={{ opacity: 0.6 }}>
-        <ProviderIcon iconUrl={props.iconUrl} provider={props.provider} size={props.size} />
+        <ProviderIcon
+          iconUrl={props.iconUrl}
+          provider={props.provider}
+          instanceId={props.instanceId}
+          size={props.size}
+        />
       </View>
       {props.showBadge ? (
         // A wide right-aligned box lets the badge fit its initials. Alone, an

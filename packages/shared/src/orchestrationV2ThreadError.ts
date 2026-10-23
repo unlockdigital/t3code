@@ -116,3 +116,18 @@ export function latestUnheldRun(
   }
   return latest;
 }
+
+/** Each retry's updatedAt anchors its countdown; startedAt belongs to the whole outage. */
+export function providerRetryCountdown(
+  item: Pick<ErrorTurnItem, "status" | "updatedAt"> & { readonly retry?: ErrorTurnItem["retry"] },
+  nowMs: number,
+): string | null {
+  if (item.status !== "running" || item.retry === undefined) return null;
+  const delay = item.retry.retryDelayMs;
+  const remaining =
+    delay === null
+      ? 0
+      : Math.max(0, Math.min(delay, DateTime.toEpochMillis(item.updatedAt) + delay - nowMs));
+  const countdown = remaining > 0 ? `Retrying in ${Math.ceil(remaining / 1000)}s` : "Retrying now";
+  return `${countdown} · attempt ${item.retry.attempt}`;
+}

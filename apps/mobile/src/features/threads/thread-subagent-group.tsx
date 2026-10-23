@@ -56,7 +56,12 @@ function SubagentAvatar(props: {
       accessible={false}
       className="h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-card"
     >
-      <ProviderIcon provider={props.item.driver} iconUrl={props.iconUrl} size={15} />
+      <ProviderIcon
+        provider={props.item.driver}
+        instanceId={props.item.providerInstanceId}
+        iconUrl={props.iconUrl}
+        size={15}
+      />
     </View>
   );
 }

@@ -54,6 +54,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import { canAutoApprove } from "./autoApproval.ts";
 import * as OpenCode2Client from "./OpenCode2Client.ts";
 import * as OpenCode2Server from "./OpenCode2Server.ts";
 import * as OpenCodeRuntime from "../OpenCodeRuntime.ts";
@@ -221,6 +222,9 @@ interface ActiveTurn {
         readonly startedAt: DateTime.Utc;
       }
     | undefined;
+  capacityAttempts: number;
+  capacitySequence: number;
+  capacityWaiting: boolean;
   interrupted: boolean;
   unsent: boolean;
   readonly steers: Set<string>;
@@ -1151,6 +1155,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       compaction: undefined,
       compactions: 0,
       retry: undefined,
+      capacityAttempts: 0,
+      capacitySequence: 0,
+      capacityWaiting: false,
       interrupted: false,
       unsent: false,
       steers: new Set(),
@@ -1919,7 +1926,31 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     });
 
     const onPermissionAsked = Effect.fnUntraced(function* (data: Permission.Request) {
-      const turn = threads.get(data.sessionID)?.active;
+      const state = threads.get(data.sessionID);
+      const turn = state?.active;
+      const tool = data.source === undefined ? undefined : turn?.tools.get(data.source.id);
+      if (
+        state?.policy.runtimeMode === "auto" &&
+        turn !== undefined &&
+        !turn.interrupted &&
+        (yield* canAutoApprove(fileSystem, {
+          action: data.action,
+          resources: data.resources,
+          directory: state.directory,
+          command: tool?.input.command,
+          workdir: tool?.input.workdir,
+          plan: state.policy.interactionMode === "plan",
+        }))
+      ) {
+        const accepted = yield* deliver(
+          client.permission.reply({
+            sessionID: Session.ID.make(data.sessionID),
+            requestID: data.id,
+            decision: "once",
+          }),
+        );
+        if (accepted) return;
+      }
       const toolName =
         data.source === undefined ? undefined : turn?.tools.get(data.source.id)?.name;
       const save = data.save ?? [];
@@ -2068,6 +2099,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       ) {
         yield* emitRetry(state, turn, "completed");
         turn.retry = undefined;
+        turn.capacityAttempts = 0;
       }
       switch (event.type) {
         case "session.text.started":
@@ -2184,6 +2216,72 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           return yield* endExecution(state, turn, { status: "interrupted" });
         case "session.execution.failed": {
           const { type, message, status } = event.data.error;
+          const capacity =
+            /(?:model.{0,40}(?:at capacity|overloaded)|(?:at capacity|overloaded).{0,40}model)/i.test(
+              message,
+            ) &&
+            status !== 401 &&
+            status !== 403 &&
+            status !== 402 &&
+            type !== "provider.quota";
+          if (capacity && !turn.interrupted && state.subagent === undefined) {
+            if (turn.capacityWaiting) return;
+            turn.capacityWaiting = true;
+            const attempt = ++turn.capacityAttempts;
+            const sequence = ++turn.capacitySequence;
+            const delay = [5000, 5000, 10000, 10000, 30000, 30000][attempt - 1] ?? 60000;
+            yield* Effect.gen(function* () {
+              yield* Effect.sleep(delay);
+              yield* lock.withPermit(
+                Effect.gen(function* () {
+                  if (state.active !== turn || turn.interrupted || !turn.capacityWaiting) return;
+                  const current = yield* (
+                    host.canRetryTurn?.(turn.input.threadId, turn.input.modelSelection) ??
+                      Effect.succeed(false)
+                  );
+                  if (turn.interrupted || state.active !== turn) return;
+                  if (!current) {
+                    turn.capacityWaiting = false;
+                    return yield* finishTurn(state, { status: "interrupted" });
+                  }
+                  // The failed execution has ended. A synthetic continuation preserves
+                  // tool results and resumes the conversation without replaying its prompt.
+                  turn.capacityWaiting = false;
+                  const sent = yield* deliver(
+                    client.session
+                      .synthetic({
+                        sessionID: Session.ID.make(state.sessionId),
+                        text: "Continue from the last completed step after the temporary model capacity error.",
+                        resume: true,
+                        id: steerPromptId(
+                          state.sessionId,
+                          `${turn.providerTurn.id}:capacity:${sequence}`,
+                        ),
+                      })
+                      .pipe(Effect.asVoid),
+                  );
+                  turn.capacityWaiting = false;
+                  if (!sent) {
+                    markUnsettled(state);
+                    yield* finishTurn(state, {
+                      status: "failed",
+                      failure: makeProviderFailure({
+                        message: "Could not resume OpenCode after the model capacity error.",
+                        class: "transport_error",
+                      }),
+                    });
+                  }
+                }),
+              );
+            }).pipe(Effect.forkIn(sessionScope));
+            yield* updateRetry(
+              state,
+              turn,
+              { attempt: attempt + 1, error: event.data.error },
+              delay,
+            );
+            return;
+          }
           // OpenCode types an empty balance as provider.quota too, but it answers
           // that with HTTP 402 and it never resets. Usage windows and budgets are 429.
           const usageLimit =
@@ -2628,7 +2726,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       for (const childId of strays.keys()) if (!(childId in active)) strays.delete(childId);
       for (const [sessionId, state] of running) {
         const turn = state.active;
-        if (turn === undefined) continue;
+        if (turn === undefined || turn.capacityWaiting) continue;
         const ended = yield* backfill(sessionId, state);
         if (sessionId in active || state.active !== turn) continue;
         yield* finishTurn(
@@ -3825,6 +3923,20 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             return;
           }
           turn.interrupted = true;
+          if (turn.capacityAttempts > 0) {
+            // Serialize with admission of a synthetic continuation: once sent,
+            // Stop must interrupt the native execution as well as its timer.
+            const cancelled = yield* lock.withPermit(
+              Effect.gen(function* () {
+                if (state.active !== turn) return true;
+                if (!turn.capacityWaiting) return false;
+                turn.capacityWaiting = false;
+                yield* finishTurn(state, { status: "interrupted" });
+                return true;
+              }),
+            );
+            if (cancelled) return;
+          }
           const reply = yield* client.session
             .interrupt({ sessionID: Session.ID.make(sessionId) })
             .pipe(

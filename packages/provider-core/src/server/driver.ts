@@ -58,6 +58,11 @@ export interface ProviderInstance {
   >;
   readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly textGeneration: ProviderTextGeneration;
+  /** A stateless completion transport with no session, workspace, history or tool channel. */
+  readonly scopedText?: (input: {
+    readonly modelSelection: import("@t3tools/contracts").ModelSelection;
+    readonly prompt: string;
+  }) => Effect.Effect<{ readonly text: string }, import("@t3tools/contracts").PrivateHelperError>;
   readonly auth?: ProviderAuthController;
   readonly acpSessionManagement?: {
     readonly listSessions: (input: {

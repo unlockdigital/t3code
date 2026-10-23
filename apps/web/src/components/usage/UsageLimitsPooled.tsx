@@ -1,8 +1,7 @@
 import {
-  CHATGPT_USAGE_URL,
   ANTIGRAVITY_USAGE_SCOPE,
   collectLimitAccounts,
-  collectExternalUsageLinks,
+  collectUsageAccounts,
   collectLimitNotices,
   collectLimitPools,
   usageWindowDetails,
@@ -16,10 +15,9 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
+import { AlertTriangleIcon, TicketIcon } from "lucide-react";
 import {
   createContext,
-  Fragment,
   type ReactNode,
   type RefObject,
   use,
@@ -28,7 +26,6 @@ import {
   useState,
 } from "react";
 
-import { ensureLocalApi } from "../../localApi";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
@@ -36,7 +33,7 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { providerClients } from "../settings/providerDriverMeta";
 import { RedactedSensitiveText } from "../settings/RedactedSensitiveText";
 import { Button } from "../ui/button";
-import { OpenAI } from "../Icons";
+import { UsageAccounts } from "./UsageAccounts";
 import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
@@ -606,36 +603,52 @@ export function UsageLimitsPooled({
   presentations,
   now,
   cursorPrompt,
+  density,
+  onDensityChange,
+  historyEnvironments,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
+  readonly density: "compact" | "comfortable";
+  readonly onDensityChange: (density: "compact" | "comfortable") => void;
+  readonly historyEnvironments: readonly import("@t3tools/shared/usageLimits").UsageAccountHistoryEnvironment[];
 }) {
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
-  const externalLinks = collectExternalUsageLinks(presentations);
-  const cursorPromptAt =
-    Math.max(
-      pools.findIndex((pool) => pool.driver === "codex"),
-      pools.findIndex((pool) => pool.driver === "claudeAgent"),
-    ) + 1;
+  const accounts = collectUsageAccounts(presentations);
   return (
-    <div className="flex flex-col gap-8">
-      {pools.length === 0 && notices.length === 0 && !cursorPrompt && externalLinks.length === 0 ? (
+    <div className="flex flex-col gap-4">
+      <UsageAccounts
+        accounts={accounts}
+        now={now}
+        density={density}
+        onDensityChange={onDensityChange}
+        historyEnvironments={historyEnvironments}
+      />
+      {accounts.length === 0 && notices.length === 0 && !cursorPrompt ? (
         <p className="text-sm text-muted-foreground">
-          No provider on the selected environments reports subscription limits.
+          Add a provider account in Settings to see its usage here.
         </p>
       ) : null}
-      <SegmentPopoverContext value={segmentPopover}>
-        {pools.map((pool, index) => (
-          <Fragment key={pool.driver}>
-            {index === cursorPromptAt ? cursorPrompt : null}
-            <PoolSection pool={pool} now={now} />
-          </Fragment>
-        ))}
-      </SegmentPopoverContext>
+      {cursorPrompt}
+      {pools.length > 0 ? (
+        <details className="rounded-lg border border-border/60">
+          <summary className="cursor-pointer rounded-lg px-3 py-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+            Pooled quota details{" "}
+            <span className="font-normal text-muted-foreground">· {pools.length} providers</span>
+          </summary>
+          <div className="space-y-5 border-t border-border/60 p-3">
+            <SegmentPopoverContext value={segmentPopover}>
+              {pools.map((pool) => (
+                <PoolSection key={pool.driver} pool={pool} now={now} />
+              ))}
+            </SegmentPopoverContext>
+          </div>
+        </details>
+      ) : null}
       <Popover handle={segmentPopover} actionsRef={segmentPopoverActions}>
         {({ payload }) =>
           payload ? (
@@ -649,37 +662,6 @@ export function UsageLimitsPooled({
           ) : null
         }
       </Popover>
-      {cursorPromptAt === pools.length ? cursorPrompt : null}
-      {externalLinks.map((link) => (
-        <section
-          key={link.url}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {link.url === CHATGPT_USAGE_URL ? (
-              <OpenAI className="size-5 shrink-0" aria-hidden="true" />
-            ) : null}
-            <div className="min-w-0 space-y-1">
-              <h2 className="text-sm font-medium">{link.label}</h2>
-              {link.url === CHATGPT_USAGE_URL ? (
-                <p className="text-xs text-muted-foreground">
-                  View usage in ChatGPT with your connected account.
-                </p>
-              ) : link.message ? (
-                <p className="max-w-xl text-xs text-muted-foreground">{link.message}</p>
-              ) : null}
-            </div>
-          </div>
-          <Button
-            variant="ghost-muted"
-            size="xs"
-            onClick={() => void ensureLocalApi().shell.openExternal(link.url)}
-          >
-            Manage usage
-            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-          </Button>
-        </section>
-      ))}
       <LimitNotices notices={notices} />
     </div>
   );

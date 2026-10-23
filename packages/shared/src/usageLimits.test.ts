@@ -4,8 +4,10 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   UsageLimitSourceId,
+  UsageSummary,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import * as Schema from "effect/Schema";
 
 import {
   type LimitAccount,
@@ -13,6 +15,10 @@ import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
   collectLimitAccounts,
+  collectUsageAccounts,
+  usageAccountHistory,
+  usageAccountWindows,
+  prepaidCreditPercent,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
@@ -23,6 +29,131 @@ import {
 } from "./usageLimits.ts";
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
+const decodeUsageSummary = Schema.decodeSync(UsageSummary);
+
+it("attributes recorded profile usage only through exact unshared source bindings", () => {
+  const environmentId = EnvironmentId.make("env");
+  const instanceId = ProviderInstanceId.make("api");
+  const [account] = collectUsageAccounts(
+    new Map([
+      [
+        environmentId,
+        {
+          entry: { target: { label: "Local" } },
+          serverConfig: {
+            providers: [
+              provider({
+                instanceId,
+                driver: ProviderDriverKind.make("claudeAgent"),
+                auth: { status: "authenticated", type: "apiKey" },
+              }),
+            ],
+          },
+        },
+      ],
+    ]),
+  );
+  const summary = decodeUsageSummary({
+    contractVersion: 6,
+    readAt: "2026-09-03T12:00:00Z",
+    timeZone: "UTC",
+    sinceDay: "2026-09-01",
+    untilDay: "2026-09-03",
+    scanDurationMs: 0,
+    pricing: { status: "unavailable", source: "unavailable", fetchedAt: null, knownModels: 0 },
+    sources: [
+      {
+        fingerprint: {
+          hostId: "host",
+          provider: "claude",
+          resolvedHomePath: "/private/profile",
+          volumeId: "v",
+        },
+        providerInstanceIds: [instanceId],
+        status: "ok",
+        scannedFiles: 1,
+        skippedFiles: 0,
+        malformedRecords: 0,
+        distinctSessions: 1,
+        message: null,
+      },
+    ],
+    buckets: [
+      {
+        day: "2026-09-03",
+        provider: "claude",
+        model: "claude",
+        sourcePath: "/private/profile",
+        totals: {
+          uncachedInputTokens: 10,
+          cachedInputTokens: 20,
+          cacheCreationTokens: 0,
+          outputTokens: 5,
+          reasoningTokens: 3,
+        },
+        costUsd: 1.25,
+        cacheSavingsUsd: 0,
+        costSource: "modelPriced",
+        records: 1,
+        unpricedRecords: 0,
+        sessions: 1,
+      },
+    ],
+  });
+  const environments = [{ environmentId, summary, isPending: false }];
+  expect(usageAccountHistory(account!, environments)).toMatchObject({
+    state: "ready",
+    tokens: 35,
+    costUsd: 1.25,
+  });
+  expect(JSON.stringify(usageAccountHistory(account!, environments))).not.toContain(
+    "/private/profile",
+  );
+  const shared = {
+    ...summary,
+    sources: summary.sources.map((source) => ({
+      ...source,
+      providerInstanceIds: [instanceId, ProviderInstanceId.make("other")],
+    })),
+  };
+  expect(
+    usageAccountHistory(account!, [{ environmentId, summary: shared, isPending: false }]),
+  ).toEqual({ state: "shared" });
+  expect(
+    usageAccountHistory(account!, [
+      { environmentId: EnvironmentId.make("other"), summary, isPending: false },
+    ]),
+  ).toEqual({ state: "unavailable" });
+  expect(
+    usageAccountHistory(account!, [
+      {
+        environmentId,
+        summary: {
+          ...summary,
+          sources: summary.sources.map((source) => ({ ...source, providerInstanceIds: [] })),
+        },
+        isPending: false,
+      },
+    ]),
+  ).toEqual({ state: "unassigned" });
+  expect(
+    usageAccountHistory(account!, [
+      {
+        environmentId,
+        isPending: false,
+        summary: {
+          ...summary,
+          sources: summary.sources.map((source) => ({ ...source, status: "failed" as const })),
+        },
+      },
+    ]),
+  ).toEqual({ state: "unavailable" });
+  expect(
+    usageAccountHistory(account!, [
+      { environmentId, isPending: false, summary: { ...summary, buckets: [] } },
+    ]),
+  ).toMatchObject({ state: "ready", records: 0, tokens: 0 });
+});
 
 const window = {
   id: "five_hour",
@@ -1238,6 +1369,189 @@ describe("sameUsageLimitCommandCoverage", () => {
   });
 });
 
+describe("usage account coverage", () => {
+  const api = provider({
+    instanceId: ProviderInstanceId.make("anthropic-api"),
+    driver: ProviderDriverKind.make("claudeAgent"),
+    displayName: "Unlock Digital API",
+    auth: { status: "authenticated", type: "apiKey" },
+    usageLimits: {
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      windows: [],
+      unavailable: { reason: "unsupported" },
+      externalUsage: {
+        label: "Anthropic API billing",
+        url: "https://platform.claude.com/settings/billing",
+      },
+    },
+  });
+  const presentations = (providers: readonly ServerProvider[]) =>
+    new Map([
+      [
+        EnvironmentId.make("local"),
+        {
+          entry: { target: { label: "Laptop" } },
+          serverConfig: { providers },
+        },
+      ],
+    ]);
+
+  it("keeps an API account separate from an Enterprise spending window", () => {
+    const accounts = collectUsageAccounts(
+      presentations([
+        api,
+        provider({
+          instanceId: ProviderInstanceId.make("enterprise"),
+          driver: api.driver,
+          displayName: "UT EDU",
+          usageLimits: {
+            checkedAt: "2026-09-03T11:00:00.000Z",
+            windows: [{ ...window, id: "monthly_spend", kind: "monthly", usedPercent: 100 }],
+          },
+        }),
+      ]),
+    );
+    expect(accounts.map(({ label, category }) => ({ label, category }))).toEqual([
+      { label: "Unlock Digital API", category: "API key" },
+      { label: "UT EDU", category: "Subscription" },
+    ]);
+    expect(accounts[0]?.limits?.externalUsage?.label).toBe("Anthropic API billing");
+    expect(accounts[0]?.limits?.windows).toEqual([]);
+    expect(accounts[1]?.limits?.windows[0]?.usedPercent).toBe(100);
+  });
+
+  it("automatically follows account additions, renames, and removals even with one billing URL", () => {
+    const second = {
+      ...api,
+      instanceId: ProviderInstanceId.make("tinfoil-api"),
+      driver: ProviderDriverKind.make("tinfoil"),
+      displayName: "Tinfoil",
+    };
+    const initial = collectUsageAccounts(presentations([api]));
+    const added = collectUsageAccounts(presentations([api, second]));
+    expect(added).toHaveLength(2);
+    expect(added[0]?.key).toBe(initial[0]?.key);
+    expect(added[1]?.key).not.toBe(initial[0]?.key);
+    const renamed = collectUsageAccounts(presentations([{ ...api, displayName: "Renamed API" }]));
+    expect(renamed[0]?.key).toBe(initial[0]?.key);
+    expect(renamed[0]?.label).toBe("Renamed API");
+    expect(collectUsageAccounts(presentations([second]))).toHaveLength(1);
+    expect(collectUsageAccounts(presentations([]))).toEqual([]);
+  });
+
+  it("keeps session availability aligned with an exhausted weekly allowance", () => {
+    const accounts = collectUsageAccounts(
+      presentations([
+        provider({
+          usageLimits: {
+            checkedAt: "2026-09-03T11:00:00.000Z",
+            windows: [
+              window,
+              {
+                id: "weekly",
+                kind: "weekly",
+                label: "Weekly",
+                usedPercent: 100,
+                resetsAt: "2026-09-06T12:00:00.000Z",
+              },
+            ],
+          },
+        }),
+        api,
+      ]),
+    );
+    const windows = usageAccountWindows(accounts[0]!, now);
+    expect(windows[0]?.usedPercent).toBe(100);
+    expect(windows[0]?.resetsAt).toBe("2026-09-06T12:00:00.000Z");
+    expect(usageAccountWindows(accounts[1]!, now)).toEqual([]);
+  });
+
+  it("covers new drivers, setup states and failed probes while excluding disabled connections", () => {
+    const accounts = collectUsageAccounts(
+      presentations([
+        provider({
+          instanceId: ProviderInstanceId.make("custom"),
+          driver: ProviderDriverKind.make("custom-driver"),
+          displayName: "Custom",
+          installed: false,
+        }),
+        provider({
+          instanceId: ProviderInstanceId.make("failed"),
+          displayName: "Failed",
+          usageLimits: {
+            checkedAt: "2026-09-03T11:00:00.000Z",
+            windows: [],
+            unavailable: { reason: "probeFailed" },
+          },
+        }),
+        { ...api, auth: { status: "unknown" as const, type: "apiKey" } },
+        provider({ enabled: false }),
+      ]),
+    );
+    expect(accounts).toHaveLength(3);
+    expect(accounts[0]?.status).toBe("Setup required");
+    expect(accounts[1]?.limits?.unavailable?.reason).toBe("probeFailed");
+    expect(accounts[2]?.category).toBe("API key");
+  });
+
+  it("keeps environment identity and projects only safe display metadata", () => {
+    const p = {
+      ...api,
+      auth: { ...api.auth, email: "private@example.com" },
+      usageLimits: { ...api.usageLimits!, credentialFingerprint: "private-fingerprint" },
+    };
+    const input = presentations([p]);
+    input.set(EnvironmentId.make("remote"), {
+      entry: { target: { label: "Remote" } },
+      serverConfig: { providers: [p] },
+    });
+    const all = collectUsageAccounts(input);
+    expect(all).toHaveLength(2);
+    expect(all[0]?.key).not.toBe(all[1]?.key);
+    const selected = collectUsageAccounts(
+      new Map([[EnvironmentId.make("remote"), input.get(EnvironmentId.make("remote"))!]]),
+    );
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.environmentLabel).toBe("Remote");
+    expect(JSON.stringify(all)).not.toContain("private@example.com");
+    expect(JSON.stringify(all)).not.toContain("private-fingerprint");
+  });
+
+  it("includes hub accounts with unavailable quotas without displaying credential filenames", () => {
+    const input = new Map([
+      [
+        EnvironmentId.make("local"),
+        {
+          entry: { target: { label: "Laptop" } },
+          serverConfig: {
+            providers: [],
+            usageLimitSources: [
+              {
+                id: UsageLimitSourceId.make("hub"),
+                kind: "cliproxy" as const,
+                label: "Team hub",
+                checkedAt: "2026-09-03T11:00:00.000Z",
+                accounts: [
+                  {
+                    id: "private-credential.json",
+                    driver: api.driver,
+                    usageLimits: api.usageLimits!,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    ]);
+    const accounts = collectUsageAccounts(input);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]?.label).toBe("Team hub · Account 1");
+    expect(accounts[0]?.limits?.externalUsage?.label).toBe("Anthropic API billing");
+    expect(accounts[0]?.label).not.toContain("private-credential");
+  });
+});
+
 describe("external usage settings", () => {
   it("deduplicates destinations across accounts and environments without inventing quota pools", () => {
     const managed = provider({
@@ -1288,5 +1602,16 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("live prepaid credits", () => {
+  it("shows unknown funding separately from exhausted, funded, and overdrawn balances", () => {
+    expect(prepaidCreditPercent({ remainingUsd: 67.2, totalGrantedUsd: 96 })).toBeCloseTo(70, 4);
+    expect(prepaidCreditPercent({ remainingUsd: 0, totalGrantedUsd: 96 })).toBe(0);
+    expect(prepaidCreditPercent({ remainingUsd: -4.8, totalGrantedUsd: 96 })).toBe(0);
+    expect(prepaidCreditPercent({ remainingUsd: 96, totalGrantedUsd: 96 })).toBe(100);
+    expect(prepaidCreditPercent({ remainingUsd: 67.2 })).toBeNull();
+    expect(prepaidCreditPercent(undefined)).toBeNull();
   });
 });

@@ -13,7 +13,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { beforeEach } from "vite-plus/test";
 
-import { OpenCodeSettings } from "../settings.ts";
+import { OpenCodeSettings, resolveOpenCodeUsageProvider } from "../settings.ts";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
 import {
@@ -22,7 +22,7 @@ import {
   type OpenCode2Model,
   type OpenCode2Workspace,
 } from "./status.ts";
-import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
+import { readOpenCodeUsageLimits } from "./usageLimits.ts";
 import { probeOpenCodeRuntime } from "./versionProbe.ts";
 import {
   OPENCODE_1_RESPONSES,
@@ -33,10 +33,170 @@ const decodeOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
 
 const DEFAULT_VERSION_STDOUT = "opencode 1.14.19\n";
 
+it.effect("reports a Tinfoil-only connection as API usage without reading Go credentials", () =>
+  Effect.gen(function* () {
+    const settings = decodeOpenCodeSettings({
+      customModels: [{ slug: "tinfoil/kimi-k3", name: "Private coding" }],
+    });
+    NodeAssert.equal(resolveOpenCodeUsageProvider(settings), "tinfoil");
+    NodeAssert.equal(
+      resolveOpenCodeUsageProvider({ customModels: ["tinfoil/kimi-k3"] }),
+      "tinfoil",
+    );
+    NodeAssert.equal(resolveOpenCodeUsageProvider({ customModels: [] }), "opencode-go");
+    NodeAssert.equal(
+      resolveOpenCodeUsageProvider({
+        customModels: [...settings.customModels, { slug: "opencode/other-model", name: "Other" }],
+      }),
+      "opencode-go",
+    );
+    const limits = yield* readOpenCodeUsageLimits({
+      enabled: true,
+      serverUrl: "",
+      environment: { OPENCODE_API_KEY: "unrelated-go-key" },
+      usageProvider: resolveOpenCodeUsageProvider(settings),
+    }).pipe(
+      Effect.provideService(
+        FileSystem.FileSystem,
+        FileSystem.makeNoop({
+          readFileString: () => Effect.die("Tinfoil must not read Go credentials"),
+        }),
+      ),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("Tinfoil local usage must not send a credential to Go")),
+      ),
+      Effect.provide(NodeServices.layer),
+    );
+    NodeAssert.deepEqual(limits.windows, []);
+    NodeAssert.equal(limits.unavailable?.reason, "unsupported");
+    NodeAssert.match(limits.unavailable?.message ?? "", /admin key/);
+    NodeAssert.deepEqual(limits.externalUsage, {
+      label: "Tinfoil billing",
+      url: "https://dash.tinfoil.sh/?tab=billing",
+    });
+  }),
+);
+
+it.effect(
+  "reads live Tinfoil credits and settled funding without using inference credentials",
+  () =>
+    Effect.gen(function* () {
+      const requests: string[] = [];
+      const limits = yield* readOpenCodeUsageLimits({
+        enabled: true,
+        serverUrl: "",
+        environment: {},
+        usageProvider: "tinfoil",
+        tinfoilAdminKey: "admin_synthetic_billing_key",
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            requests.push(request.url);
+            NodeAssert.equal(request.method, "GET");
+            NodeAssert.equal(request.headers.authorization, "Bearer admin_synthetic_billing_key");
+            const body = request.url.endsWith("/credits/history")
+              ? {
+                  history: [
+                    { id: "sample-purchase", amount_dollars: 80, status: "paid" },
+                    { id: "sample-promo", amount_dollars: 16, status: "granted" },
+                    { id: "sample-pending", amount_dollars: 140, status: "pending" },
+                    { id: "sample-failed", amount_dollars: 55, status: "failed" },
+                  ],
+                }
+              : request.url.endsWith("/credits")
+                ? { balance_dollars: 67.2 }
+                : { context_type: "personal", user_id: "synthetic-owner", organization: null };
+            return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
+          }),
+        ),
+        Effect.provide(NodeServices.layer),
+      );
+      NodeAssert.deepEqual(limits.prepaidBalance, { remainingUsd: 67.2, totalGrantedUsd: 96 });
+      NodeAssert.equal(limits.unavailable, undefined);
+      NodeAssert.equal(requests.length, 3);
+      NodeAssert.ok(requests.every((url) => url.startsWith("https://api.tinfoil.sh/api/")));
+      NodeAssert.ok(limits.credentialFingerprint);
+      NodeAssert.ok(!JSON.stringify(limits).includes("admin_synthetic_billing_key"));
+      NodeAssert.ok(!JSON.stringify(limits).includes("synthetic-owner"));
+    }),
+);
+
+it.effect("keeps a live balance when funding history is incomplete or unavailable", () =>
+  Effect.gen(function* () {
+    for (const history of [
+      { history: [], has_more: true },
+      { history: [{ id: "sample-partial", amount_dollars: 40, status: "paid" }] },
+    ]) {
+      const limits = yield* readOpenCodeUsageLimits({
+        enabled: true,
+        serverUrl: "",
+        environment: {},
+        usageProvider: "tinfoil",
+        tinfoilAdminKey: "admin_synthetic_billing_key",
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json(
+                  request.url.endsWith("/credits/history")
+                    ? history
+                    : request.url.endsWith("/credits")
+                      ? { balance_dollars: 67.2 }
+                      : { context_type: "personal", user_id: "synthetic", organization: null },
+                ),
+              ),
+            ),
+          ),
+        ),
+        Effect.provide(NodeServices.layer),
+      );
+      NodeAssert.deepEqual(limits.prepaidBalance, { remainingUsd: 67.2 });
+    }
+  }),
+);
+
+it.effect("keeps failed Tinfoil billing reads distinct from an exhausted balance", () =>
+  Effect.gen(function* () {
+    for (const status of [401, 403, 429, 500, 302]) {
+      const limits = yield* readOpenCodeUsageLimits({
+        enabled: true,
+        serverUrl: "",
+        environment: {},
+        usageProvider: "tinfoil",
+        tinfoilAdminKey: "admin_synthetic_billing_key",
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json(
+                  { error: "private provider message" },
+                  { status, headers: { Location: "https://untrusted.invalid/" } },
+                ),
+              ),
+            ),
+          ),
+        ),
+        Effect.provide(NodeServices.layer),
+      );
+      NodeAssert.equal(limits.prepaidBalance, undefined);
+      NodeAssert.equal(limits.unavailable?.reason, "probeFailed");
+      NodeAssert.ok(!JSON.stringify(limits).includes("private provider message"));
+    }
+  }),
+);
+
 it.effect("reads Go limits with the instance's XDG credentials and preserves reset times", () =>
   Effect.gen(function* () {
     const resetsAt = "2026-09-17T12:00:00.000Z";
-    const limits = yield* readOpenCodeGoUsageLimits({
+    const limits = yield* readOpenCodeUsageLimits({
       enabled: true,
       serverUrl: "",
       environment: { XDG_DATA_HOME: "/instance/data", OPENCODE_API_KEY: "env-key" },
@@ -94,7 +254,7 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
 );
 
 it.effect(
-  "uses the selected public Console key for Go limits, falling back only on auth rejection",
+  "uses the selected public Console credential for Go limits, falling back only on auth rejection",
   () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -114,10 +274,23 @@ it.effect(
       const insert = database.prepare("INSERT INTO credential VALUES (?, ?, ?, ?, ?, ?)");
       const window = { percent: 1, resetsAt: "2026-09-17T12:00:00.000Z" };
       const consoleKey = { type: "key", key: "console-key" };
+      // OpenCode 2's Console browser sign-in stores a device OAuth grant.
+      const consoleOAuth = {
+        type: "oauth",
+        methodID: "device",
+        access: "oauth-token",
+        refresh: "refresh",
+        expires: 0,
+        metadata: { server: "https://opencode.ai/console", accountID: "user_test" },
+      };
       const fingerprints = new Map([
         ["console-key", "3e45cfde9158185930d4cc7020a4e390895574fd54bd8f9631d23a336bbf94f0"],
         ["go-key", "d0e590e93fc9bd9353f2b993c0c287391cae505da2a78cb698b75418d2f5367e"],
         ["inline-key", "85649de18e63305548b6407e185f708483727ee6189cc4bc9512ddb17e23e776"],
+        // The OAuth fingerprint tracks the stable account id across token rotation.
+        ["oauth-token", "6fa4371cfb9db0464a57023cf5e4dd1707f3df0de78b4a7a7e2d300dd3324700"],
+        ["oauth-rotated", "6fa4371cfb9db0464a57023cf5e4dd1707f3df0de78b4a7a7e2d300dd3324700"],
+        ["oauth-anonymous", "9becfaa9d19124391ab39d490800d7b66ce645f3b29dba17064f79f26c35bbb2"],
       ]);
       for (const {
         consoleRow = consoleKey,
@@ -135,14 +308,18 @@ it.effect(
         { consoleStatus: 403, requested: ["console-key", "go-key"] },
         { consoleStatus: 500, requested: ["console-key"] },
         { active: 0, requested: ["go-key"] },
+        { consoleRow: consoleOAuth, requested: ["oauth-token"] },
         {
-          consoleRow: {
-            type: "oauth",
-            methodID: "device",
-            access: "token",
-            refresh: "refresh",
-            expires: 0,
-          },
+          consoleRow: { ...consoleOAuth, access: "oauth-rotated" },
+          requested: ["oauth-rotated"],
+        },
+        {
+          consoleRow: { ...consoleOAuth, access: "oauth-anonymous", metadata: null },
+          requested: ["oauth-anonymous"],
+        },
+        { consoleRow: consoleOAuth, consoleStatus: 401, requested: ["oauth-token", "go-key"] },
+        {
+          consoleRow: { ...consoleOAuth, metadata: { server: "https://console.example" } },
           requested: ["go-key"],
         },
         {
@@ -177,7 +354,7 @@ it.effect(
         }
         const before = yield* fs.readFile(`${dataHome}/opencode/opencode.db`);
         const authorizations: string[] = [];
-        const limits = yield* readOpenCodeGoUsageLimits({
+        const limits = yield* readOpenCodeUsageLimits({
           enabled: true,
           serverUrl: "",
           environment: {
@@ -196,7 +373,11 @@ it.effect(
               authorizations.push(key);
               // The legacy key is expired in the regression; it only works in fallback scenarios.
               const status =
-                key === "console-key" ? consoleStatus : requested.includes(key) ? 200 : 401;
+                key === "console-key" || key === "oauth-token"
+                  ? consoleStatus
+                  : requested.includes(key)
+                    ? 200
+                    : 401;
               return Effect.succeed(
                 HttpClientResponse.fromWeb(
                   request,
@@ -230,7 +411,7 @@ it.effect("does not read local credentials for external or disabled OpenCode ins
       { enabled: true, serverUrl: "https://remote.example" },
       { enabled: false, serverUrl: "" },
     ]) {
-      const limits = yield* readOpenCodeGoUsageLimits({ ...settings, environment: {} }).pipe(
+      const limits = yield* readOpenCodeUsageLimits({ ...settings, environment: {} }).pipe(
         Effect.provideService(
           FileSystem.FileSystem,
           FileSystem.makeNoop({
@@ -255,7 +436,7 @@ it.effect("keeps Go entitlement absence distinct from failed or malformed usage 
       [401, "probeFailed"],
       [200, "probeFailed"],
     ] as const) {
-      const limits = yield* readOpenCodeGoUsageLimits({
+      const limits = yield* readOpenCodeUsageLimits({
         enabled: true,
         serverUrl: "",
         environment: {

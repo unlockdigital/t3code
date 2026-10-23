@@ -24,6 +24,13 @@ afterEach(() => {
 });
 
 describe("Usage page preferences", () => {
+  it("persists Usage density while preserving earlier saved selections", () => {
+    saveUsagePagePreferences({ metric: "limits", windowDays: 30, density: "comfortable" });
+    expect(readUsagePagePreferences().density).toBe("comfortable");
+    values.set(key, '{"metric":"limits","windowDays":30}');
+    expect(readUsagePagePreferences().density ?? "compact").toBe("compact");
+  });
+
   it("round-trips hidden providers and reads older saves without them", () => {
     saveUsagePagePreferences({ metric: "cost", windowDays: 7, hiddenProviders: ["codex"] });
     expect(readUsagePagePreferences().hiddenProviders).toEqual(["codex"]);

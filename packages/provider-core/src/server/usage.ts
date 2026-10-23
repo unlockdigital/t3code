@@ -95,6 +95,8 @@ export interface ProviderUsageInstance<Config> {
 
 export interface ProviderUsageScan {
   readonly dir: string;
+  /** Explicit configured profiles; several bindings keep shared history unattributed per account. */
+  readonly providerInstanceIds?: readonly ProviderInstanceId[];
   readonly volumeId?: string;
   readonly hostId?: string;
   readonly status?: UsageSource["status"];

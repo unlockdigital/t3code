@@ -52,6 +52,7 @@ export function ProviderSubagentBar(props: {
           {props.provider ? (
             <ProviderInstanceIcon
               driverKind={props.provider.driverKind}
+              instanceId={props.provider.instanceId}
               displayName={props.provider.displayName}
               accentColor={props.provider.accentColor}
               acpRegistryAgentId={props.provider.acpRegistryAgentId}

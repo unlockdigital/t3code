@@ -2,12 +2,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import { DesktopBrowserEvent } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as NodeEvents from "node:events";
 
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+import * as BrowserSession from "./BrowserSession.ts";
 
 const decodeEvent = Schema.decodeUnknownSync(Schema.fromJsonString(DesktopBrowserEvent));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -52,6 +54,47 @@ const takeEvents = (host: DesktopBrowserHost.DesktopBrowserHost["Service"], coun
   );
 
 describe("DesktopBrowserHost", () => {
+  it.effect("refreshes billing through the saved environment profile while no tab is open", () =>
+    Effect.gen(function* () {
+      const organizationId = "11111111-1111-4111-8111-111111111111";
+      const profiles: unknown[] = [];
+      const fetch: Electron.Session["fetch"] = async (url) =>
+        String(url).endsWith("/api/organizations")
+          ? Response.json([{ uuid: organizationId, capabilities: ["api"] }])
+          : Response.json({ currency: "USD", amount: 7310 });
+      const host = yield* DesktopBrowserHost.make.pipe(
+        Effect.provide(
+          Layer.mock(BrowserSession.BrowserSession)({
+            isPartition: () => false,
+            getSession: (scope, persistent, namespace) => {
+              profiles.push({ scope, persistent, namespace });
+              return Effect.succeed({ fetch } as Electron.Session);
+            },
+          }),
+        ),
+      );
+      const reader = yield* Effect.forkScoped(takeEvents(host, 1), { startImmediately: true });
+      yield* host.handleCommandLine(
+        encodeJson({
+          type: "claudeBilling",
+          requestId: "synthetic-request",
+          environmentId: "synthetic-environment",
+          connection: { profileId: "default", organizationId },
+        }),
+      );
+      expect(yield* Fiber.join(reader)).toEqual([
+        {
+          type: "claudeBilling",
+          requestId: "synthetic-request",
+          result: { _tag: "Success", credits: { currency: "USD", amount: 7310 } },
+        },
+      ]);
+      expect(profiles).toEqual([
+        { scope: "synthetic-environment", persistent: true, namespace: undefined },
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("announces tabs already attached to a backend that starts later", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;

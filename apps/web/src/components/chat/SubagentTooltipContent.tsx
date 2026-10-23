@@ -125,6 +125,7 @@ export function SubagentTooltipContent(props: {
         {driver ? (
           <ProviderInstanceIcon
             driverKind={driver}
+            instanceId={props.provider?.instanceId}
             displayName={entry?.displayName ?? props.provider?.displayName ?? driver}
             accentColor={entry?.accentColor}
             acpRegistryIconUrl={props.provider?.iconUrl}
