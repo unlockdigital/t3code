@@ -21,6 +21,45 @@ import * as DesktopUpdates from "./DesktopUpdates.ts";
 import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 
 describe("DesktopUpdates", () => {
+  it.effect.each([
+    { isPackaged: false, env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" } },
+    {
+      isPackaged: true,
+      env: { T3CODE_DESKTOP_MOCK_UPDATES: "false", VITE_DEV_SERVER_URL: "http://localhost:5733" },
+    },
+  ])("explains source updates before checking for a binary feed (%o)", (options) => {
+    const harness = makeHarness(options);
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        const state = yield* updates.getState;
+        assert.equal(
+          state.message,
+          "Source build: use Upstream Updates to prepare a candidate, then review, test, rebuild, and restart when ready.",
+        );
+        assert.equal(state.installationKind, "source");
+        assert.equal(state.enabled, false);
+        assert.equal(harness.checkCount(), 0);
+      }),
+    ).pipe(Effect.provide(harness.layer));
+  });
+
+  it.effect("identifies a packaged release with a missing binary feed", () => {
+    const harness = makeHarness({ env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" } });
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        assert.equal((yield* updates.getState).installationKind, "packaged");
+        assert.equal(
+          (yield* updates.getState).message,
+          "Automatic updates are not available because no update feed is configured.",
+        );
+      }),
+    ).pipe(Effect.provide(harness.layer));
+  });
+
   it.effect("updates Linux .deb installs and leaves other non-AppImage installs off", () =>
     Effect.gen(function* () {
       const linuxState = (packageType: string | undefined) =>

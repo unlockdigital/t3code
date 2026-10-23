@@ -9,8 +9,8 @@ import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsRow, SettingsSearchTarget } from "./settingsLayout";
 
 export function UpstreamUpdatesSettings() {
-  const { environment, scope } = useSettingsScope();
-  const environmentId = scope.kind === "environment" ? environment?.environmentId : null;
+  const { environment } = useSettingsScope();
+  const environmentId = environment?.environmentId;
   return (
     <SettingsSearchTarget id="upstream-updates">
       {environmentId &&
@@ -18,7 +18,7 @@ export function UpstreamUpdatesSettings() {
         <UpstreamEnvironmentPanel key={environmentId} environmentId={environmentId} />
       ) : (
         <SettingsRow
-          title="Upstream updates"
+          title="Upstream Updates"
           description={
             environmentId
               ? "This environment requires a server build with the source upstream service. Packaged app updates remain available through the existing updater."
@@ -61,8 +61,8 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
   return (
     <div className="space-y-3">
       <SettingsRow
-        title="Upstream updates"
-        description="Review official stable releases and prepare a separate source candidate for this environment. Choose an environment to manage its source checkout."
+        title="Upstream Updates"
+        description="Review official stable releases and prepare a separate source candidate for the selected environment."
         control={
           <Button
             size="sm"
@@ -82,8 +82,8 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
       {status && (
         <div className="space-y-3 px-3 text-sm">
           <p>
-            Base: {status.baseTag} · <code>{status.baseCommit.slice(0, 12)}</code> ·{" "}
-            {status.customCommits} commits ahead
+            Upstream release base: {status.baseTag} · <code>{status.baseCommit.slice(0, 12)}</code>{" "}
+            · {status.customCommits} commits ahead
           </p>
           <p>Last successful release check: {status.checkedAt ?? "Never"}</p>
           {status.releaseError && <p role="alert">{status.releaseError}</p>}

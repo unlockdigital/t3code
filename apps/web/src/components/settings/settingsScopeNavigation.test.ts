@@ -9,7 +9,11 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveSettingsScope } from "./settingsScope";
-import { retainSettingsScope, validateSettingsRouteSearch } from "./settingsScopeNavigation";
+import {
+  desktopUpstreamSettingsSearch,
+  retainSettingsScope,
+  validateSettingsRouteSearch,
+} from "./settingsScopeNavigation";
 
 import { validateScheduledTasksSearch } from "./scheduledTasksSettings.logic";
 
@@ -32,6 +36,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
       }
     },
   });
+  const upstream = createRoute({ getParentRoute: () => settings, path: "upstream-updates" });
   const general = createRoute({ getParentRoute: () => settings, path: "general" });
   const projects = createRoute({ getParentRoute: () => settings, path: "projects" });
   const integrations = createRoute({ getParentRoute: () => settings, path: "integrations" });
@@ -68,6 +73,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
     routeTree: root.addChildren([
       settings.addChildren([
         general,
+        upstream,
         projects,
         integrations,
         sourceControl,
@@ -81,6 +87,27 @@ function createSettingsRouter(initialEntry = "/settings/general") {
 }
 
 describe("settings scope navigation", () => {
+  it("opens desktop source updates on the primary environment and clears unrelated narrowing", async () => {
+    const router = createSettingsRouter();
+    await router.load();
+    await router.navigate({ to: "/settings/general", search: checkoutSearch });
+    await router.navigate({
+      to: "/settings/upstream-updates",
+      search: desktopUpstreamSettingsSearch(EnvironmentId.make("local-desktop")),
+    });
+    expect(router.state.location.search).toEqual({ machine: "local-desktop" });
+  });
+
+  it("keeps the selected remote and project when opening upstream updates", async () => {
+    const router = createSettingsRouter();
+    await router.load();
+    await router.navigate({ to: "/settings/general", search: checkoutSearch });
+    await router.navigate({ to: "/settings/upstream-updates", hash: "upstream-updates" });
+    expect(router.state.location.pathname).toBe("/settings/upstream-updates");
+    expect(router.state.location.search).toMatchObject(checkoutSearch);
+    expect(router.state.location.hash).toBe("upstream-updates");
+  });
+
   it("clears a checkout when selecting all environments and all projects", async () => {
     const router = createSettingsRouter();
     await router.navigate({ to: "/settings/general", search: checkoutSearch, hash: "old-setting" });

@@ -3,6 +3,7 @@ import type { DesktopUpdateState } from "@t3tools/contracts";
 
 import {
   canCheckForUpdate,
+  getDesktopUpdateIdleTooltip,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateReleaseHistoryUrl,
   getDesktopUpdateReleaseUrl,
@@ -29,6 +30,22 @@ const baseState: DesktopUpdateState = {
 };
 
 describe("desktop update button state", () => {
+  it("identifies source updates separately from a packaged feed failure", () => {
+    const disabled = {
+      ...baseState,
+      enabled: false,
+      status: "disabled" as const,
+      message: "Source build: prepare an update candidate.",
+    };
+    expect(getDesktopUpdateIdleTooltip({ ...disabled, installationKind: "source" }).title).toBe(
+      "Source Updates",
+    );
+    expect(getDesktopUpdateIdleTooltip({ ...disabled, installationKind: "packaged" }).title).toBe(
+      "Updates unavailable",
+    );
+    expect(canCheckForUpdate({ ...disabled, installationKind: "source" })).toBe(false);
+  });
+
   it("keeps retry action available after a download error", () => {
     const state: DesktopUpdateState = {
       ...baseState,

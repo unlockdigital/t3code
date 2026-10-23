@@ -43,6 +43,14 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("finds upstream maintenance at its dedicated destination", () => {
+    const result = searchSettings("upstream", SETTINGS_SEARCH_ITEMS).find(
+      (item) => item.id === "upstream-updates",
+    );
+    expect(result?.to).toBe("/settings/upstream-updates");
+    expect(getSettingsSearchTargetScope("upstream-updates")?.scope).toBe("environment");
+  });
+
   it("matches titles, sections, and remembered setting details", () => {
     expect(searchSettings("word", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
     expect(searchSettings("network", ITEMS).map((item) => item.id)).toEqual(["network-access"]);

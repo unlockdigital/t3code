@@ -50,6 +50,10 @@ Computer Use was unavailable, and the user selected command-line operation and d
 
 The parent workspace also contains `t3-local`, a CLI wrapper for this development instance, and `Claude Subscription Sign-in.command`, which opens the official Claude subscription flow in a user-operated terminal. Keep authentication codes on that provider login surface.
 
+## Permission defaults
+
+Fresh defaults use **Auto**. New threads inherit the saved environment or project preference; explicit thread modes remain in place. New scheduled-task drafts also start in Auto and retain a saved task’s explicit mode when editing. **Auto-accept edits** remains a separate choice. Select Full access explicitly when the work calls for it.
+
 ## Recovery
 
 Stop this development process before backing up `.t3-development`. Keep the database and its associated settings/secrets together in a private backup. A Git checkout restores application source; compatible database backups restore application state. See `UPSTREAM_SYNC.md` for updates.

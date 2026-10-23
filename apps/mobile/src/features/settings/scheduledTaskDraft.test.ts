@@ -7,11 +7,18 @@ import {
   ProjectId,
 } from "@t3tools/contracts";
 import {
+  createDraft,
   scheduledTaskDefaultModel,
   DEFAULT_SCHEDULE,
   scheduleDraftForTask,
   scheduleFromDraft,
 } from "./scheduledTaskDraft";
+
+describe("new scheduled task permissions", () => {
+  it("starts a fresh task in Auto", () => {
+    expect(createDraft(null, null).runtimeMode).toBe("auto");
+  });
+});
 
 describe("scheduleDraftForTask", () => {
   it("opens legacy sub-minute schedules at the writable minimum", () => {

@@ -25,9 +25,9 @@ Use stable upstream releases for routine maintenance. Prioritize applicable secu
 
 The update request authorizes this maintenance sequence. Monitoring remains observational; applying an update belongs to the requested update task. Keep pushes directed to the user's fork. Submit an upstream contribution when the user requests it.
 
-## Upstream updates panel
+## Upstream Updates panel
 
-Open **Settings → General → About → Upstream updates**, then select one environment in the Settings filter. The command palette and Settings search also find “Upstream updates.” Mobile exposes the same service under **Settings → Maintenance → Manage environments → [environment] → Upstream updates**. Maintenance permission controls access on the destination server.
+Open **Settings → Upstream Updates**. The page selects the primary environment or an environment within the current Settings filter automatically. An explicitly selected remote stays selected. The command palette and Settings search also open this dedicated page. About and the sidebar source-update action open the desktop’s primary environment directly. Mobile exposes the same service under **Settings → Maintenance → Manage environments → [environment] → Upstream Updates**. Maintenance permission controls access on the destination server.
 
 Check upstream reads GitHub's official latest stable release and public advisories. The panel shows successful check times, failures, published patched versions, and release-note security mentions with their source links. Dependabot alerts open on GitHub through the user's sign-in. Review deployed-runtime applicability separately. The existing daily watch keeps its schedule.
 
@@ -42,6 +42,8 @@ On October 23, 2026, the latest official stable release was verified as v0.1.2. 
 The Codex chat has an active daily heartbeat named **T3 upstream releases and security**, id `t3-upstream-releases-and-security`. It checks official stable releases, published security advisories, and accessible Dependabot alerts against this recorded upstream base. It stays quiet on unchanged state and reports actionable changes or meaningful monitoring failures. Its first scheduled execution remains pending as of setup; the creation response establishes configuration, and later run receipts establish execution.
 
 The local watch needs this Mac and the app available. GitHub's repository alerts operate independently. Inspect the existing watch before creating another one. Routine monitoring preserves the running app, credentials, repository files, branches, and installed dependencies.
+
+About labels the desktop package version separately from the upstream release base shown in Upstream Updates. A source build shows the source-update preparation path and its manual review, test, rebuild, and restart steps. Packaged releases keep their binary updater and release channels; a packaged release with a missing feed reports its configuration problem.
 
 Source builds use manual rebuilds initially. Development-mode desktop updating is disabled by the application; packaged upstream auto-updates belong to the official release app. A future packaged fork needs its own explicit update distribution. Keep desktop and server protocol versions compatible.
 

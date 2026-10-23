@@ -15,6 +15,7 @@ import {
 
 export type SettingsPath =
   | "/settings/projects"
+  | "/settings/upstream-updates"
   | "/settings/general"
   | "/settings/diagnostics"
   | "/settings/appearance"
@@ -75,6 +76,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diagnostics": "Diagnostics",
   "/settings/projects": "Project",
   "/settings/general": "General",
+  "/settings/upstream-updates": "Upstream Updates",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
@@ -526,8 +528,8 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "upstream-updates",
-    title: "Upstream updates",
-    to: "/settings/general",
+    title: "Upstream Updates",
+    to: "/settings/upstream-updates",
     scope: "environment",
     searchTerms: ["fork maintenance stable release security advisories prepare candidate"],
   },
@@ -1015,6 +1017,7 @@ const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id,
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
   "/settings/diagnostics": "environment",
+  "/settings/upstream-updates": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/appearance": null,

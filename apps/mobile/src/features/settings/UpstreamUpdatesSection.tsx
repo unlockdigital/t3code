@@ -42,7 +42,7 @@ export function UpstreamUpdatesSection({
     if (allowed) restore();
   }, [allowed]);
   return (
-    <SettingsSection title="Upstream updates">
+    <SettingsSection title="Upstream Updates">
       <SettingsActionRow
         icon="arrow.clockwise"
         label="Check upstream"

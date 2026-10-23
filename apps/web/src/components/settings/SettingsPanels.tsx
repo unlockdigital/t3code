@@ -1,4 +1,5 @@
-import { UpstreamUpdatesSettings } from "./UpstreamUpdatesSettings";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { desktopUpstreamSettingsSearch } from "./settingsScopeNavigation";
 import { SettingsGroup } from "./SettingsGroup";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
@@ -136,11 +137,52 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
 
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 function AboutVersionTitle() {
+  const updateState = useDesktopUpdateState();
   return (
     <span className="inline-flex items-baseline gap-2">
-      <span>Version</span>
-      <code className="text-2xs font-medium text-muted-foreground">{APP_VERSION}</code>
+      <span>{isElectron ? "Desktop package version" : "App version"}</span>
+      <code className="text-2xs font-medium text-muted-foreground">
+        {updateState?.currentVersion ?? APP_VERSION}
+      </code>
     </span>
+  );
+}
+
+function DesktopSourceUpdateButton() {
+  const environmentId = usePrimaryEnvironmentId();
+  return environmentId ? (
+    <Button
+      size="sm"
+      variant="outline"
+      render={
+        <Link
+          to="/settings/upstream-updates"
+          search={desktopUpstreamSettingsSearch(environmentId)}
+        />
+      }
+    >
+      Upstream Updates
+    </Button>
+  ) : (
+    <Button size="sm" variant="outline" disabled>
+      Connect local environment
+    </Button>
+  );
+}
+
+function AboutUpstreamShortcut() {
+  const updateState = useDesktopUpdateState();
+  if (updateState?.installationKind === "source") return null;
+  return (
+    <SettingsRow
+      title="Upstream Updates"
+      description="Review the upstream release base and prepare source update candidates."
+      control={
+        <Button size="sm" variant="outline" render={<Link to="/settings/upstream-updates" />}>
+          Open Upstream Updates
+        </Button>
+      }
+    />
   );
 }
 
@@ -292,24 +334,28 @@ function AboutVersionSection() {
         title={<AboutVersionTitle />}
         description={description}
         control={
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={buttonDisabled || isUpdateActionPending}
-                  onClick={handleButtonClick}
-                >
-                  {buttonLabel}
-                </Button>
-              }
-            />
-            {buttonTooltip ? <TooltipPopup>{buttonTooltip}</TooltipPopup> : null}
-          </Tooltip>
+          updateState?.installationKind === "source" ? (
+            <DesktopSourceUpdateButton />
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={buttonDisabled || isUpdateActionPending}
+                    onClick={handleButtonClick}
+                  >
+                    {buttonLabel}
+                  </Button>
+                }
+              />
+              {buttonTooltip ? <TooltipPopup>{buttonTooltip}</TooltipPopup> : null}
+            </Tooltip>
+          )
         }
       />
-      {hasDesktopBridge ? (
+      {hasDesktopBridge && updateState?.installationKind !== "source" ? (
         <SettingsRow
           {...searchableSetting("update-track")}
           description="Use stable releases or nightly builds. Switch back anytime."
@@ -1909,7 +1955,7 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="about" title="About">
-        <UpstreamUpdatesSettings />
+        <AboutUpstreamShortcut />
         {isElectron || HOSTED_APP_CHANNEL ? (
           <AboutVersionSection />
         ) : (

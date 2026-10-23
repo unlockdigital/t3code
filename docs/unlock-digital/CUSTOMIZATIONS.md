@@ -21,11 +21,11 @@ Server labels feed all clients and the in-conversation usage command. Web and de
 
 The running instance includes the fork as the project `T3 Code · Unlock Digital`. Agents can edit the source checkout in response to requested interface changes, inspect development results, and save focused commits on `unlock-digital/main`. Keep application data in its separate home and preserve recoverable source checkpoints. The local launcher keeps the server and desktop running through source edits, with an explicit rebuild and restart after active work settles.
 
-The user prefers command-line work and direct instructions for necessary sign-ins. Any future application change receives a focused commit with its purpose and validation. Source updates follow UPSTREAM_SYNC.md.
+The user prefers command-line work and direct instructions for necessary sign-ins. Any future application change receives a focused commit with its purpose and validation. Source Updates follow UPSTREAM_SYNC.md.
 
 ## Upstream maintenance
 
-**Settings → General → About → Upstream updates** shows the selected environment's recorded base, custom commits, official release notes, public security advisories and patched versions, check failures, and saved update candidates. Settings search and the command palette find the panel. GitHub sign-in provides access to the fork's Dependabot alerts through its link.
+**Settings → Upstream Updates** shows the selected environment's recorded base, custom commits, official release notes, public security advisories and patched versions, check failures, and saved update candidates. The dedicated Settings entry selects an environment automatically; Settings search and the command palette open the same page. About and the sidebar source-update control provide direct shortcuts. The desktop package version and upstream release base have explicit labels. GitHub sign-in provides access to the fork's Dependabot alerts through its link.
 
 Preparation merges the reviewed stable release into a separate worktree containing the fork's committed customizations. Candidates await review and testing before integration. Cleanup preserves local edits, ignored files, conflicts, and later commits, and retains the candidate branch for recovery. The mobile environment screen uses the same service; direct MCP tools remain a future extension. The implementation was performed in the native T3 chat **Build Upstream updates panel**. Required changed-file checks passed with 101 tests across 10 files, including Git fixtures and the documented advisory payload. See [upstream maintenance](UPSTREAM_SYNC.md) for the operating procedure.
 

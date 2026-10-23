@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME_MODE } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
@@ -146,7 +147,7 @@ const EMPTY_DRAFT: DraftState = {
   startFromOrigin: true,
   existingWorktreePath: "",
   modelKey: "",
-  runtimeMode: "full-access",
+  runtimeMode: DEFAULT_RUNTIME_MODE,
   interactionMode: "default",
   baseModelSelection: null,
   signatureEnabled: false,

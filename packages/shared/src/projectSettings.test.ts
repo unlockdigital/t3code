@@ -34,6 +34,21 @@ describe("resolveSendEnvMode", () => {
 });
 
 describe("resolveProjectSettings", () => {
+  it("inherits fresh Auto defaults and preserves an explicit Full access project", () => {
+    expect(
+      resolveProjectSettings(DEFAULT_SERVER_SETTINGS, projectId).settings.defaultRuntimeMode,
+    ).toBe("auto");
+    const configured = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      projectSettingsOverrides: { [projectId]: { defaultRuntimeMode: "full-access" } },
+    });
+    expect(resolveProjectSettings(configured, projectId).settings.defaultRuntimeMode).toBe(
+      "full-access",
+    );
+    expect(resolveProjectSettings(configured, otherProjectId).settings.defaultRuntimeMode).toBe(
+      "auto",
+    );
+  });
+
   it("ignores an override left undefined by a forward-compatible decode", () => {
     const resolved = resolveProjectSettings(
       {

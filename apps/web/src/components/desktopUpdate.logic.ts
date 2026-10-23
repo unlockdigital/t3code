@@ -157,9 +157,11 @@ export function getDesktopUpdateDisabledReason(
 }
 
 export function getDesktopUpdateIdleTooltip(
-  state: Pick<DesktopUpdateState, "enabled" | "status" | "message"> | null,
+  state: Pick<DesktopUpdateState, "enabled" | "status" | "message" | "installationKind"> | null,
 ) {
   const disabledReason = getDesktopUpdateDisabledReason(state);
+  if (state?.installationKind === "source")
+    return { title: "Source Updates", detail: disabledReason };
   return disabledReason
     ? { title: "Updates unavailable", detail: disabledReason }
     : { title: "Check for updates", detail: null };

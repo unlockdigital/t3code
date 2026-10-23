@@ -27,6 +27,19 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("fork permission defaults", () => {
+  it("defaults fresh settings to Auto and preserves explicit permission choices", () => {
+    expect(decodeServerSettings({}).defaultRuntimeMode).toBe("auto");
+    expect(DEFAULT_SERVER_SETTINGS.defaultRuntimeMode).toBe("auto");
+    expect(decodeServerSettings({ defaultRuntimeMode: "full-access" }).defaultRuntimeMode).toBe(
+      "full-access",
+    );
+    expect(
+      decodeServerSettings({ defaultRuntimeMode: "auto-accept-edits" }).defaultRuntimeMode,
+    ).toBe("auto-accept-edits");
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

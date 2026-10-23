@@ -44,7 +44,9 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
 }
 
 function SettingsScopeBoundary({ pathname, children }: { pathname: string; children: ReactNode }) {
-  const { scope, connectedEnvironments } = useSettingsScope();
+  const { scope, connectedEnvironments, environment } = useSettingsScope();
+  const targetScopeKind =
+    pathname === "/settings/upstream-updates" && environment ? "environment" : scope.kind;
   const { environments } = useEnvironments();
   const hash = useLocation({ select: (location) => location.hash });
   const searchTarget = getSettingsSearchTargetScope(hash);
@@ -72,7 +74,7 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
   if (
     scope.kind !== "unavailable" &&
     searchTarget &&
-    !isSettingsSearchScopeAvailable(searchTarget.scope, scope.kind)
+    !isSettingsSearchScopeAvailable(searchTarget.scope, targetScopeKind)
   ) {
     const target =
       searchTarget.scope === "environment" ||
@@ -113,7 +115,9 @@ function SettingsContentLayout() {
   useEscapeToGoBack(navigateToMainApp);
   const { search, environment } = useSettingsScope();
   const contentScopeKey =
-    location.pathname === "/settings/diagnostics" || location.pathname === "/settings/providers"
+    location.pathname === "/settings/diagnostics" ||
+    location.pathname === "/settings/providers" ||
+    location.pathname === "/settings/upstream-updates"
       ? environment?.environmentId
       : JSON.stringify(search);
   const [restoreSignal, setRestoreSignal] = useState(0);
@@ -151,7 +155,9 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      singleEnvironment={
+        pathname === "/settings/providers" || pathname === "/settings/upstream-updates"
+      }
       onChange={(next) => {
         // Send every axis so the retain middleware sees an explicit target
         // even when the choice is "all", which is the absence of a key.

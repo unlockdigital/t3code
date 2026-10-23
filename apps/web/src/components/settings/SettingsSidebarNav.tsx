@@ -1,3 +1,4 @@
+import { RefreshCwIcon } from "lucide-react";
 import {
   lazy,
   Suspense,
@@ -76,6 +77,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
+  "/settings/upstream-updates": RefreshCwIcon,
   "/settings/diagnostics": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/projects": PanelsTopLeftIcon,

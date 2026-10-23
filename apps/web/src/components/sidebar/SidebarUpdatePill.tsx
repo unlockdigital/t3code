@@ -1,3 +1,6 @@
+import { useNavigate } from "@tanstack/react-router";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { desktopUpstreamSettingsSearch } from "../settings/settingsScopeNavigation";
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
 import { TriangleAlertIcon } from "lucide-react";
 import { type ComponentProps, useEffect, useId, useRef, useState } from "react";
@@ -190,6 +193,8 @@ export function SidebarUpdatePill() {
 }
 
 function SidebarUpdateControl() {
+  const navigate = useNavigate();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const state = useDesktopUpdateState();
   const [isActionPending, setIsActionPending] = useState(false);
   const [isConfirmingEverything, setIsConfirmingEverything] = useState(false);
@@ -225,6 +230,11 @@ function SidebarUpdateControl() {
   const runsEverything = everything.hasUpdates && !isDownloading;
   const run = useUpdateEverythingRun();
   const isRunningEverything = run !== null;
+  const sourceUpdates =
+    state?.installationKind === "source" &&
+    action === "none" &&
+    !runsEverything &&
+    !isRunningEverything;
   const showCheckIcon = shouldShowDesktopUpdateCheckIcon({
     isAnimationLatched: isCheckAnimationLatched,
     isChecking: state?.status === "checking",
@@ -248,13 +258,15 @@ function SidebarUpdateControl() {
       : showCheckIcon
         ? "Checking for updates…"
         : (idleTooltip?.title ?? "Check for updates");
-  const disabled = showCheckIcon
-    ? true
-    : runsEverything
-      ? false
-      : showUpdateDetails
-        ? isDesktopUpdateButtonDisabled(state)
-        : !canCheckForUpdate(state);
+  const disabled = sourceUpdates
+    ? primaryEnvironmentId === null
+    : showCheckIcon
+      ? true
+      : runsEverything
+        ? false
+        : showUpdateDetails
+          ? isDesktopUpdateButtonDisabled(state)
+          : !canCheckForUpdate(state);
   const isInteractionDisabled = disabled || isActionPending || isRunningEverything;
   const showReleaseNotesPopover =
     !isRunningEverything && shouldUseSidebarUpdateReleaseNotesPopover(showUpdateDetails, state);
@@ -274,6 +286,13 @@ function SidebarUpdateControl() {
   const handleAction = async () => {
     const bridge = window.desktopBridge;
     if (isInteractionDisabled) return;
+    if (sourceUpdates && primaryEnvironmentId) {
+      await navigate({
+        to: "/settings/upstream-updates",
+        search: desktopUpstreamSettingsSearch(primaryEnvironmentId),
+      });
+      return;
+    }
 
     if (runsEverything) {
       setIsConfirmingEverything(true);

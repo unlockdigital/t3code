@@ -1,3 +1,4 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import type { SearchMiddleware } from "@tanstack/react-router";
 
 import { validateSettingsScopeSearch, type SettingsScopeSearch } from "./settingsScope";
@@ -25,3 +26,7 @@ export const retainSettingsScope: SearchMiddleware<SettingsScopeSearch> = ({ sea
   );
   return { ...previousScope, ...result };
 };
+
+export function desktopUpstreamSettingsSearch(environmentId: EnvironmentId): SettingsScopeSearch {
+  return { machine: environmentId, project: undefined, checkout: undefined };
+}

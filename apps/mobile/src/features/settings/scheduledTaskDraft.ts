@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME_MODE } from "@t3tools/contracts";
 import { isWebhookDedupeTemplate } from "@t3tools/contracts";
 import type {
   ModelSelection,
@@ -251,7 +252,7 @@ export function createDraft(
     checkoutPath: "",
     enabled: true,
     startFromOrigin: true,
-    runtimeMode: "full-access",
+    runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 }
 

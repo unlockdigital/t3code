@@ -143,6 +143,12 @@ const legacyTask: ScheduledTask = {
   runCount: 0,
 };
 
+describe("scheduled task permissions", () => {
+  it("preserves an existing Full access choice when editing", () => {
+    expect(taskToDraft(legacyTask).runtimeMode).toBe("full-access");
+  });
+});
+
 describe("editing scheduled task branch settings", () => {
   it("keeps an omitted origin flag on the local base branch", () => {
     const draft = taskToDraft(legacyTask);
