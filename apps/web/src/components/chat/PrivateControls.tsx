@@ -62,9 +62,11 @@ export function PrivateControls(props: {
           current.map((entry) => (entry.id === packet.id ? result.value : entry)),
         );
       setReviewed(null);
-    } finally {
+    } catch (error) {
       setBusy(false);
+      throw error;
     }
+    setBusy(false);
   };
   if (
     !environments.find((environment) => environment.environmentId === props.environmentId)
@@ -110,7 +112,9 @@ export function PrivateControls(props: {
                 disabled={!props.canOperate || busy}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>
+                    {props.policy === "disabled" ? "Private only" : "Private + helpers"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
                   <SelectItem value="disabled">Private only</SelectItem>
