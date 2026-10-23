@@ -96,6 +96,7 @@ import {
   useThreadSelectionStore,
 } from "../threadSelectionStore";
 import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
+import { useThreadContextCopy } from "../hooks/useThreadContextCopy";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
@@ -748,6 +749,7 @@ const SIDEBAR_DRAG_DISTANCE = 6;
 const SIDEBAR_DRAG_LABEL_HEIGHT = 24;
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const copyThreadContext = useThreadContextCopy();
   const {
     projects,
     serverConfigs,
@@ -2472,6 +2474,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "copy-thread-link":
+            await copyThreadContext(threadRef, "link");
+            return;
+          case "copy-thread-markdown":
+            await copyThreadContext(threadRef, "markdown");
+            return;
+          case "copy-thread-handoff":
+            await copyThreadContext(threadRef, "handoff");
             return;
           case "archive": {
             if (confirmThreadArchive) {

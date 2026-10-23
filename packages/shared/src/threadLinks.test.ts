@@ -4,6 +4,8 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   formatThreadLink,
   parseThreadLinkHref,
+  parseThreadReference,
+  threadLinkHref,
   relabelThreadLinks,
   resolveThreadLinkRef,
 } from "./threadLinks.ts";
@@ -44,6 +46,22 @@ describe("thread link destinations", () => {
 });
 
 describe("thread links", () => {
+  it("accepts copied links, Markdown links, and literal IDs in the CLI", () => {
+    const id = "thread:delegated-task:mcp%3A1";
+    expect(parseThreadReference(threadLinkHref(id))).toBe(id);
+    expect(parseThreadReference(`  ${formatThreadLink(id, "Other session")}  `)).toBe(id);
+    expect(parseThreadReference(id)).toBe(id);
+    for (const invalid of [
+      "",
+      "t3-thread://v2/t1",
+      "t3-thread://v1/",
+      "t3-thread://v1/t1 extra",
+      "https://example.com/thread",
+      "Read [t](t3-thread://v1/t1)",
+    ]) {
+      expect(parseThreadReference(invalid)).toBeNull();
+    }
+  });
   it("takes the thread id verbatim, percent escapes included", () => {
     expect(parseThreadLinkHref("t3-thread://v1/mcp:1234")).toBe("mcp:1234");
     expect(parseThreadLinkHref("t3-thread://v1/thread:delegated-task:mcp%3A1")).toBe(

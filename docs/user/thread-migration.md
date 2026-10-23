@@ -38,7 +38,9 @@ handoff is also a good choice when the old conversation contains conflicting ins
 
 ## Keeping a recovery copy
 
-T3 Code does not currently have a whole-thread export command. Before a major server update, stop
+Use `t3 thread export '<thread-id>'` to save a current thread as Markdown. See
+[Share conversation context](thread-sidebar.md#share-conversation-context-with-another-agent)
+for clipboard handoffs and native session readers. Before a major server update, stop
 the server and copy its `userdata` directory to a safe location. The default is
 `~/.t3/userdata`; a server started with `--home-dir <path>` uses `<path>/userdata`.
 

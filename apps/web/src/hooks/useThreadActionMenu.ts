@@ -46,6 +46,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
+import { useThreadContextCopy } from "./useThreadContextCopy";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -62,6 +63,7 @@ export function useThreadActionMenu(input?: {
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
 }) {
+  const copyThreadContext = useThreadContextCopy();
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -265,6 +267,15 @@ export function useThreadActionMenu(input?: {
           return;
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+          return;
+        case "copy-thread-link":
+          await copyThreadContext(threadRef, "link");
+          return;
+        case "copy-thread-markdown":
+          await copyThreadContext(threadRef, "markdown");
+          return;
+        case "copy-thread-handoff":
+          await copyThreadContext(threadRef, "handoff");
           return;
         case "archive": {
           if (confirmThreadArchive) {

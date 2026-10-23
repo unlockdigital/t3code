@@ -127,6 +127,7 @@ import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useDesktopUpdateState } from "../state/desktopUpdate";
 
 import { useThreadActions } from "../hooks/useThreadActions";
+import { useThreadContextCopy } from "../hooks/useThreadContextCopy";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
@@ -1300,6 +1301,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const removeFromSelection = useThreadSelectionStore((state) => state.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((state) => state.setAnchor);
+  const copyThreadContext = useThreadContextCopy();
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{
     threadId: ThreadId;
   }>({
@@ -2169,6 +2171,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
+          { id: "copy-thread-link", label: "Copy thread link" },
+          { id: "copy-thread-markdown", label: "Copy conversation as Markdown" },
+          { id: "copy-thread-handoff", label: "Copy agent handoff" },
           { id: "project-settings", label: "Project settings" },
           {
             id: "delete",
@@ -2237,6 +2242,21 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       }
       if (clicked === "copy-thread-id") {
         copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+        return;
+      }
+      if (
+        clicked === "copy-thread-link" ||
+        clicked === "copy-thread-markdown" ||
+        clicked === "copy-thread-handoff"
+      ) {
+        await copyThreadContext(
+          threadRef,
+          clicked === "copy-thread-link"
+            ? "link"
+            : clicked === "copy-thread-markdown"
+              ? "markdown"
+              : "handoff",
+        );
         return;
       }
       if (clicked !== "delete") return;

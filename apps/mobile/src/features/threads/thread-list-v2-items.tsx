@@ -41,6 +41,7 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { ProviderIcon, ProviderInstanceIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { useThreadContextCopy } from "./useThreadContextCopy";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useEnvironmentScope } from "../../state/session";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
@@ -307,6 +308,17 @@ export const ThreadListV2ShowMoreRow = memo(function ThreadListV2ShowMoreRow(pro
 const PENDING_TASK_MENU_ACTIONS: MenuAction[] = [
   { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
 ];
+
+const THREAD_CONTEXT_COPY_MENU: MenuAction = {
+  id: "copy-context",
+  title: "Copy context",
+  image: "doc.on.doc",
+  subactions: [
+    { id: "copy-thread-link", title: "Thread link", image: "link" },
+    { id: "copy-thread-markdown", title: "Conversation as Markdown", image: "doc.text" },
+    { id: "copy-thread-handoff", title: "Agent handoff", image: "doc.on.doc" },
+  ],
+};
 
 const DRAFT_TASK_MENU_ACTIONS: MenuAction[] = [
   { id: "delete", title: "Discard", image: "trash", attributes: { destructive: true } },
@@ -792,6 +804,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
+      THREAD_CONTEXT_COPY_MENU,
       { id: "rename", title: "Rename", image: "square.and.pencil" },
       ...buildThreadTitleRegenerationMenuItems({
         supported: props.titleRegenerationSupported,
@@ -860,6 +873,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     ],
     [arrangementMenuItems, titleMenuItems],
   );
+  const copyThreadContext = useThreadContextCopy();
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
       if (nativeEvent.event === "new-thread-on-branch") onNewThreadOnBranch(thread);
@@ -878,6 +892,26 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "regenerate-title") handleRegenerateTitle();
       if (nativeEvent.event === "copy-thread-id") {
         copyTextWithHaptic(thread.id, { target: "thread-id" });
+      }
+      if (
+        nativeEvent.event === "copy-thread-link" ||
+        nativeEvent.event === "copy-thread-markdown" ||
+        nativeEvent.event === "copy-thread-handoff"
+      ) {
+        void copyThreadContext(
+          {
+            environmentId: thread.environmentId,
+            threadId: thread.id,
+            title: thread.title,
+            workspacePath: thread.worktreePath ?? props.project?.workspaceRoot ?? null,
+            branch: thread.branch,
+          },
+          nativeEvent.event === "copy-thread-link"
+            ? "link"
+            : nativeEvent.event === "copy-thread-markdown"
+              ? "markdown"
+              : "handoff",
+        );
       }
       if (nativeEvent.event === "delete") handleDelete();
       if (nativeEvent.event === "snooze:custom") {
@@ -899,6 +933,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }
     },
     [
+      copyThreadContext,
+      props.project?.workspaceRoot,
       onNewThreadOnBranch,
       thread,
       handleArchive,
@@ -1350,7 +1386,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     );
 
   if (!canOperateThread)
-    return <View style={rowAppearance.swipeContainerStyle}>{rowContent(() => {})}</View>;
+    return (
+      <View style={rowAppearance.swipeContainerStyle}>
+        <Menu actions={[THREAD_CONTEXT_COPY_MENU]} onPressAction={handleMenuAction}>
+          {rowContent(() => {})}
+        </Menu>
+      </View>
+    );
 
   return (
     <View collapsable={false}>

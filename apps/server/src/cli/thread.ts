@@ -13,6 +13,11 @@ import {
   type OrchestratorMcpThreadTimelineItem,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import {
+  formatConversationMarkdown,
+  type ConversationContext,
+} from "@t3tools/shared/threadHandoff";
+import { parseThreadReference, threadLinkHref } from "@t3tools/shared/threadLinks";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -31,6 +36,7 @@ import * as ServerConfig from "../config.ts";
 import { mcpToolSession, type McpToolSession } from "../mcp/AcpMcpStdioBridge.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import * as NativeSessionContext from "../provider/NativeSessionContext.ts";
 
 /**
  * Short enough that a run which stops to ask the user something is noticed
@@ -122,6 +128,7 @@ const ThreadCliError = Schema.Union([
   ThreadProjectNotFoundError,
   ThreadNeedsInputError,
   ThreadRunEndedError,
+  NativeSessionContext.NativeSessionContextError,
 ]);
 const isThreadCliError = Schema.is(ThreadCliError);
 
@@ -205,6 +212,7 @@ export type ThreadTools = ReturnType<typeof makeThreadTools>;
 const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E, R>(
   flags: { readonly baseDir: Option.Option<string> },
   run: (tools: ThreadTools) => Effect.Effect<A, E, R>,
+  access: "read-only" | "full-access" = "full-access",
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
@@ -220,7 +228,7 @@ const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E,
         label: "t3 thread cli",
         // The CLI runs as the machine's owner. New threads still start at
         // the project's default mode, never at this ceiling by default.
-        access: "full-access",
+        access,
         client: { deviceType: "bot" },
       }),
       (session) =>
@@ -327,6 +335,18 @@ const readTimeline = Effect.fn("cli.thread.readTimeline")(function* (
       OrchestratorMcpThreadReadResult,
     );
     items.push(...page.items);
+    if (
+      page.hasMore &&
+      (page.nextPosition === null ||
+        page.nextPosition === undefined ||
+        (afterPosition !== undefined && page.nextPosition <= afterPosition))
+    ) {
+      return yield* new ThreadToolFailedError({
+        tool: "t3_thread_read",
+        detail:
+          "The server did not advance the transcript page. Retry with a matching T3 CLI and server version.",
+      });
+    }
     afterPosition = page.nextPosition ?? undefined;
   } while (page.hasMore && afterPosition !== undefined);
   return { thread: page.thread, items };
@@ -339,6 +359,12 @@ const readFullText = Effect.fn("cli.thread.readFullText")(function* (
   item: OrchestratorMcpThreadTimelineItem,
 ) {
   let text = item.text ?? "";
+  if (item.textTruncated && item.nextTextOffset == null) {
+    return yield* new ThreadToolFailedError({
+      tool: "t3_thread_read",
+      detail: `The server omitted the continuation offset for ${item.itemId}. Update the t3 CLI and server, then retry.`,
+    });
+  }
   let nextTextOffset = item.textTruncated ? (item.nextTextOffset ?? null) : null;
   while (nextTextOffset !== null) {
     const page = yield* tools.call(
@@ -347,11 +373,71 @@ const readFullText = Effect.fn("cli.thread.readFullText")(function* (
       OrchestratorMcpThreadReadResult,
     );
     const chunk = page.items.find((candidate) => candidate.itemId === item.itemId);
-    if (chunk === undefined) break;
+    if (
+      chunk === undefined ||
+      (chunk.textTruncated &&
+        (chunk.nextTextOffset == null || chunk.nextTextOffset <= nextTextOffset))
+    ) {
+      return yield* new ThreadToolFailedError({
+        tool: "t3_thread_read",
+        detail: `The server could not return the complete text of ${item.itemId}. Retry the export.`,
+      });
+    }
     text += chunk.text ?? "";
     nextTextOffset = chunk.textTruncated ? (chunk.nextTextOffset ?? null) : null;
   }
   return text;
+});
+
+export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
+  tools: ThreadTools,
+  threadId: ThreadId,
+  expectedEnvironment?: string,
+) {
+  const identity = yield* tools.call(
+    "t3_environment_read",
+    {},
+    Schema.Struct({ environmentId: Schema.String }),
+  );
+  if (expectedEnvironment !== undefined && identity.environmentId !== expectedEnvironment) {
+    return yield* new ThreadUsageError({
+      detail: `This server is environment ${identity.environmentId}; the conversation belongs to ${expectedEnvironment}. Run the command on the source machine and select its T3 data directory with --base-dir.`,
+    });
+  }
+  const { thread, items } = yield* readTimeline(tools, threadId, "messages");
+  const workspacePath =
+    thread.worktreePath ??
+    (yield* tools.call(
+      "t3_project_read",
+      { projectId: thread.projectId },
+      Schema.Struct({ workspaceRoot: Schema.String }),
+    )).workspaceRoot;
+  const entries = yield* Effect.forEach(
+    items.filter((item) =>
+      ["user_message", "assistant_message", "proposed_plan"].includes(item.type),
+    ),
+    (item) =>
+      readFullText(tools, threadId, item).pipe(
+        Effect.map((text) => ({
+          role:
+            item.type === "user_message"
+              ? ("user" as const)
+              : item.type === "proposed_plan"
+                ? ("plan" as const)
+                : ("assistant" as const),
+          text,
+        })),
+      ),
+  );
+  return {
+    title: thread.title,
+    reference: threadLinkHref(threadId),
+    environmentId: identity.environmentId,
+    updatedAt: thread.updatedAt,
+    workspacePath,
+    branch: thread.branch,
+    entries,
+  } satisfies ConversationContext;
 });
 
 /** The run's last assistant message, or its last error when it did not complete. */
@@ -487,14 +573,21 @@ const waitFlag = Flag.Boolean("wait").pipe(
 const messageArgument = Argument.String("message").pipe(
   Argument.withDescription("Message for the agent, or - to read it from stdin."),
 );
-const threadArgument = Argument.String("thread").pipe(Argument.withDescription("Thread id."));
+const threadArgument = Argument.String("thread").pipe(
+  Argument.withDescription("Thread ID, t3-thread:// link, or Markdown thread link."),
+);
 
-const decodeThreadIdValue = Schema.decodeUnknownEffect(ThreadId);
 const decodeTitle = Schema.decodeUnknownEffect(TrimmedNonEmptyString);
-const decodeThreadId = (value: string) =>
-  decodeThreadIdValue(value.trim()).pipe(
-    Effect.mapError(() => new ThreadUsageError({ detail: `'${value}' is not a thread id.` })),
-  );
+const decodeThreadId = (value: string) => {
+  const threadId = parseThreadReference(value);
+  return threadId === null
+    ? Effect.fail(
+        new ThreadUsageError({
+          detail: "Pass a thread ID, t3-thread:// link, or Markdown thread link.",
+        }),
+      )
+    : Effect.succeed(threadId);
+};
 
 const threadListCommand = Command.make("list", {
   ...projectLocationFlags,
@@ -699,6 +792,67 @@ const threadShowCommand = Command.make("show", {
   ),
 );
 
+const threadExportCommand = Command.make("export", {
+  ...projectLocationFlags,
+  reference: Argument.String("reference").pipe(
+    Argument.withDescription(
+      "T3 thread ID/link, Codex thread link or conversation path, or claude:<session-id>.",
+    ),
+  ),
+  source: Flag.Literals("source", ["t3", "codex", "claude"]).pipe(
+    Flag.optional,
+    Flag.withDescription(
+      "Provider for a bare native session ID or Codex conversation path. Links select their provider automatically.",
+    ),
+  ),
+  environment: Flag.String("environment").pipe(
+    Flag.optional,
+    Flag.withDescription("Expected T3 environment ID; rejects a different server."),
+  ),
+  codexHome: Flag.String("codex-home").pipe(
+    Flag.optional,
+    Flag.withDescription("Codex data directory. Defaults to CODEX_HOME or ~/.codex."),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Export a saved conversation as Markdown for another agent. Reads local native sessions without starting a model.",
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const trimmed = flags.reference.trim();
+      const reference = /^\[[^\]\n]*\]\(([^\s)]+)\)$/.exec(trimmed)?.[1] ?? trimmed;
+      const source = Option.getOrElse(flags.source, () =>
+        reference.startsWith("codex:")
+          ? ("codex" as const)
+          : reference.startsWith("claude:")
+            ? ("claude" as const)
+            : ("t3" as const),
+      );
+      const output = (context: ConversationContext) =>
+        flags.json ? printJson(context) : Console.log(formatConversationMarkdown(context));
+      if (source === "t3") {
+        const threadId = yield* decodeThreadId(reference);
+        return yield* withThreadTools(
+          flags,
+          (tools) =>
+            readThreadContext(tools, threadId, Option.getOrUndefined(flags.environment)).pipe(
+              Effect.flatMap(output),
+            ),
+          "read-only",
+        );
+      }
+      const reader = yield* NativeSessionContext.NativeSessionContext;
+      const context = yield* reader.read({
+        provider: source,
+        reference,
+        ...(Option.isSome(flags.codexHome) ? { codexHome: flags.codexHome.value } : {}),
+      });
+      yield* output(context);
+    }).pipe(Effect.provide(NativeSessionContext.layer), reportThreadErrors),
+  ),
+);
+
 export const threadCommand = Command.make("thread").pipe(
   Command.withDescription("Start, message, and read threads on the running server."),
   Command.withSubcommands([
@@ -706,5 +860,6 @@ export const threadCommand = Command.make("thread").pipe(
     threadStartCommand,
     threadSendCommand,
     threadShowCommand,
+    threadExportCommand,
   ]),
 );

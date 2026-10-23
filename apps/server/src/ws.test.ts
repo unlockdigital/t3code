@@ -1,4 +1,5 @@
 import * as UpstreamUpdates from "./upstream/UpstreamUpdates.ts";
+import * as LocalThreadHandoff from "./orchestration-v2/LocalThreadHandoff.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -467,7 +468,11 @@ it.effect(
             {},
             yield* PreviewAutomationBroker.PreviewAutomationBroker,
             yield* ServerBrowser.ServerBrowser,
-          ).pipe(Layer.provide(UpstreamUpdates.layer), Layer.provide(configRpcServices)),
+          ).pipe(
+            Layer.provide(Layer.mock(LocalThreadHandoff.LocalThreadHandoff)({})),
+            Layer.provide(UpstreamUpdates.layer),
+            Layer.provide(configRpcServices),
+          ),
         ),
       );
       const requestId = RpcMessage.RequestId("config");

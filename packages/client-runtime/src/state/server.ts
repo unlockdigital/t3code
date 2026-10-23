@@ -1000,6 +1000,14 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverUpstream,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
+    createLocalThreadHandoff: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:create-local-thread-handoff",
+      tag: WS_METHODS.serverCreateLocalThreadHandoff,
+    }),
+    removeLocalThreadHandoff: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:remove-local-thread-handoff",
+      tag: WS_METHODS.serverRemoveLocalThreadHandoff,
+    }),
     configValueAtom,
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:run-storage-cleanup",

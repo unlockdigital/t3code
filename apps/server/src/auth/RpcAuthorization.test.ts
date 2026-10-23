@@ -29,6 +29,14 @@ import {
 import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("requires operate permission to create or remove local handoff files", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverCreateLocalThreadHandoff)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverRemoveLocalThreadHandoff)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
@@ -128,6 +136,60 @@ describe("RPC scope middleware", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+it.effect(
+  "rejects handoff creation and deletion before filesystem handlers without an operate grant",
+  () =>
+    Effect.gen(function* () {
+      const methods = [
+        WS_METHODS.serverCreateLocalThreadHandoff,
+        WS_METHODS.serverRemoveLocalThreadHandoff,
+      ] as const;
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof methods)[number]> =>
+            !(methods as readonly string[]).includes(tag),
+        ),
+      );
+      const handled: string[] = [];
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.serverCreateLocalThreadHandoff, () =>
+              Effect.sync(() => {
+                handled.push("create");
+                return {
+                  exportId: "handoff-123456",
+                  transcriptPath: "/private/export.md",
+                  markdown: "",
+                  handoff: "",
+                  attachmentCount: 0,
+                  unavailableAttachmentCount: 0,
+                };
+              }),
+            ),
+            group.toLayerHandler(WS_METHODS.serverRemoveLocalThreadHandoff, () =>
+              Effect.sync(() => {
+                handled.push("remove");
+              }),
+            ),
+            RpcAuthorization.layer([AuthOrchestrationReadScope]),
+          ),
+        ),
+      );
+      expect(
+        yield* client[WS_METHODS.serverCreateLocalThreadHandoff]({
+          threadId: ThreadId.make("one"),
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: AuthOrchestrationOperateScope });
+      expect(
+        yield* client[WS_METHODS.serverRemoveLocalThreadHandoff]({
+          exportId: "handoff-123456",
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: AuthOrchestrationOperateScope });
+      expect(handled).toEqual([]);
+    }).pipe(Effect.scoped),
+);
 
 describe("settings mutation authorization", () => {
   const group = WsRpcGroup.omit(

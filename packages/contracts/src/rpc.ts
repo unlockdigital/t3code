@@ -1,5 +1,11 @@
 import { UpstreamRequest, UpstreamStatus, UpstreamError } from "./upstream.ts";
 import {
+  CreateLocalThreadHandoffInput,
+  LocalThreadHandoff,
+  LocalThreadHandoffError,
+  RemoveLocalThreadHandoffInput,
+} from "./threadHandoff.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -483,6 +489,8 @@ export const WS_METHODS = {
   serverRunStorageCleanup: "server.runStorageCleanup",
   serverGetStorageCleanupReport: "server.getStorageCleanupReport",
   serverUpstream: "server.upstream",
+  serverCreateLocalThreadHandoff: "server.createLocalThreadHandoff",
+  serverRemoveLocalThreadHandoff: "server.removeLocalThreadHandoff",
   serverGetDatabaseStorage: "server.getDatabaseStorage",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -754,6 +762,17 @@ const WsServerUpstreamRpc = Rpc.make(WS_METHODS.serverUpstream, {
   payload: UpstreamRequest,
   success: UpstreamStatus,
   error: Schema.Union([UpstreamError, EnvironmentAuthorizationError]),
+});
+
+const WsServerCreateLocalThreadHandoffRpc = Rpc.make(WS_METHODS.serverCreateLocalThreadHandoff, {
+  payload: CreateLocalThreadHandoffInput,
+  success: LocalThreadHandoff,
+  error: Schema.Union([LocalThreadHandoffError, EnvironmentAuthorizationError]),
+});
+const WsServerRemoveLocalThreadHandoffRpc = Rpc.make(WS_METHODS.serverRemoveLocalThreadHandoff, {
+  payload: RemoveLocalThreadHandoffInput,
+  success: Schema.Void,
+  error: Schema.Union([LocalThreadHandoffError, EnvironmentAuthorizationError]),
 });
 
 const WsServerGetDatabaseStorageRpc = Rpc.make(WS_METHODS.serverGetDatabaseStorage, {
@@ -1915,6 +1934,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRunStorageCleanupRpc,
   WsServerGetStorageCleanupReportRpc,
   WsServerUpstreamRpc,
+  WsServerCreateLocalThreadHandoffRpc,
+  WsServerRemoveLocalThreadHandoffRpc,
   WsServerGetDatabaseStorageRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,

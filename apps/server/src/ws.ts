@@ -1,4 +1,5 @@
 import * as UpstreamUpdates from "./upstream/UpstreamUpdates.ts";
+import * as LocalThreadHandoff from "./orchestration-v2/LocalThreadHandoff.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1281,6 +1282,7 @@ export const layerWsRpc = (
       const providerAuth = yield* ProviderAuthService.ProviderAuthService;
       const providerInstallation = yield* makeProviderInstallation();
       const upstreamUpdates = yield* UpstreamUpdates.UpstreamUpdates;
+      const localThreadHandoff = yield* LocalThreadHandoff.LocalThreadHandoff;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -1719,6 +1721,7 @@ export const layerWsRpc = (
           shellResumeCompletionMarker: true,
           threadResumeCompletionMarker: true,
           threadSnapshotPagination: true,
+          localThreadHandoff: true,
           threadFind: true,
           threadFindProgressive: true,
           ...Option.match(scratchWorkspaceRoot, {
@@ -2080,6 +2083,10 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.serverProbe]: (_input) => Effect.succeed({}),
         [WS_METHODS.serverUpstream]: (input) => upstreamUpdates.execute(input),
+        [WS_METHODS.serverCreateLocalThreadHandoff]: (input) =>
+          localThreadHandoff.create(input.threadId),
+        [WS_METHODS.serverRemoveLocalThreadHandoff]: (input) =>
+          localThreadHandoff.remove(input.exportId),
         [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig({ usageLimitsCommand: false }),
         [WS_METHODS.serverSearchAcpRegistry]: (input) =>
           acpRegistryCatalog
@@ -3143,6 +3150,7 @@ export const layer = Layer.unwrap(
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const upstreamUpdates = yield* UpstreamUpdates.UpstreamUpdates;
+    const localThreadHandoff = yield* LocalThreadHandoff.LocalThreadHandoff;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -3226,6 +3234,9 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(Layer.succeed(UpstreamUpdates.UpstreamUpdates, upstreamUpdates)),
+              Layer.provide(
+                Layer.succeed(LocalThreadHandoff.LocalThreadHandoff, localThreadHandoff),
+              ),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS
@@ -3277,4 +3288,4 @@ export const layer = Layer.unwrap(
       ),
     );
   }),
-).pipe(Layer.provide(UpstreamUpdates.layer));
+).pipe(Layer.provide(UpstreamUpdates.layer), Layer.provide(LocalThreadHandoff.layer));

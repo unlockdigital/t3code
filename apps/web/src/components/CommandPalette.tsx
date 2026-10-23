@@ -84,6 +84,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useThreadContextCopy } from "../hooks/useThreadContextCopy";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import {
@@ -470,6 +471,7 @@ function OpenCommandPaletteDialog(props: {
   readonly initialContext: CommandPaletteReturnContext | undefined;
   readonly clearOpenIntent: () => void;
 }) {
+  const copyThreadContext = useThreadContextCopy();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openChildSearch, setOpen } = props;
@@ -1307,6 +1309,24 @@ function OpenCommandPaletteDialog(props: {
           run: () => copyPromptLink(contextLink),
         });
       }
+    }
+  }
+
+  if (activeThread !== null) {
+    const target = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    for (const [format, title] of [
+      ["link", "Copy thread link"],
+      ["markdown", "Copy conversation as Markdown"],
+      ["handoff", "Copy agent handoff"],
+    ] as const) {
+      actionItems.push({
+        kind: "action",
+        value: `action:copy-thread-${format}`,
+        title,
+        searchTerms: ["copy", "context", "share", "codex", "claude", format],
+        icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+        run: () => copyThreadContext(target, format),
+      });
     }
   }
 

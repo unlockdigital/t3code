@@ -271,6 +271,10 @@
       "types": "./src/threadLinks.ts",
       "import": "./src/threadLinks.ts"
     },
+    "./threadHandoff": {
+      "types": "./src/threadHandoff.ts",
+      "import": "./src/threadHandoff.ts"
+    },
     "./composerContextReferences": {
       "types": "./src/composerContextReferences.ts",
       "import": "./src/composerContextReferences.ts"

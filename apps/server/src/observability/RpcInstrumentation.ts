@@ -58,6 +58,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverRunStorageCleanup]: "server",
   [WS_METHODS.serverGetStorageCleanupReport]: "server",
   [WS_METHODS.serverUpstream]: "server",
+  [WS_METHODS.serverCreateLocalThreadHandoff]: "server",
+  [WS_METHODS.serverRemoveLocalThreadHandoff]: "server",
   [WS_METHODS.serverGetDatabaseStorage]: "server",
   [WS_METHODS.serverGetSettings]: "server",
   [WS_METHODS.serverUpdateSettings]: "server",

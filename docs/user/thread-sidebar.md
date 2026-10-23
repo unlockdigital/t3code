@@ -124,6 +124,81 @@ device keeps its own choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
+## Share conversation context with another agent
+
+On web and desktop, right-click a thread in the sidebar or its title and open
+**Copy**. Choose **Thread link** for a deep link, **Conversation as Markdown** for
+a snapshot of the chat, or **Agent handoff** for a small reference another local
+agent can read. These actions also appear in the command palette.
+On mobile, open a thread's menu and choose **Copy context**.
+
+Paste the Markdown or agent handoff into Codex, Claude Code, or another T3 thread.
+The Markdown preserves user messages, assistant messages, and plans, including
+code blocks and long messages. With operate permission on an updated host, both
+options prepare a private snapshot with copies of the conversation's attachments.
+The handoff names the transcript's absolute path; an agent on the source computer
+can read it and follow its attachment paths using its existing file permissions.
+This works independently of CLI installation or shell PATH. Missing, unsafe, and
+oversized attachments are listed explicitly. Read-only connections and older hosts
+copy conversation text and attachment names, with a notice about file availability.
+Copying preserves the source agent's current state and unread indicators.
+
+Snapshots live in the source T3 home's `userdata/handoffs` directory. On web and
+desktop, **Delete shared copy** in the confirmation removes that snapshot and its
+attachment copies. You can also delete its folder later. The source conversation
+and attachments remain available. Text already read by another app stays in that
+app's conversation. T3 retains up to 20 snapshots, each limited to 32 MiB and 256
+attachment references. Delete older snapshots when the limit is reached.
+
+Sharing uses the existing authenticated connection and an explicit copy action.
+Local snapshots use private filesystem permissions and contain conversation data
+and attachment copies. Provider credentials and connection tokens stay with T3.
+The receiving app continues to apply its own file-access and execution permissions.
+Conversation and attachment contents are reference material for its user's task.
+
+With the [T3 CLI installed](install.md#command-line), an agent on the machine
+running T3 can read a copied thread link with:
+
+```sh
+t3 thread export 't3-thread://v1/<thread-id>'
+```
+
+The command also accepts a thread ID or a complete Markdown thread link. Add
+`--json` for structured context and `--environment <id>` to verify the source
+environment. When you use several T3 data directories, select the
+source with `--base-dir /path/to/t3-home`. A remote agent needs access to that
+machine's CLI, or you can give it the Markdown snapshot.
+For a conversation that exceeds the clipboard snapshot limit, export its Markdown
+through the CLI.
+
+### Bring Codex or Claude Code context into T3
+
+In Codex, use **Copy chat deep link** or **Copy conversation path** and paste it
+into T3 with a request to read the source. A local agent can run:
+
+```sh
+t3 thread export 'codex://threads/<session-id>'
+t3 thread export '/path/to/rollout-session.jsonl' --source codex
+```
+
+Codex sessions are read from `CODEX_HOME` or `~/.codex`, including archived
+sessions. Use `--codex-home /path/to/codex-home` for a different installation.
+The reader supports local JSONL conversation files and exports saved message
+text, with a 64 MiB source file limit.
+
+In Claude Code, run `/export` to copy the conversation or save a transcript, then
+paste the text into T3 or attach the file. You can also copy the session ID from
+`/status` and ask a local T3 agent to run:
+
+```sh
+t3 thread export 'claude:<session-id>'
+```
+
+This reads Claude's local session history through its history API and respects
+`CLAUDE_CONFIG_DIR`. A bare native session ID works with `--source codex` or
+`--source claude`. These handoffs provide conversation text for the destination
+agent; each provider continues to own its tool state and session permissions.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

@@ -26,6 +26,17 @@ const baseState: ThreadActionMenuState = {
 };
 
 describe("buildThreadActionMenuItems", () => {
+  it("keeps context copying available to read-only clients", () => {
+    const copyItems = buildThreadActionMenuItems({ ...baseState, canOperate: false }).find(
+      (item) => item.id === "copy",
+    );
+    expect(copyItems?.disabled).not.toBe(true);
+    for (const id of ["copy-thread-link", "copy-thread-markdown", "copy-thread-handoff"]) {
+      const item = copyItems?.children?.find((candidate) => candidate.id === id);
+      expect(item).toBeDefined();
+      expect(item?.disabled).not.toBe(true);
+    }
+  });
   it.each([false, true])(
     "disables both lifecycle directions without permission (reversed: %s)",
     (reversed) => {
