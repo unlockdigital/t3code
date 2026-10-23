@@ -30,6 +30,25 @@ const baseState: DesktopUpdateState = {
 };
 
 describe("desktop update button state", () => {
+  it("guides an older development desktop shell without masking a packaged feed failure", () => {
+    const legacy = {
+      ...baseState,
+      enabled: false,
+      status: "disabled" as const,
+      message: "Automatic updates are not available because no update feed is configured.",
+    };
+    expect(getDesktopUpdateIdleTooltip(legacy, true)).toEqual({
+      title: "Source Updates",
+      detail:
+        "Source build: review releases and prepare fork updates in Settings → Upstream Updates.",
+    });
+    expect(getDesktopUpdateIdleTooltip(legacy, false).title).toBe("Updates unavailable");
+    expect(getDesktopUpdateIdleTooltip({ ...legacy, installationKind: "packaged" }, true)).toEqual({
+      title: "Updates unavailable",
+      detail: legacy.message,
+    });
+  });
+
   it("identifies source updates separately from a packaged feed failure", () => {
     const disabled = {
       ...baseState,

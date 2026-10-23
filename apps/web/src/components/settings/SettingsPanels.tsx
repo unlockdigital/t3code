@@ -33,6 +33,7 @@ import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateDisabledReason,
+  isSourceDesktopBuild,
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
@@ -136,6 +137,7 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
 };
 
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+const isDevelopmentDesktopShell = isElectron && import.meta.env.DEV;
 function AboutVersionTitle() {
   const updateState = useDesktopUpdateState();
   return (
@@ -172,7 +174,7 @@ function DesktopSourceUpdateButton() {
 
 function AboutUpstreamShortcut() {
   const updateState = useDesktopUpdateState();
-  if (updateState?.installationKind === "source") return null;
+  if (isSourceDesktopBuild(updateState, isDevelopmentDesktopShell)) return null;
   return (
     <SettingsRow
       title="Upstream Updates"
@@ -325,7 +327,8 @@ function AboutVersionSection() {
   const description =
     action === "download" || action === "install"
       ? "Update available."
-      : (getDesktopUpdateDisabledReason(updateState) ?? "Current version of the application.");
+      : (getDesktopUpdateDisabledReason(updateState, isDevelopmentDesktopShell) ??
+        "Current version of the application.");
 
   return (
     <>
@@ -334,7 +337,7 @@ function AboutVersionSection() {
         title={<AboutVersionTitle />}
         description={description}
         control={
-          updateState?.installationKind === "source" ? (
+          isSourceDesktopBuild(updateState, isDevelopmentDesktopShell) ? (
             <DesktopSourceUpdateButton />
           ) : (
             <Tooltip>
@@ -355,7 +358,7 @@ function AboutVersionSection() {
           )
         }
       />
-      {hasDesktopBridge && updateState?.installationKind !== "source" ? (
+      {hasDesktopBridge && !isSourceDesktopBuild(updateState, isDevelopmentDesktopShell) ? (
         <SettingsRow
           {...searchableSetting("update-track")}
           description="Use stable releases or nightly builds. Switch back anytime."

@@ -149,18 +149,34 @@ export function canCheckForUpdate(state: DesktopUpdateState | null): boolean {
   );
 }
 
+export function isSourceDesktopBuild(
+  state: Pick<DesktopUpdateState, "installationKind"> | null,
+  developmentDesktopShell = false,
+): boolean {
+  // A source desktop can keep agents running while its Vite client advances.
+  // Explicit package metadata remains authoritative for release builds.
+  return (
+    state?.installationKind === "source" ||
+    (state?.installationKind === undefined && developmentDesktopShell)
+  );
+}
+
 export function getDesktopUpdateDisabledReason(
-  state: Pick<DesktopUpdateState, "enabled" | "status" | "message"> | null,
+  state: Pick<DesktopUpdateState, "enabled" | "status" | "message" | "installationKind"> | null,
+  developmentDesktopShell = false,
 ): string | null {
+  if (isSourceDesktopBuild(state, developmentDesktopShell))
+    return "Source build: review releases and prepare fork updates in Settings → Upstream Updates.";
   if (!state || (state.enabled && state.status !== "disabled")) return null;
   return state.message?.trim() || "Automatic updates are not available in this build.";
 }
 
 export function getDesktopUpdateIdleTooltip(
   state: Pick<DesktopUpdateState, "enabled" | "status" | "message" | "installationKind"> | null,
+  developmentDesktopShell = false,
 ) {
-  const disabledReason = getDesktopUpdateDisabledReason(state);
-  if (state?.installationKind === "source")
+  const disabledReason = getDesktopUpdateDisabledReason(state, developmentDesktopShell);
+  if (isSourceDesktopBuild(state, developmentDesktopShell))
     return { title: "Source Updates", detail: disabledReason };
   return disabledReason
     ? { title: "Updates unavailable", detail: disabledReason }

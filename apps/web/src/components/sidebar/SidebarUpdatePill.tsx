@@ -21,6 +21,7 @@ import {
   getDesktopUpdateIdleTooltip,
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
+  isSourceDesktopBuild,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
@@ -231,7 +232,7 @@ function SidebarUpdateControl() {
   const run = useUpdateEverythingRun();
   const isRunningEverything = run !== null;
   const sourceUpdates =
-    state?.installationKind === "source" &&
+    isSourceDesktopBuild(state, isElectron && import.meta.env.DEV) &&
     action === "none" &&
     !runsEverything &&
     !isRunningEverything;
@@ -248,7 +249,9 @@ function SidebarUpdateControl() {
     showCheckIcon,
   });
   const idleTooltip =
-    !showUpdateDetails && !showCheckIcon ? getDesktopUpdateIdleTooltip(state) : null;
+    !showUpdateDetails && !showCheckIcon
+      ? getDesktopUpdateIdleTooltip(state, isElectron && import.meta.env.DEV)
+      : null;
   const tooltip = runsEverything
     ? everything.summary
     : showUpdateDetails
