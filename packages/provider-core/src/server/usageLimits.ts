@@ -93,10 +93,11 @@ export function applyUsageLimitsUpdate(input: {
   }
   const unavailable =
     previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
+  const { creditBalance: _previousCredits, ...previousLimits } = previous ?? {};
   return {
-    ...previous,
+    ...previousLimits,
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
-    creditBalance: credits,
+    ...(credits !== undefined ? { creditBalance: credits } : {}),
     ...(unavailable !== undefined ? { unavailable } : {}),
   };
 }
