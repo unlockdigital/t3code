@@ -253,16 +253,23 @@ const makeReplayAdapter = (
 
 const layerReplayHost = TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer));
 
-const layerReplayHostWithAttachments = (attachmentsDir: string) =>
+const layerReplayHostWithAttachments = (
+  attachmentsDir: string | undefined,
+  canRetryTurn?: () => Effect.Effect<boolean>,
+) =>
   Layer.effect(
     ProviderHost.ProviderHost,
     Effect.gen(function* () {
       const host = yield* ProviderHost.ProviderHost;
       return ProviderHost.ProviderHost.of({
         ...host,
-        paths: { ...host.paths, attachmentsDir },
+        paths: { ...host.paths, attachmentsDir: attachmentsDir ?? host.paths.attachmentsDir },
+        ...(canRetryTurn === undefined ? {} : { canRetryTurn }),
         resolveAttachmentPath: (attachment) =>
-          resolveAttachmentPath({ attachmentsDir, attachment }),
+          resolveAttachmentPath({
+            attachmentsDir: attachmentsDir ?? host.paths.attachmentsDir,
+            attachment,
+          }),
       });
     }),
   ).pipe(Layer.provide(layerReplayHost));
@@ -287,6 +294,7 @@ export const openCode2ReplayRuntime = (
     readonly replayGate?: ProviderReplayGate;
     readonly attachmentsDir?: string;
     readonly fileSystem?: FileSystem.FileSystem;
+    readonly canRetryTurn?: () => Effect.Effect<boolean>;
   },
 ) =>
   Effect.gen(function* () {
@@ -317,9 +325,9 @@ export const openCode2ReplayRuntime = (
   }).pipe(
     Effect.provide(
       Layer.mergeAll(
-        options?.attachmentsDir === undefined
+        options?.attachmentsDir === undefined && options?.canRetryTurn === undefined
           ? layerReplayHost
-          : layerReplayHostWithAttachments(options.attachmentsDir),
+          : layerReplayHostWithAttachments(options?.attachmentsDir, options?.canRetryTurn),
         IdAllocator.layer,
         NodeServices.layer,
       ),

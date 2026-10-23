@@ -4,6 +4,7 @@ import {
   type OrchestrationV2AppThread,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
   type RuntimeMode,
   type ServerProvider,
   ThreadId,
@@ -18,6 +19,9 @@ import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as ModelRouting from "../privacy/ModelRouting.ts";
+import { privateProviderConfigHash } from "../privacy/modelRoutingPolicy.ts";
 
 const projectId = ProjectId.make("project:runtime-policy");
 const providerInstanceId = ProviderInstanceId.make("codex");
@@ -76,6 +80,13 @@ const providerInstanceFor = (instanceId: ProviderInstanceId) =>
 
 const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
   Layer.provide(
+    Layer.mock(ModelRouting.ModelRouting)({
+      backgroundModel: (input) =>
+        Effect.succeed({ modelSelection: input.modelSelection, private: false }),
+    }),
+  ),
+  Layer.provideMerge(ServerSettings.layerTest()),
+  Layer.provide(
     Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
       getInstance: (instanceId) => Effect.succeed(providerInstanceFor(instanceId)),
       listInstances: Effect.succeed([]),
@@ -108,6 +119,77 @@ const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
 );
 
 it.layer(layerTest)("RuntimePolicyV2", (it) => {
+  it.effect("runs Tinfoil in a Standard thread with its existing Auto permissions", () =>
+    Effect.gen(function* () {
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("synthetic-tinfoil");
+      const selection = { instanceId, model: "tinfoil/kimi-k3" };
+      const current = yield* settings.updateSettings({
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("opencode"),
+            enabled: true,
+            config: { privateInference: "tinfoil", serverUrl: "" },
+          },
+        },
+      });
+      yield* settings.updateSettings({
+        privateModelRoute: {
+          modelSelection: selection,
+          providerConfigHash: privateProviderConfigHash(current, selection),
+        },
+      });
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const result = yield* policy.resolve({
+        thread: makeThread({ now, worktreePath: null, runtimeMode: "auto" }),
+        modelSelection: selection,
+      });
+      assert.equal(result.runtimeMode, "auto");
+      assert.equal(result.cwd, "/project-root");
+    }),
+  );
+  it.effect("blocks a cloud runtime for a thread with a durable private route", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const thread = {
+        ...makeThread({ now, worktreePath: null }),
+        privateModelRoute: {
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("opencode-tinfoil"),
+            model: "tinfoil/kimi-k3",
+          },
+          providerConfigHash: "a".repeat(64),
+        },
+      };
+      const result = yield* Effect.result(policy.resolve({ thread, modelSelection }));
+      assert.equal(result._tag, "Failure");
+    }),
+  );
+
+  it.effect(
+    "blocks a cloud runtime for an existing thread after its project requires privacy",
+    () =>
+      Effect.gen(function* () {
+        const settings = yield* ServerSettings.ServerSettingsService;
+        yield* settings.updateSettings({
+          projectSettingsOverrides: { [projectId]: { modelPrivacy: "private" } },
+        });
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const now = yield* DateTime.now;
+        const result = yield* Effect.result(
+          policy.resolve({
+            thread: makeThread({ now, worktreePath: "/worktree" }),
+            modelSelection,
+          }),
+        );
+        yield* settings.updateSettings({
+          projectSettingsOverrides: { [projectId]: { modelPrivacy: "standard" } },
+        });
+        assert.equal(result._tag, "Failure");
+      }),
+  );
   it.effect("runs a mode the provider does not offer in Supervised", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;

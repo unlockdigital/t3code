@@ -1277,6 +1277,10 @@ function ProviderInstanceRow({
   readonly actions: ProviderInstanceRowActions;
 }) {
   const allProjects = useProjects();
+  const supportsTinfoilBilling = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+    (config) => config?.environment.capabilities.tinfoilBilling === true,
+  );
   const acpProjects =
     mode === "editor" && liveProvider?.driver === "acpRegistry"
       ? allProjects.filter((project) => project.environmentId === environmentId)
@@ -1315,6 +1319,7 @@ function ProviderInstanceRow({
   return (
     <ProviderInstanceCard
       environmentId={environmentId}
+      supportsTinfoilBilling={supportsTinfoilBilling}
       acpProjects={acpProjects}
       projectOverride={projectOverride}
       onAcceptUrlAuth={

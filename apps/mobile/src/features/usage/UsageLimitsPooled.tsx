@@ -4,7 +4,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import {
   ANTIGRAVITY_USAGE_SCOPE,
   collectLimitAccounts,
-  collectExternalUsageLinks,
+  collectUsageAccounts,
   collectLimitNotices,
   collectLimitPools,
   usageWindowDetails,
@@ -12,9 +12,15 @@ import {
   formatResetsIn,
   paceRemainingPercent,
   remainingPercent,
+  prepaidCreditPercent,
   type LimitAccount,
   type LimitPoolWindow,
+  type UsageAccount,
+  usageAccountWindows,
+  usageAccountHistory,
+  type UsageAccountHistoryEnvironment,
 } from "@t3tools/shared/usageLimits";
+import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { Fragment, type ReactNode, useId, useState } from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";
 import { Defs, Path, Pattern, Rect, Svg } from "react-native-svg";
@@ -34,6 +40,7 @@ const DRIVER_LABEL: Partial<Record<string, string>> = {
   antigravity: "Google / Antigravity",
 };
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
+const NO_HISTORY: readonly UsageAccountHistoryEnvironment[] = [];
 
 function accountName(account: LimitAccount) {
   if (account.displayName) return account.displayName;
@@ -289,16 +296,278 @@ function PoolWindowCard({
   );
 }
 
+function UsageAccountRow({
+  account,
+  now,
+  historyEnvironments,
+  showEnvironment,
+}: {
+  readonly account: UsageAccount;
+  readonly now: number;
+  readonly historyEnvironments: readonly UsageAccountHistoryEnvironment[];
+  readonly showEnvironment: boolean;
+}) {
+  const [details, setDetails] = useState(false);
+  const history = usageAccountHistory(account, historyEnvironments);
+  const limits = account.limits;
+  const windows = usageAccountWindows(account, now);
+  const summaryLimit = limits?.creditBalance || account.category === "API key" ? 2 : 3;
+  const summaryWindows =
+    windows.length <= summaryLimit
+      ? windows
+      : [...windows]
+          .sort(
+            (left, right) =>
+              Number(right.kind === "monthly") - Number(left.kind === "monthly") ||
+              remainingPercent(left) - remainingPercent(right),
+          )
+          .slice(0, summaryLimit);
+  const exhaustedCount = windows.filter((window) => remainingPercent(window) === 0).length;
+  const external = limits?.externalUsage;
+  const prepaidBalance = limits?.prepaidBalance;
+  const creditPercent = prepaidCreditPercent(prepaidBalance);
+  return (
+    <View className="gap-2 rounded-lg border border-border bg-grouped-card p-3">
+      <View className="flex-row items-start gap-2">
+        {usageProviderKind(account.driver) ? (
+          <ProviderIcon provider={account.driver} instanceId={account.instanceId} size={16} />
+        ) : (
+          <SymbolView name="server.rack" size={16} tintColorClassName="accent-foreground-muted" />
+        )}
+        <View className="min-w-0 flex-1 gap-1">
+          <Text className="text-sm font-t3-medium text-foreground">{account.label}</Text>
+          <Text className="text-xs text-foreground-muted">
+            {DRIVER_LABEL[account.driver] ?? account.driver}
+            {` · ${account.category === "API key" ? "API" : account.category}`}
+            {account.status !== "Connected" ? ` · ${account.status}` : ""}
+            {exhaustedCount > 0 ? ` · ${exhaustedCount} exhausted` : ""}
+            {showEnvironment ? ` · ${account.environmentLabel}` : ""}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Details for ${account.label}`}
+          accessibilityState={{ expanded: details }}
+          className="min-h-11 min-w-11 items-center justify-center"
+          onPress={() => setDetails((value) => !value)}
+        >
+          <SymbolView
+            name={details ? "chevron.up" : "chevron.down"}
+            size={16}
+            tintColorClassName="accent-foreground-muted"
+          />
+        </Pressable>
+      </View>
+      {windows.length > 0 ? (
+        summaryWindows.map((window) => (
+          <View key={`${window.kind}:${window.id}`} className="gap-1">
+            <View className="flex-row flex-wrap items-baseline justify-between gap-2">
+              <Text className="shrink text-xs text-foreground-muted">
+                {usageWindowDetails(account.driver, window.id)?.label ??
+                  window.label.replace(/\s*·\s*Reported quota$/, "")}
+              </Text>
+              <Text className="text-base font-t3-semibold text-foreground tabular-nums">
+                {remainingPercent(window)}% left
+              </Text>
+            </View>
+          </View>
+        ))
+      ) : account.category !== "API key" ? (
+        <Text className="text-sm text-foreground-muted">
+          {account.status !== "Connected"
+            ? account.status
+            : limits?.unavailable?.reason === "probeFailed"
+              ? "Refresh to retry usage"
+              : (limits?.unavailable?.message ?? "Usage unavailable")}
+        </Text>
+      ) : null}
+      {limits?.creditBalance ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Credit details for ${account.label}`}
+          accessibilityState={{ expanded: details }}
+          onPress={() => setDetails((value) => !value)}
+          className="min-h-11 gap-1"
+        >
+          <View className="flex-row items-center gap-1">
+            <Text className="shrink text-xs text-foreground-muted">Credits remaining</Text>
+            <SymbolView
+              name={details ? "chevron.up" : "chevron.down"}
+              size={12}
+              tintColorClassName="accent-foreground-muted"
+            />
+          </View>
+          <Text className="text-lg font-t3-semibold text-foreground tabular-nums">
+            {limits.creditBalance.unlimited
+              ? "Unlimited"
+              : limits.creditBalance.balance !== undefined
+                ? Number(limits.creditBalance.balance).toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })
+                : limits.creditBalance.hasCredits
+                  ? "—"
+                  : "0"}
+          </Text>
+        </Pressable>
+      ) : null}
+      {account.category === "API key" ? (
+        <View className="gap-1">
+          <Text className="text-xs text-foreground-muted">
+            Credits remaining
+            {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
+          </Text>
+          <View className="flex-row flex-wrap items-baseline gap-2">
+            <Text className="text-lg font-t3-semibold text-foreground tabular-nums">
+              {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "—"}
+            </Text>
+            {creditPercent !== null ? (
+              <Text className="text-xs text-foreground-muted">
+                {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}% left
+              </Text>
+            ) : null}
+          </View>
+          {creditPercent !== null ? (
+            <View
+              accessible
+              accessibilityRole="progressbar"
+              accessibilityLabel={`Credits remaining for ${account.label}`}
+              accessibilityValue={{
+                min: 0,
+                max: 100,
+                now: creditPercent,
+                text: `${formatUsd(prepaidBalance!.remainingUsd)} remaining`,
+              }}
+              className="h-1 overflow-hidden rounded-full bg-subtle"
+            >
+              <View
+                className={
+                  creditPercent <= 10
+                    ? "h-full rounded-full bg-red-500"
+                    : "h-full rounded-full bg-foreground"
+                }
+                style={{ width: `${creditPercent}%` }}
+              />
+            </View>
+          ) : null}
+          {!prepaidBalance ? (
+            <Text className="text-xs text-foreground-muted">Balance unavailable</Text>
+          ) : null}
+        </View>
+      ) : null}
+      {details ? (
+        <View className="gap-3 border-t border-border pt-3">
+          {prepaidBalance ? (
+            <Text className="text-xs text-foreground-muted">
+              Account balance · Updated {new Date(limits!.checkedAt).toLocaleString()}. Covers all
+              account usage.
+              {prepaidBalance.totalGrantedUsd !== undefined
+                ? ` ${formatUsd(prepaidBalance.totalGrantedUsd)} in settled credits.`
+                : " Credit total unavailable."}
+            </Text>
+          ) : null}
+          {account.category === "API key" && history.state !== "ready" ? (
+            <Text className="text-xs text-foreground-muted">
+              {history.state === "shared"
+                ? "Shared history · see Cost & Tokens"
+                : history.state === "loading"
+                  ? "Loading usage…"
+                  : "No linked usage yet"}
+            </Text>
+          ) : null}
+          {windows.map((window) => (
+            <View key={`${window.kind}:${window.id}`} className="gap-1">
+              <View className="flex-row flex-wrap items-baseline justify-between gap-2">
+                <Text className="shrink text-xs text-foreground-muted">
+                  {usageWindowDetails(account.driver, window.id)?.label ??
+                    window.label.replace(/\s*·\s*Reported quota$/, "")}
+                </Text>
+                <Text className="text-base font-t3-semibold text-foreground tabular-nums">
+                  {remainingPercent(window)}% left
+                </Text>
+              </View>
+              {formatResetsIn(window, now) ? (
+                <Text className="text-xs text-foreground-muted tabular-nums">
+                  {formatResetsIn(window, now)}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+          {showEnvironment ? (
+            <Text className="text-xs text-foreground-muted">{account.environmentLabel}</Text>
+          ) : null}
+          {account.plan ? (
+            <Text className="text-xs text-foreground-muted">{account.plan}</Text>
+          ) : null}
+          {limits?.unavailable?.message ? (
+            <Text className="text-xs text-foreground-muted">{limits.unavailable.message}</Text>
+          ) : null}
+          {account.category === "API key" ? (
+            <Text className="text-xs text-foreground-muted">
+              Spend estimates cover this connection’s recorded runs.
+            </Text>
+          ) : null}
+          {history.state === "ready" && account.category === "API key" ? (
+            <>
+              <Text className="text-xs text-foreground-muted">
+                Estimated spend:{" "}
+                {history.records === 0
+                  ? "—"
+                  : history.unpriced && history.costUsd === 0
+                    ? "Unpriced"
+                    : `${formatUsd(history.costUsd)}${history.unpriced ? "+" : ""}`}
+              </Text>
+              <Text className="text-xs text-foreground-muted">
+                {history.records
+                  ? `${formatTokens(history.tokens)} tokens${history.partial ? " · Partial history" : ""}`
+                  : "No recorded activity"}
+              </Text>
+              <Text className="text-xs text-foreground-muted">
+                {history.sinceDay} – {history.untilDay}
+              </Text>
+            </>
+          ) : null}
+          {limits?.creditBalance?.hasCredits && limits.creditBalance.balance === undefined ? (
+            <Text className="text-xs text-foreground-muted">
+              The provider confirms credits are available and omits the balance and monthly
+              allotment.
+            </Text>
+          ) : null}
+          {external ? (
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Open ${external.label} for ${account.label}`}
+              className="min-h-11 justify-center"
+              onPress={() => void Linking.openURL(external.url).catch(() => undefined)}
+            >
+              <Text className="text-sm font-t3-medium text-primary">Billing</Text>
+            </Pressable>
+          ) : null}
+          {limits?.resetCredits && account.resetCreditInput ? (
+            <ResetCredits
+              environmentId={account.environmentId}
+              input={account.resetCreditInput}
+              credits={limits.resetCredits}
+              now={now}
+            />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function UsageLimitsSection({
   now,
   failedLabels,
   selectedEnvironmentIds,
   cursorPrompt,
+  historyEnvironments = NO_HISTORY,
 }: {
   readonly now: number;
   readonly failedLabels: readonly string[];
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly cursorPrompt?: ReactNode;
+  readonly historyEnvironments?: readonly UsageAccountHistoryEnvironment[];
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const selected =
@@ -307,80 +576,83 @@ export function UsageLimitsSection({
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
   const notices = collectLimitNotices(selected);
-  const externalLinks = collectExternalUsageLinks(selected);
+  const accounts = collectUsageAccounts(selected);
+  const showEnvironment = new Set(accounts.map((account) => account.environmentId)).size > 1;
+  const [showPools, setShowPools] = useState(false);
   const colors = useProviderColors();
-  const cursorPromptAt =
-    Math.max(
-      pools.findIndex((pool) => pool.driver === "codex"),
-      pools.findIndex((pool) => pool.driver === "claudeAgent"),
-    ) + 1;
   return (
-    <View className="gap-6">
-      {pools.length === 0 &&
+    <View className="gap-3">
+      <Text className="text-sm font-t3-medium text-foreground">Accounts ({accounts.length})</Text>
+      {accounts.map((account) => (
+        <UsageAccountRow
+          key={account.key}
+          account={account}
+          now={now}
+          historyEnvironments={historyEnvironments}
+          showEnvironment={showEnvironment}
+        />
+      ))}
+      {accounts.length === 0 &&
       notices.length === 0 &&
       failedLabels.length === 0 &&
-      !cursorPrompt &&
-      externalLinks.length === 0 ? (
+      !cursorPrompt ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0
             ? "Select an environment to see limits."
-            : "No provider on the selected environments reports subscription limits."}
+            : "Add a provider account in Settings to see its usage here."}
         </Text>
       ) : null}
-      {pools.map((pool, index) => {
-        const windows = displayLimitWindows(pool);
-        return (
-          <Fragment key={pool.driver}>
-            {index === cursorPromptAt ? cursorPrompt : null}
-            <View className="gap-3">
-              <View className="flex-row items-center gap-2 px-1">
-                <ProviderIcon provider={pool.driver} size={18} />
-                <Text className="text-base font-t3-medium text-foreground">
-                  {DRIVER_LABEL[pool.driver] ?? pool.driver}
-                </Text>
-              </View>
-              {pool.driver === "antigravity" ? (
-                <Text className="px-1 text-sm text-foreground-muted">
-                  {ANTIGRAVITY_USAGE_SCOPE}
-                </Text>
-              ) : null}
-              {windows.map((window) => {
-                const details = usageWindowDetails(pool.driver, window.id);
-                return (
-                  <PoolWindowCard
-                    key={`${window.kind}:${window.id}`}
-                    pool={window}
-                    color={colors[usageProviderKind(pool.driver) ?? "codex"]}
-                    now={now}
-                    environmentIds={
-                      selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds]
-                    }
-                    label={details?.label}
-                    description={details?.description}
-                  />
-                );
-              })}
-            </View>
-          </Fragment>
-        );
-      })}
-      {cursorPromptAt === pools.length ? cursorPrompt : null}
-      {externalLinks.map((link) => (
-        <View key={link.url} className="gap-3 rounded-xl border border-border-subtle p-4">
-          <Text className="text-base font-t3-medium text-foreground">{link.label}</Text>
-          <Text className="text-xs text-foreground-muted">{link.accounts.join(", ")}</Text>
-          {link.message ? (
-            <Text className="text-sm text-foreground-muted">{link.message}</Text>
-          ) : null}
-          <Pressable
-            accessibilityRole="link"
-            className="min-h-11 justify-center"
-            onPress={() => void Linking.openURL(link.url).catch(() => undefined)}
-          >
-            <Text className="text-sm font-t3-medium text-primary">Manage usage</Text>
-          </Pressable>
-        </View>
-      ))}
+      {cursorPrompt}
+      {pools.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showPools }}
+          className="min-h-11 justify-center rounded-lg border border-border-subtle px-3"
+          onPress={() => setShowPools((value) => !value)}
+        >
+          <Text className="text-sm font-t3-medium text-foreground">
+            {showPools ? "Hide" : "Show"} pooled quota details
+          </Text>
+        </Pressable>
+      ) : null}
+      {showPools
+        ? pools.map((pool) => {
+            const windows = displayLimitWindows(pool);
+            return (
+              <Fragment key={pool.driver}>
+                <View className="gap-3">
+                  <View className="flex-row items-center gap-2 px-1">
+                    <ProviderIcon provider={pool.driver} size={18} />
+                    <Text className="text-base font-t3-medium text-foreground">
+                      {DRIVER_LABEL[pool.driver] ?? pool.driver}
+                    </Text>
+                  </View>
+                  {pool.driver === "antigravity" ? (
+                    <Text className="px-1 text-sm text-foreground-muted">
+                      {ANTIGRAVITY_USAGE_SCOPE}
+                    </Text>
+                  ) : null}
+                  {windows.map((window) => {
+                    const details = usageWindowDetails(pool.driver, window.id);
+                    return (
+                      <PoolWindowCard
+                        key={`${window.kind}:${window.id}`}
+                        pool={window}
+                        color={colors[usageProviderKind(pool.driver) ?? "codex"]}
+                        now={now}
+                        environmentIds={
+                          selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds]
+                        }
+                        label={details?.label}
+                        description={details?.description}
+                      />
+                    );
+                  })}
+                </View>
+              </Fragment>
+            );
+          })
+        : null}
       {notices.length > 0 || failedLabels.length > 0 ? (
         <View
           accessible

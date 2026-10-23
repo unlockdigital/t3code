@@ -18,6 +18,10 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    privateInference: Schema.Literals(["off", "tinfoil"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("off")),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
     binaryPath: makeBinaryPathSetting("opencode").pipe(
       Schema.annotateKey({
         title: "Binary path",
@@ -56,9 +60,35 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    tinfoilAdminKey: TrimmedString.pipe(
+      secretSetting,
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Tinfoil billing admin key",
+        description:
+          "Reads this Tinfoil account’s balance and credits. Stored separately on the host.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "admin_…",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
   },
   {
     order: ["binaryPath", "serverUrl", "serverPassword"],
   },
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
+
+/** Only explicit upstream model IDs select API billing; account aliases carry no authority. */
+export function resolveOpenCodeUsageProvider(
+  settings: Pick<OpenCodeSettings, "customModels">,
+): "tinfoil" | "opencode-go" {
+  return settings.customModels.length > 0 &&
+    settings.customModels.every((model) =>
+      (typeof model === "string" ? model : model.slug).startsWith("tinfoil/"),
+    )
+    ? "tinfoil"
+    : "opencode-go";
+}

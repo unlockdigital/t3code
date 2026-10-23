@@ -263,6 +263,11 @@ describe("openCodeUsageReader", () => {
           environment: { XDG_DATA_HOME: dataHome },
           configured: true,
         },
+        {
+          id: "opencode-shared",
+          environment: { OPENCODE_DATA_DIR: instanceRoot },
+          configured: true,
+        },
       ];
       if (openCodeUsageReader.kind !== "scan") throw new Error("Expected an OpenCode scan reader");
       const sources = yield* openCodeUsageReader
@@ -285,6 +290,18 @@ describe("openCodeUsageReader", () => {
       assert.deepStrictEqual(
         sources.map((source) => source.dir).sort(),
         [defaultRoot, instanceRoot, xdgRoot].sort(),
+      );
+      assert.deepStrictEqual(
+        sources.find((source) => source.dir === defaultRoot)?.providerInstanceIds,
+        [ProviderInstanceId.make("opencode-list")],
+      );
+      assert.deepStrictEqual(
+        sources.find((source) => source.dir === instanceRoot)?.providerInstanceIds,
+        [ProviderInstanceId.make("opencode-list"), ProviderInstanceId.make("opencode-shared")],
+      );
+      assert.deepStrictEqual(
+        sources.find((source) => source.dir === xdgRoot)?.providerInstanceIds,
+        [ProviderInstanceId.make("opencode-xdg")],
       );
     }).pipe(Effect.provide(NodeServices.layer)),
   );

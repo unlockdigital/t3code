@@ -368,11 +368,17 @@ export function UsageLimitsSection({
   hiddenProviders,
   now,
   cursorPrompt,
+  density,
+  onDensityChange,
+  historyEnvironments,
 }: {
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
+  readonly density: "compact" | "comfortable";
+  readonly onDensityChange: (density: "compact" | "comfortable") => void;
+  readonly historyEnvironments: readonly import("@t3tools/shared/usageLimits").UsageAccountHistoryEnvironment[];
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const hiddenDrivers = new Set<ServerProvider["driver"]>(
@@ -404,5 +410,14 @@ export function UsageLimitsSection({
       ];
     }),
   );
-  return <UsageLimitsPooled presentations={selected} now={now} cursorPrompt={cursorPrompt} />;
+  return (
+    <UsageLimitsPooled
+      presentations={selected}
+      now={now}
+      cursorPrompt={cursorPrompt}
+      density={density}
+      onDensityChange={onDensityChange}
+      historyEnvironments={historyEnvironments}
+    />
+  );
 }

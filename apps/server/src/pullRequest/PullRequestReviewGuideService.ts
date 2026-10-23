@@ -394,6 +394,7 @@ const make = Effect.gen(function* () {
         Effect.all(
           {
             generated: textGeneration.generateReviewGuide({
+              projectId: input.projectId,
               ...reviewGuideInputFromPullRequest(detail, activity, checkout.baseCommit),
               cwd: checkout.path,
               modelSelection,
@@ -410,7 +411,7 @@ const make = Effect.gen(function* () {
     const guide: PullRequestReviewGuide = {
       headSha,
       generatedAt: yield* nowIso,
-      modelSelection,
+      modelSelection: generated.modelSelection ?? modelSelection,
       ...normalizeReviewGuide(generated, change),
     };
     yield* ownership.withPermits(1)(

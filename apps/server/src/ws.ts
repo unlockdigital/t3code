@@ -1,3 +1,7 @@
+import * as ProviderBilling from "./provider/ProviderBilling.ts";
+import type * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
+import type * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import * as PrivateHelpers from "./privacy/PrivateHelpers.ts";
 import * as UpstreamUpdates from "./upstream/UpstreamUpdates.ts";
 import * as LocalThreadHandoff from "./orchestration-v2/LocalThreadHandoff.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -104,7 +108,7 @@ import {
   HttpServerRespondable,
   HttpServerResponse,
 } from "effect/http";
-import { RpcSerialization, RpcServer } from "effect/rpc";
+import { type Rpc, type RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
@@ -547,6 +551,29 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+type WsRpcHandlerServices =
+  | Crypto.Crypto
+  | FileSystem.FileSystem
+  | OrchestrationEventStore.OrchestrationEventStore
+  | Orchestrator.OrchestratorV2
+  | Path.Path
+  | ProjectEnrichmentService.ProjectEnrichmentService
+  | ProjectFaviconResolver.ProjectFaviconResolver
+  | ProjectService.ProjectService
+  | ProjectStore.ProjectStoreV2
+  | ServerConfig.ServerConfig
+  | ServerSecretStore.ServerSecretStore
+  | SqlClient.SqlClient
+  | ThreadManagementService.ThreadManagementService
+  | TraceDiagnostics.TraceDiagnostics
+  | WorkspacePaths.WorkspacePaths;
+// A fixed service boundary keeps the growing RPC union within the compiler's instantiation limit.
+type WsRpcHandlers = {
+  readonly [Current in RpcGroup.Rpcs<typeof ServerWsRpcGroup> as Current["_tag"]]: Rpc.ToHandlerFn<
+    Current,
+    WsRpcHandlerServices
+  >;
+};
 // Replaying each intervening event costs a shell refetch; past this gap a
 // single O(active-threads) snapshot is cheaper and bounded.
 const SHELL_RESUME_MAX_GAP = 1_000;
@@ -1226,6 +1253,8 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const secretRequests = yield* SecretRequests.SecretRequests;
+      const providerBilling = yield* ProviderBilling.ProviderBilling;
+      const privateHelpers = yield* PrivateHelpers.PrivateHelpers;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -1809,7 +1838,7 @@ export const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers: WsRpcHandlers = {
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2319,6 +2348,12 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           providerMaintenanceRunner.updateProvider(input),
+        [WS_METHODS.providerConnectTinfoilBilling]: (input) =>
+          providerBilling.connectTinfoil(input),
+        [WS_METHODS.providerConfigureClaudeBilling]: (input) =>
+          providerBilling.configureClaude(input),
+        [WS_METHODS.privacyGetHelperState]: (input) => privateHelpers.state(input.threadId),
+        [WS_METHODS.privacyDecideHelper]: (input) => privateHelpers.decide(input),
         [WS_METHODS.providerConsumeResetCredit]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {
@@ -3133,7 +3168,7 @@ export const layerWsRpc = (
               Stream.concat(Stream.make(latest), changes),
             ),
           ),
-      });
+      };
       return handlers;
     }),
   );

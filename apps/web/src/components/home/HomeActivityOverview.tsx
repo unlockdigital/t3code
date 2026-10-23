@@ -6,6 +6,7 @@ import {
   CircleAlertIcon,
   LayersIcon,
   EllipsisIcon,
+  MailIcon,
 } from "lucide-react";
 import {
   useDeferredValue,
@@ -30,7 +31,6 @@ import { useEnvironments, useEnvironmentProviders } from "../../state/environmen
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useUiStateStore } from "../../uiStateStore";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import { hasUnseenCompletion, resolveThreadLastVisitedAt } from "../Sidebar.logic";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { AgentElapsed } from "../chat/AgentElapsed";
 import { Button } from "../ui/button";
@@ -49,12 +49,14 @@ import { cn } from "../../lib/utils";
 const GROUPS = [
   { kind: "attention", title: "Needs attention", hint: "Your next move" },
   { kind: "working", title: "Working", hint: "Agents in motion" },
-  { kind: "review", title: "Ready to revisit", hint: "Unsettled work" },
+  { kind: "unread", title: "Unread", hint: "Completed and waiting for you" },
+  { kind: "done", title: "Done", hint: "Read and resting" },
 ] as const;
 const STATUS_COLOR: Record<HomeActivityKind, string> = {
   attention: "text-warning",
   working: "text-info",
-  review: "text-success",
+  unread: "text-info",
+  done: "text-muted-foreground",
 };
 
 export function HomeActivity() {
@@ -65,7 +67,7 @@ export function HomeActivity() {
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
   const now = useNowMinute();
-  const liveRows = buildHomeActivity(threads, `${now}:00.000Z`);
+  const liveRows = buildHomeActivity(threads, `${now}:00.000Z`, localVisits);
   const [held, setHeld] = useState<{ rows: Activity[]; at: string } | null>(null);
   const rows = held?.rows ?? liveRows;
   const [renaming, setRenaming] = useState<Activity | null>(null);
@@ -144,12 +146,8 @@ export function HomeActivity() {
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
-          <p className="text-2xs font-medium uppercase tracking-widest text-muted-foreground">
-            Workspace activity
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            Your agents, at a glance.
-          </h1>
+          <p className="text-xs text-muted-foreground">Workspace activity</p>
+          <h1 className="text-lg font-medium">Your agents at a glance</h1>
           <p className="max-w-xl text-sm text-muted-foreground">
             Your agents work here. Open a thread when it needs your attention.
           </p>
@@ -158,15 +156,10 @@ export function HomeActivity() {
           {connected} {connected === 1 ? "environment" : "environments"} connected
         </p>
       </div>
-      <div className="grid grid-cols-3 divide-x divide-border/60 rounded-xl border border-border/60 bg-muted/20 py-4">
+      <div className="grid grid-cols-2 gap-y-4 rounded-xl border border-border/60 bg-muted/20 py-4 sm:grid-cols-4 sm:divide-x">
         {GROUPS.map((group) => (
           <div key={group.kind} className="space-y-1 px-4 sm:px-6">
-            <p
-              className={cn(
-                "text-2xl font-medium tabular-nums tracking-tight",
-                STATUS_COLOR[group.kind],
-              )}
-            >
+            <p className={cn("text-lg font-medium tabular-nums", STATUS_COLOR[group.kind])}>
               {rows.filter((row) => row.kind === group.kind).length}
             </p>
             <p className="text-xs text-muted-foreground">{group.title}</p>
@@ -188,8 +181,7 @@ export function HomeActivity() {
           <EmptyHeader>
             <EmptyTitle>A quiet workspace</EmptyTitle>
             <EmptyDescription>
-              Unsettled threads appear here as you work. Start or reopen a thread from the sidebar;
-              your saved drafts stay ready.
+              Your threads appear here as you work. Start a thread from the sidebar to get going.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -208,10 +200,6 @@ export function HomeActivity() {
                   const environment = environments.find(
                     (entry) => entry.environmentId === row.thread.environmentId,
                   );
-                  const visitedAt = resolveThreadLastVisitedAt(
-                    row.thread.lastVisitedAt,
-                    localVisits[row.key],
-                  );
                   return (
                     <ActivityRow
                       key={row.key}
@@ -229,7 +217,6 @@ export function HomeActivity() {
                       }
                       environment={environment?.label ?? row.thread.environmentId}
                       online={environment?.connection.phase === "connected"}
-                      unread={hasUnseenCompletion({ ...row.thread, lastVisitedAt: visitedAt })}
                     />
                   );
                 })}
@@ -265,7 +252,6 @@ function ActivityRow({
   project,
   environment,
   online,
-  unread,
   pausedAt,
   onOpen,
   onMenu,
@@ -275,7 +261,6 @@ function ActivityRow({
   readonly project: string;
   readonly environment: string;
   readonly online: boolean;
-  readonly unread: boolean;
   readonly pausedAt: string | null;
   readonly onOpen: (event: MouseEvent) => void;
   readonly onMenu: (position: { x: number; y: number }, at: string) => void;
@@ -299,7 +284,13 @@ function ActivityRow({
     .replace(/\s+/g, " ")
     .slice(0, 180);
   const Icon =
-    row.kind === "attention" ? CircleAlertIcon : row.kind === "working" ? ActivityIcon : CheckIcon;
+    row.kind === "attention"
+      ? CircleAlertIcon
+      : row.kind === "working"
+        ? ActivityIcon
+        : row.kind === "unread"
+          ? MailIcon
+          : CheckIcon;
   return (
     <li className={cn(styles.enter, "flex items-center pr-2")}>
       <Link
@@ -328,6 +319,7 @@ function ActivityRow({
           {current ? (
             <ProviderInstanceIcon
               driverKind={current.driver}
+              instanceId={current.instanceId}
               displayName={providerName}
               accentColor={current.accentColor}
               showBadge={false}
@@ -339,7 +331,7 @@ function ActivityRow({
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">{row.thread.title}</span>
-            {unread && (
+            {row.unread && (
               <span
                 className="size-1.5 shrink-0 rounded-full bg-info"
                 aria-label="Unread completion"
@@ -371,6 +363,7 @@ function ActivityRow({
                     >
                       <ProviderInstanceIcon
                         driverKind={provider.driver}
+                        instanceId={provider.instanceId}
                         displayName={provider.displayName ?? provider.instanceId}
                         size="compact"
                         showBadge={false}

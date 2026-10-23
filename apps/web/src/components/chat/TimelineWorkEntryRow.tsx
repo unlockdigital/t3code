@@ -1,3 +1,4 @@
+import { ProviderRetryStatus } from "./ProviderRetryStatus";
 import { WorkLogDetails, WorkLogRow } from "./WorkLog";
 import {
   getQuestionAnswerPreview,
@@ -198,6 +199,12 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     setExpanded(next);
   };
   const failureItem = workEntry.projectedItem?.item;
+  if (
+    failureItem?.type === "error" &&
+    failureItem.status === "running" &&
+    failureItem.retry !== undefined
+  )
+    return <ProviderRetryStatus item={failureItem} />;
   if (failureItem?.type === "error" && failureItem.status === "failed") {
     const warning = failureItem.failure.class === "usage_limit";
     const resetAt = failureItem.failure.resetAt;

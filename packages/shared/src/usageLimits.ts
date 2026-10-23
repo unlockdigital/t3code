@@ -9,6 +9,8 @@ import {
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
   type UsageLimitSourceSnapshots,
+  type UsageSummary,
+  type ServerProviderPrepaidBalance,
 } from "@t3tools/contracts";
 
 import * as DateTime from "effect/DateTime";
@@ -87,6 +89,189 @@ export type LimitPresentations = ReadonlyMap<
     } | null;
   }
 >;
+
+export interface UsageAccount {
+  readonly key: string;
+  readonly driver: ServerProvider["driver"];
+  readonly instanceId?: ProviderInstanceId;
+  readonly label: string;
+  readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
+  readonly category: "API key" | "Subscription" | "Connection" | "Usage hub";
+  readonly status: "Connected" | "Checking" | "Setup required" | "Sign-in required" | "Unavailable";
+  readonly plan: string | undefined;
+  readonly limits: Omit<ServerProviderUsageLimits, "credentialFingerprint"> | undefined;
+  readonly resetCreditInput: ProviderConsumeResetCreditInput | undefined;
+}
+
+function accountDisplayLimits(limits: ServerProviderUsageLimits | undefined) {
+  if (!limits) return undefined;
+  return {
+    checkedAt: limits.checkedAt,
+    windows: limits.windows,
+    unavailable: limits.unavailable,
+    externalUsage: limits.externalUsage,
+    resetCredits: limits.resetCredits,
+    creditBalance: limits.creditBalance,
+    prepaidBalance: limits.prepaidBalance,
+  };
+}
+
+export function prepaidCreditPercent(balance: ServerProviderPrepaidBalance | undefined) {
+  return balance?.totalGrantedUsd
+    ? Math.max(0, Math.min(100, (balance.remainingUsd / balance.totalGrantedUsd) * 100))
+    : null;
+}
+
+/** Connection coverage is independent of quota support and recorded activity. */
+export function collectUsageAccounts(presentations: LimitPresentations): readonly UsageAccount[] {
+  const accounts: UsageAccount[] = [];
+  for (const [environmentId, presentation] of presentations) {
+    const environmentLabel = presentation.entry.target.label;
+    for (const provider of presentation.serverConfig?.providers ?? []) {
+      if (!provider.enabled) continue;
+      const limits = accountDisplayLimits(provider.usageLimits);
+      const authType = provider.auth.type?.toLowerCase().replace(/[^a-z]/g, "");
+      const category =
+        authType === "apikey" || authType === "api"
+          ? "API key"
+          : provider.auth.subscriptionSharing || limits?.windows.length
+            ? "Subscription"
+            : "Connection";
+      const status = !provider.installed
+        ? "Setup required"
+        : provider.auth.status === "unauthenticated"
+          ? "Sign-in required"
+          : provider.status === "error" || !isProviderAvailable(provider)
+            ? "Unavailable"
+            : provider.auth.status === "authenticated"
+              ? "Connected"
+              : "Checking";
+      accounts.push({
+        key: JSON.stringify([environmentId, "provider", provider.instanceId]),
+        driver: provider.driver,
+        instanceId: provider.instanceId,
+        label: provider.displayName?.trim() || String(provider.driver),
+        environmentId,
+        environmentLabel,
+        category,
+        status,
+        plan: provider.auth.label,
+        limits,
+        resetCreditInput: { instanceId: provider.instanceId },
+      });
+    }
+    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
+      source.accounts.forEach((account, index) => {
+        accounts.push({
+          key: JSON.stringify([environmentId, "hub", source.id, account.id, account.workspaceId]),
+          driver: account.driver,
+          label: `${source.label} · Account ${index + 1}`,
+          environmentId,
+          environmentLabel,
+          category: "Usage hub",
+          status: source.error ? "Unavailable" : "Connected",
+          plan: account.plan,
+          limits: accountDisplayLimits(account.usageLimits),
+          resetCreditInput: account.usageLimits.resetCredits?.nextCreditId
+            ? {
+                sourceId: source.id,
+                accountId: account.id,
+                creditId: account.usageLimits.resetCredits.nextCreditId,
+              }
+            : undefined,
+        });
+      });
+    }
+  }
+  return accounts;
+}
+
+export function usageAccountWindows(
+  account: UsageAccount,
+  now: number,
+): readonly ServerProviderUsageWindow[] {
+  const limits = account.limits;
+  if (!limits || limits.unavailable) return [];
+  return limits.windows
+    .map((window) => poolMember({ driver: account.driver, limits }, window, now).window)
+    .sort((left, right) =>
+      account.driver === "antigravity"
+        ? Number(right.id.startsWith("gemini-")) - Number(left.id.startsWith("gemini-")) ||
+          right.id.localeCompare(left.id, undefined, { numeric: true })
+        : 0,
+    );
+}
+
+export interface UsageAccountHistoryEnvironment {
+  readonly environmentId: EnvironmentId;
+  readonly summary: UsageSummary | null;
+  readonly isPending: boolean;
+  readonly error?: string | null;
+}
+
+export type UsageAccountHistory =
+  | { readonly state: "loading" | "unavailable" | "unassigned" | "shared" }
+  | {
+      readonly state: "ready";
+      readonly tokens: number;
+      readonly costUsd: number;
+      readonly records: number;
+      readonly partial: boolean;
+      readonly unpriced: boolean;
+      readonly readAt: string;
+      readonly sinceDay: string;
+      readonly untilDay: string;
+    };
+
+/** Configured profile provenance is explicit; it establishes local activity, never billed key spend. */
+export function usageAccountHistory(
+  account: UsageAccount,
+  environments: readonly UsageAccountHistoryEnvironment[],
+): UsageAccountHistory {
+  const environment = environments.find((item) => item.environmentId === account.environmentId);
+  if (!environment || !account.instanceId) return { state: "unavailable" };
+  const summary = environment.summary;
+  if (!summary) return { state: environment.isPending ? "loading" : "unavailable" };
+  const sources = summary.sources.filter((source) =>
+    source.providerInstanceIds?.includes(account.instanceId!),
+  );
+  if (!sources.length) return { state: "unassigned" };
+  if (sources.some((source) => source.providerInstanceIds!.length > 1)) return { state: "shared" };
+  const readable = sources.filter(
+    (source) => source.status === "ok" || source.status === "partial",
+  );
+  if (!readable.length) return { state: "unavailable" };
+  const buckets = summary.buckets.filter((bucket) =>
+    readable.some(
+      (source) =>
+        source.fingerprint.provider === bucket.provider &&
+        source.fingerprint.resolvedHomePath === bucket.sourcePath,
+    ),
+  );
+  return {
+    state: "ready",
+    tokens: buckets.reduce(
+      (sum, bucket) =>
+        sum +
+        bucket.totals.uncachedInputTokens +
+        bucket.totals.cachedInputTokens +
+        bucket.totals.cacheCreationTokens +
+        bucket.totals.outputTokens,
+      0,
+    ),
+    costUsd: buckets.reduce((sum, bucket) => sum + bucket.costUsd, 0),
+    records: buckets.reduce((sum, bucket) => sum + bucket.records, 0),
+    partial:
+      Boolean(environment.error) ||
+      readable.length !== sources.filter((source) => source.status !== "missing").length ||
+      readable.some((source) => source.status === "partial" || source.refreshing),
+    unpriced: buckets.some((bucket) => bucket.unpricedRecords > 0),
+    readAt: summary.readAt,
+    sinceDay: summary.sinceDay,
+    untilDay: summary.untilDay,
+  };
+}
 
 export function collectExternalUsageLinks(presentations: LimitPresentations) {
   const links = new Map<
@@ -308,9 +493,12 @@ export function collectLimitNotices(presentations: LimitPresentations): readonly
   const notices: string[] = [];
   for (const presentation of presentations.values()) {
     const environmentLabel = presentation.entry.target.label;
-    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
-      if (provider.usageLimits?.unavailable?.reason === "unsupported") continue;
-      const notice = provider.usageLimits ? limitsNotice(provider.usageLimits) : null;
+    for (const provider of presentation.serverConfig?.providers ?? []) {
+      if (!provider.enabled || !provider.installed || !isProviderAvailable(provider)) continue;
+      if (provider.usageLimits?.externalUsage && provider.auth.status === "authenticated") continue;
+      const notice = provider.usageLimits
+        ? limitsNotice(provider.usageLimits)
+        : "Subscription limits are unavailable for this provider.";
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.push(`${label(environmentLabel, name)}: ${notice}`);
     }
@@ -428,7 +616,11 @@ function poolKey(driver: ServerProvider["driver"], window: ServerProviderUsageWi
   return driver === "codex" ? window.kind : `${window.kind}:${window.id}`;
 }
 
-function poolMember(account: LimitAccount, reported: ServerProviderUsageWindow, now: number) {
+function poolMember<Account extends Pick<LimitAccount, "driver" | "limits">>(
+  account: Account,
+  reported: ServerProviderUsageWindow,
+  now: number,
+) {
   const spentWeekly =
     reported.kind === "session"
       ? account.limits.windows.find(
@@ -535,7 +727,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
 
 export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   if (limits.unavailable?.reason === "unsupported") {
-    return limits.unavailable.message ?? "This account has no subscription limits.";
+    return limits.unavailable.message ?? "Subscription limits are unavailable for this account.";
   }
   if (limits.unavailable?.reason === "probeFailed") {
     return limits.unavailable.message ?? "Could not read limits.";

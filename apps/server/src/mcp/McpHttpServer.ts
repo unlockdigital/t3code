@@ -71,6 +71,14 @@ import {
   DeviceStandardToolkit,
 } from "./toolkits/device/tools.ts";
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
+import * as SkillLibrary from "../skills/SkillLibrary.ts";
+import { skillToolkit } from "./toolkits/skills/tools.ts";
+import * as SkillHandlers from "./toolkits/skills/handlers.ts";
+import * as WorkflowReview from "../workflowReview/WorkflowReview.ts";
+import { WorkflowReviewToolkit } from "./toolkits/workflowReview/tools.ts";
+import { PrivacyToolkit } from "./toolkits/privacy/tools.ts";
+import * as PrivacyHandlers from "./toolkits/privacy/handlers.ts";
+import * as WorkflowReviewHandlers from "./toolkits/workflowReview/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
@@ -1030,6 +1038,24 @@ const layerEnvironmentToolkit = toolkitRegistration(
   EnvironmentHandlers.layer,
 ).pipe(Layer.provide(ThreadCommandExecutor.layer));
 
+// One stable schema per server lifetime lets native harnesses cache or defer it.
+// Skill bodies and resource files are read only by an explicit tool invocation.
+export const layerSkillToolkit = Layer.unwrap(
+  Effect.gen(function* () {
+    const library = yield* SkillLibrary.SkillLibrary;
+    if (library.catalog.length === 0) return Layer.empty;
+    const toolkit = skillToolkit(library.catalog);
+    return toolkitRegistration(toolkit, SkillHandlers.handlers(toolkit));
+  }),
+).pipe(Layer.provide(SkillLibrary.layer));
+
+export const layerWorkflowReviewToolkit = toolkitRegistration(
+  WorkflowReviewToolkit,
+  WorkflowReviewHandlers.layer,
+).pipe(Layer.provide(WorkflowReview.layer), Layer.provide(SkillLibrary.layer));
+
+export const layerPrivacyToolkit = toolkitRegistration(PrivacyToolkit, PrivacyHandlers.layer);
+
 const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
 export const layerAttachmentToolkit = toolkitRegistration(
@@ -1072,6 +1098,9 @@ export const layer = Layer.mergeAll(
   layerAttachmentToolkit,
   layerProjectRegistration,
   layerEnvironmentToolkit,
+  layerSkillToolkit,
+  layerWorkflowReviewToolkit,
+  layerPrivacyToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

@@ -53,14 +53,24 @@ export function applyUsageLimitsUpdate(input: {
   readonly checkedAt: string;
 }): ServerProviderUsageLimits | undefined {
   const { previous, update } = input;
-  if (update.windows.length === 0 || previous?.unavailable?.reason === "unsupported") {
+  if (
+    (update.windows.length === 0 && update.creditBalance === undefined) ||
+    previous?.unavailable?.reason === "unsupported"
+  ) {
     return previous;
   }
   const merged = new Map(previous?.windows.map((window) => [window.id, window] as const));
   // Codex sends this notification beside every token-usage tick, almost
   // always with unchanged numbers. Decide "nothing changed" per window on
   // the way through so the no-op case never allocates a new snapshot.
-  let changed = false;
+  const credits =
+    update.creditBalance === undefined
+      ? previous?.creditBalance
+      : (update.creditBalance ?? undefined);
+  let changed =
+    credits?.hasCredits !== previous?.creditBalance?.hasCredits ||
+    credits?.unlimited !== previous?.creditBalance?.unlimited ||
+    credits?.balance !== previous?.creditBalance?.balance;
   for (const window of update.windows) {
     const existing = merged.get(window.id);
     const next: ServerProviderUsageWindow = {
@@ -83,9 +93,11 @@ export function applyUsageLimitsUpdate(input: {
   }
   const unavailable =
     previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
+  const { creditBalance: _previousCredits, ...previousLimits } = previous ?? {};
   return {
+    ...previousLimits,
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
-    ...(previous?.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
+    ...(credits !== undefined ? { creditBalance: credits } : {}),
     ...(unavailable !== undefined ? { unavailable } : {}),
   };
 }
@@ -106,6 +118,9 @@ export function resolveUsageLimitsAfterProbe(input: {
   readonly probed: ServerProviderUsageLimits | undefined;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
+  if (probed?.unavailable?.reason === "probeFailed" && published?.prepaidBalance) {
+    return { ...published, unavailable: probed.unavailable };
+  }
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     return published;
   }
@@ -116,7 +131,13 @@ export function resolveUsageLimitsAfterProbe(input: {
     !probed.unavailable &&
     Date.parse(published.checkedAt) > Date.parse(probed.checkedAt)
   ) {
-    return { ...probed, checkedAt: published.checkedAt, windows: published.windows };
+    return {
+      ...probed,
+      checkedAt: published.checkedAt,
+      windows: published.windows,
+      creditBalance: published.creditBalance,
+      prepaidBalance: published.prepaidBalance,
+    };
   }
   return probed;
 }

@@ -2336,6 +2336,7 @@ export const make = Effect.gen(function* () {
     const threadContext = yield* readThreadContext(threadId);
 
     const generated = yield* textGeneration.generatePrContent({
+      ...(threadId === undefined ? {} : { threadId }),
       cwd,
       baseBranch,
       headBranch: headContext.headBranch,

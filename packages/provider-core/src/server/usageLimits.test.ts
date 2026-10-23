@@ -21,6 +21,45 @@ const weekly = {
 const published = { checkedAt, windows: [session, weekly] };
 
 describe("applyUsageLimitsUpdate", () => {
+  it("updates and clears credit balances while preserving other account metadata", () => {
+    const previous = {
+      ...published,
+      creditBalance: { hasCredits: true, unlimited: false, balance: "10" },
+      externalUsage: { label: "Billing", url: "https://example.invalid/billing" },
+    };
+    const next = applyUsageLimitsUpdate({
+      previous,
+      checkedAt,
+      update: { windows: [], creditBalance: { hasCredits: true, unlimited: false, balance: "9" } },
+    });
+    expect(next?.creditBalance?.balance).toBe("9");
+    expect(next?.externalUsage).toEqual(previous.externalUsage);
+    expect(
+      applyUsageLimitsUpdate({
+        previous: next,
+        checkedAt,
+        update: {
+          windows: [],
+          creditBalance: { hasCredits: true, unlimited: false, balance: "9" },
+        },
+      }),
+    ).toBe(next);
+    expect(
+      applyUsageLimitsUpdate({
+        previous: next,
+        checkedAt,
+        update: { windows: [], creditBalance: null },
+      })?.creditBalance,
+    ).toBeUndefined();
+    expect(
+      applyUsageLimitsUpdate({
+        previous,
+        checkedAt,
+        update: { windows: [{ ...session, usedPercent: 55 }] },
+      })?.creditBalance,
+    ).toEqual(previous.creditBalance);
+  });
+
   it("returns the published object itself when no window moved", () => {
     // Codex repeats the same numbers beside every token-usage tick; the
     // ingestion path relies on identity to skip the publish.
@@ -120,5 +159,48 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published, probed: failed })).toBe(published);
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
+  });
+});
+
+describe("prepaid balance probe freshness", () => {
+  const balance = {
+    ...published,
+    windows: [],
+    prepaidBalance: { remainingUsd: 67.2, totalGrantedUsd: 96 },
+  };
+  it("keeps the original balance timestamp and exposes repeated refresh failures", () => {
+    const probed = {
+      checkedAt: "2026-09-03T12:05:00Z",
+      windows: [],
+      unavailable: { reason: "probeFailed" as const, message: "Billing unavailable" },
+    };
+    const first = resolveUsageLimitsAfterProbe({ published: balance, probed });
+    expect(first?.prepaidBalance).toEqual(balance.prepaidBalance);
+    expect(first?.checkedAt).toBe(balance.checkedAt);
+    expect(first?.unavailable).toEqual(probed.unavailable);
+    const repeated = resolveUsageLimitsAfterProbe({
+      published: first,
+      probed: { ...probed, checkedAt: "2026-09-03T12:10:00Z" },
+    });
+    expect(repeated?.prepaidBalance).toEqual(balance.prepaidBalance);
+    expect(repeated?.checkedAt).toBe(balance.checkedAt);
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published: first,
+        probed: { ...probed, unavailable: { reason: "unsupported" } },
+      })?.prepaidBalance,
+    ).toBeUndefined();
+  });
+  it("keeps the newer balance when an older probe completes after it", () => {
+    const next = resolveUsageLimitsAfterProbe({
+      published: balance,
+      probed: {
+        ...balance,
+        checkedAt: "2026-09-03T11:00:00Z",
+        prepaidBalance: { remainingUsd: 96, totalGrantedUsd: 96 },
+      },
+    });
+    expect(next?.prepaidBalance?.remainingUsd).toBe(67.2);
+    expect(next?.checkedAt).toBe(balance.checkedAt);
   });
 });

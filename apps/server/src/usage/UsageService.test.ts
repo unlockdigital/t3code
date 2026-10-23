@@ -78,7 +78,9 @@ const WINDOW: UsageSummaryInput = {
 
 const setup = Effect.gen(function* () {
   const home = yield* Effect.promise(() =>
-    NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "usage-service-test-")),
+    NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "usage-service-test-")).then((path) =>
+      NodeFSP.realpath(path),
+    ),
   );
   yield* Effect.addFinalizer(() =>
     Effect.promise(() => NodeFSP.rm(home, { recursive: true, force: true })),
@@ -1250,6 +1252,17 @@ describe("UsageService", () => {
         expectedRoots.sort(),
       );
       assert.deepStrictEqual(
+        sources.find((source) => source.fingerprint.resolvedHomePath === instanceRoot)
+          ?.providerInstanceIds,
+        [ProviderInstanceId.make("opencode-work")],
+      );
+      assert.deepStrictEqual(
+        sources
+          .find((source) => source.fingerprint.resolvedHomePath === xdgRoot)
+          ?.providerInstanceIds?.toSorted(),
+        [ProviderInstanceId.make("opencode-xdg")],
+      );
+      assert.deepStrictEqual(
         summary.buckets
           .filter((bucket) => bucket.provider === "opencode")
           .map((bucket) => bucket.totals.outputTokens)
@@ -1491,6 +1504,12 @@ describe("UsageService", () => {
 
       const sources = summary.sources.filter((source) => source.status === "ok");
       assert.strictEqual(sources.length, 4);
+      assert.deepStrictEqual(
+        sources
+          .find((source) => source.fingerprint.provider === "codex")
+          ?.providerInstanceIds?.toSorted(),
+        ["codex-alias", "codex-shadow", "codex-work"],
+      );
       assert.strictEqual(
         sources.reduce((sum, source) => sum + source.scannedFiles, 0),
         4,

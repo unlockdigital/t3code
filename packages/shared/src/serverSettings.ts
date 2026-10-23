@@ -273,12 +273,17 @@ function mergeProjectSettingsOverridesPatch(
   const next = new Map(Object.entries(current));
   for (const [projectId, entry] of Object.entries(patch)) {
     if (entry === null) {
-      next.delete(projectId);
+      if (current[projectId]?.modelPrivacy === "private")
+        next.set(projectId, { modelPrivacy: "private" });
+      else next.delete(projectId);
       continue;
     }
     const storedProviderInstances = current[projectId]?.providerInstances;
     next.set(projectId, {
       ...entry,
+      ...(entry.modelPrivacy === undefined && current[projectId]?.modelPrivacy !== undefined
+        ? { modelPrivacy: current[projectId]!.modelPrivacy }
+        : {}),
       ...(Object.hasOwn(entry, "providerInstances") || storedProviderInstances === undefined
         ? {}
         : { providerInstances: storedProviderInstances }),
@@ -402,6 +407,7 @@ export function applyServerSettingsPatch(
     usageModelAliases: usageModelAliasesPatch,
     // Entry replacement: deepMerge would keep keys the client meant to clear.
     projectSettingsOverrides: projectSettingsOverridesPatch,
+    privateModelRoute: privateModelRoutePatch,
     projectAgentBrowserAccessOverrides: _legacyBrowserAccess,
     projectAutoPullOverrides: _legacyAutoPull,
     projectScriptOverrides: _legacyScripts,
@@ -491,6 +497,7 @@ export function applyServerSettingsPatch(
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
+    ...(privateModelRoutePatch === undefined ? {} : { privateModelRoute: privateModelRoutePatch }),
     favorites,
     providerModelPreferences: nextModelPreferences,
     ...(worktreeCleanupPatch === undefined

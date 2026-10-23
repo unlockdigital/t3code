@@ -1,3 +1,4 @@
+import { ProviderRetryStatus } from "./ProviderRetryStatus";
 import { WorkLogButton, WorkLogList, WorkLogRow } from "./WorkLog";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import {
@@ -489,6 +490,13 @@ export function LiveWorkEntryTimelineRow({
 }) {
   const ctx = use(TimelineRowCtx);
   const threadTarget = useThreadReadTarget(row.entry, ctx.activeThreadEnvironmentId);
+  const retryItem = row.entry.projectedItem?.item;
+  if (
+    retryItem?.type === "error" &&
+    retryItem.status === "running" &&
+    retryItem.retry !== undefined
+  )
+    return <ProviderRetryStatus item={retryItem} />;
   const questionHeading = row.entry.questionAnswer
     ? getQuestionTextPreview(row.entry.questionAnswer)
     : "";

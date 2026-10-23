@@ -56,6 +56,7 @@ export const layer = (
           changes: Stream.empty,
           subscribe: Effect.succeed(Stream.empty),
         },
+        canRetryTurn: () => Effect.succeed(true),
         shouldRunBackgroundWork: () => Effect.succeed(options.runBackgroundWork ?? true),
         resolveAttachmentPath: (attachment) => path.join(attachmentsDir, attachment.id),
         credentials: (namespace, bindingId) =>

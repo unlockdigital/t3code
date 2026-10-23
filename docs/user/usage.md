@@ -78,9 +78,31 @@ the dialog.
 
 ## Track subscription limits
 
-**Usage → Limits** pools every subscription account it can see per provider, so with several Codex
-or Claude accounts across your enabled environments and hubs you read one number per window rather than a
-list. Each window card shows how much of the pool is left and a bar with one segment per account,
+**Usage → Limits** shows a named row for every enabled provider connection on the selected
+environments, including API-key accounts and accounts awaiting setup or usage data. New connections
+appear automatically. API rows show estimated cost when the profile belongs to one connection;
+recorded tokens appear in the account details. On web and desktop, the selected history period applies to this
+ticker, which refreshes once a minute while Limits is visible. **Cost** and **Tokens** include
+recorded sessions. Local history shared by several connections remains combined in those totals.
+Provider billing links give account-wide charges and prepaid balances; standard Anthropic workspace
+keys provide inference access, while organization billing APIs require administrative access.
+
+Codex cards show provider-reported usage credits separately from quota-reset credits when available. A provider can report that credits exist
+without disclosing their balance. Google cards show each Gemini model's reported allowance and
+reset independently of the shared Claude/GPT allowance. Expand additional quotas to see every model.
+
+Tinfoil connections configured with Tinfoil-only model IDs show recorded API spend and token counts
+from their OpenCode profile. Account-wide Tinfoil billing reports require a separate admin key.
+The billing link opens the Tinfoil dashboard; local estimates cover activity recorded in this profile.
+
+Account rows keep balances, key allowances, and exhausted-quota counts visible. Expand **Details**
+to see all reported allowances, reset times, billing links, and available quota resets. Selecting
+**Credits remaining** also expands those details. Web and desktop use smaller type and spacing in
+**Compact** mode. Choose **Comfortable** for more space; the choice is saved for that browser.
+
+Expand **Pooled quota details** to compare combined subscription allowances. Several Codex or Claude
+accounts across your enabled environments and hubs contribute to one number per window. Each
+window card shows how much of the pool is left and a bar with one segment per account,
 kept in the same column across windows. Accounts are ordered by their next 5-hour refill, soonest
 first. For an account with no weekly quota left, this is when its session becomes usable again.
 The first available window is used when no account reports a 5-hour limit. A gap means the
@@ -93,7 +115,7 @@ Claude resets are not available when the server runs on macOS, where Claude keep
 Keychain. On narrow screens, numbered rows below
 the bar show each account's quota, countdown, and credits. Tap a row to open its details.
 
-The same account signed in on more than one environment, or reported by a hub as well, counts once.
+In pooled summaries, the same account signed in on more than one environment, or reported by a hub as well, counts once.
 Filter with the environment dropdown to see what a single machine has.
 
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
@@ -113,8 +135,8 @@ anything. The command is offered only for providers that appear under **Usage �
 
 OpenCode Go reports its session, weekly, and monthly allowance when OpenCode runs locally in
 the environment. T3 cannot report limits for external OpenCode servers because their credentials
-belong to the remote server. Limits need an OpenCode Go API key, or an OpenCode Console connected
-in OpenCode with an API key. A Console browser sign-in alone does not report them. You can also add
+belong to the remote server. Limits use the selected public OpenCode Console connection,
+including its browser sign-in, or an OpenCode Go API key. You can also add
 your Go API key as `OPENCODE_API_KEY` in the OpenCode instance's **Environment variables**, then
 refresh provider status. Cursor reports
 its monthly allowance, including separate Auto and API usage, using the CLI login or
@@ -125,6 +147,14 @@ a custom Cursor endpoint, use an explicit token or file-based CLI login for limi
 Grok reports the remaining subscription allowance and reset time for its current billing period
 after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custom authentication
 or endpoint configurations do not report subscription limits.
+
+Tinfoil accounts read their prepaid balance through the billing API. In the OpenCode account’s
+provider settings, add a **Tinfoil billing admin key** for the same personal account or organization.
+Billing requires an unscoped admin key; inference keys cannot read balances. T3 stores the key
+separately on the host and uses read-only billing requests. The percentage compares remaining
+balance with settled purchases and granted credits. Pending top-ups are excluded. If the credit
+history is unavailable, T3 shows the live dollar balance while leaving the percentage unavailable.
+Recorded spend remains in Details and the Cost view.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.

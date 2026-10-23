@@ -5,15 +5,21 @@ import {
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
-import { resolveSidebarThreadStatus } from "../Sidebar.logic";
+import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  hasUnseenCompletion,
+  resolveSidebarThreadStatus,
+  resolveThreadLastVisitedAt,
+} from "../Sidebar.logic";
 
 type Thread = EnvironmentThreadShell;
-export type HomeActivityKind = "attention" | "working" | "review";
+export type HomeActivityKind = "attention" | "working" | "unread" | "done";
 export interface HomeActivity {
   readonly key: string;
   readonly thread: Thread;
   readonly members: readonly Thread[];
   readonly kind: HomeActivityKind;
+  readonly unread: boolean;
   readonly label: string;
   readonly startedAt: string | null;
   readonly completedAt: string | null;
@@ -24,9 +30,14 @@ const keyOf = (thread: Thread) => scopedThreadKey(scopeThreadRef(thread.environm
 const needsAttention = (thread: Thread) =>
   ["approval", "input", "failed", "limited"].includes(resolveSidebarThreadStatus(thread));
 const doingWork = (thread: Thread) =>
-  threadRuntimeIsActive(thread.runtime) || thread.pendingBackgroundTasks.length > 0;
+  threadRuntimeIsActive(thread.runtime) ||
+  backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks);
 
-export function buildHomeActivity(threads: readonly Thread[], now: string): HomeActivity[] {
+export function buildHomeActivity(
+  threads: readonly Thread[],
+  now: string,
+  localVisits: Readonly<Record<string, string>> = {},
+): HomeActivity[] {
   const visible = threads.filter(
     (thread) => thread.archivedAt === null && thread.deletedAt === null,
   );
@@ -58,19 +69,25 @@ export function buildHomeActivity(threads: readonly Thread[], now: string): Home
   }
   const rows: HomeActivity[] = [];
   for (const [key, { thread, members }] of groups) {
+    if (thread.settledOverride === "settled") continue;
     const active = members.filter(
       (member) =>
         doingWork(member) || (member.settledOverride !== "settled" && needsAttention(member)),
     );
-    if (thread.settledOverride === "settled" && active.length === 0) continue;
     if (effectiveSnoozed(thread, { now }) && active.length === 0) continue;
     const attention = active.find(needsAttention);
     const working = active.filter(doingWork);
+    const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localVisits[key]);
+    const unread =
+      Number.isFinite(Date.parse(thread.latestRun?.completedAt ?? "")) &&
+      (!lastVisitedAt || hasUnseenCompletion({ ...thread, lastVisitedAt }));
     const kind: HomeActivityKind = attention
       ? "attention"
       : working.length > 0
         ? "working"
-        : "review";
+        : unread
+          ? "unread"
+          : "done";
     const attentionStatus = attention ? resolveSidebarThreadStatus(attention) : null;
     const label =
       attentionStatus === "approval"
@@ -85,11 +102,13 @@ export function buildHomeActivity(threads: readonly Thread[], now: string): Home
                 ? thread.blockedOnThreadWait
                   ? "Waiting for agents"
                   : "Working"
-                : thread.hasActionableProposedPlan
-                  ? "Plan ready"
-                  : thread.latestRun?.completedAt
-                    ? "Done"
-                    : "Ready";
+                : kind === "unread"
+                  ? "Unread"
+                  : thread.hasActionableProposedPlan
+                    ? "Plan ready"
+                    : thread.latestRun?.completedAt
+                      ? "Done"
+                      : "Ready";
     const starts = (
       working.length === 0
         ? [
@@ -125,6 +144,7 @@ export function buildHomeActivity(threads: readonly Thread[], now: string): Home
       thread,
       members,
       kind,
+      unread,
       label,
       startedAt,
       completedAt:
@@ -133,7 +153,7 @@ export function buildHomeActivity(threads: readonly Thread[], now: string): Home
       nativeAgentCount,
     });
   }
-  const rank: Record<HomeActivityKind, number> = { attention: 0, working: 1, review: 2 };
+  const rank: Record<HomeActivityKind, number> = { attention: 0, working: 1, unread: 2, done: 3 };
   return rows.sort(
     (a, b) =>
       rank[a.kind] - rank[b.kind] ||

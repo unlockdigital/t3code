@@ -440,6 +440,10 @@ export interface ProjectionStoreV2Shape {
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2AppThread, ProjectionStoreV2Error>;
+  readonly getPrivateModelRoutingThreads: Effect.Effect<
+    ReadonlyArray<OrchestrationV2AppThread>,
+    ProjectionStoreV2Error
+  >;
   readonly getLimitRecoveryCandidates: (options: {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
@@ -1576,6 +1580,12 @@ export function threadShellFromProjection(
     title: projection.thread.title,
     providerInstanceId: projection.thread.providerInstanceId,
     modelSelection: projection.thread.modelSelection,
+    ...(projection.thread.privateModelRoute === undefined
+      ? {}
+      : {
+          privateModelRoute: projection.thread.privateModelRoute,
+          privateHelpers: projection.thread.privateHelpers,
+        }),
     runtimeMode: projection.thread.runtimeMode,
     interactionMode: projection.thread.interactionMode,
     branch: projection.thread.branch,
@@ -1835,6 +1845,12 @@ function shellFromState(input: {
     title: input.state.thread.title,
     providerInstanceId: input.state.thread.providerInstanceId,
     modelSelection: input.state.thread.modelSelection,
+    ...(input.state.thread.privateModelRoute === undefined
+      ? {}
+      : {
+          privateModelRoute: input.state.thread.privateModelRoute,
+          privateHelpers: input.state.thread.privateHelpers,
+        }),
     runtimeMode: input.state.thread.runtimeMode,
     interactionMode: input.state.thread.interactionMode,
     branch: input.state.thread.branch,
@@ -1902,6 +1918,31 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
   ProjectionStoreV2,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const privateRoutes = yield* Ref.make<{
+      loaded: boolean;
+      threads: ReadonlyArray<OrchestrationV2AppThread>;
+    }>({ loaded: false, threads: [] });
+    const rememberPrivateThread = (thread: OrchestrationV2AppThread) =>
+      Ref.update(privateRoutes, (current) => ({
+        ...current,
+        threads: [...current.threads.filter((entry) => entry.id !== thread.id), thread],
+      }));
+    const getPrivateModelRoutingThreads = Effect.gen(function* () {
+      const cached = yield* Ref.get(privateRoutes);
+      if (cached.loaded) return cached.threads;
+      const rows =
+        yield* sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_threads WHERE json_type(payload_json, '$.privateModelRoute') = 'object'`;
+      const loaded = yield* Effect.forEach(rows, (row) => decodeThreadPayload(row.payload_json));
+      // Merge concurrent committed/committing events over the initial read, preserving stronger restrictions.
+      const result = yield* Ref.updateAndGet(privateRoutes, (current) => ({
+        loaded: true,
+        threads: [
+          ...loaded.filter((thread) => !current.threads.some((entry) => entry.id === thread.id)),
+          ...current.threads,
+        ],
+      }));
+      return result.threads;
+    }).pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
 
     // For run upserts: a snapshot without `path` keeps the value another event recorded there.
     const keepRecordedRunField = (payload: Statement.Fragment, path: string) => sql`
@@ -6483,11 +6524,24 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         .pipe(Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })));
 
     return {
-      apply,
+      apply: (event) =>
+        apply(event).pipe(
+          Effect.tap(() =>
+            "payload" in event &&
+            typeof event.payload === "object" &&
+            event.payload !== null &&
+            "privateModelRoute" in event.payload &&
+            event.payload.privateModelRoute !== undefined &&
+            "modelSelection" in event.payload
+              ? rememberPrivateThread(event.payload as OrchestrationV2AppThread)
+              : Effect.void,
+          ),
+        ),
       getShellSnapshot,
       readShellSnapshot,
       getThreadShell,
       getThread,
+      getPrivateModelRoutingThreads,
       getSettlementCandidates,
       getThreadsWithPullRequests,
       getThreadWorktreePaths,
@@ -6640,6 +6694,13 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 left.id.localeCompare(right.id),
             );
         },
+      ),
+      getPrivateModelRoutingThreads: Ref.get(replayState).pipe(
+        Effect.map((state) =>
+          [...state.projections.values()]
+            .map(({ thread }) => thread)
+            .filter((thread) => thread.privateModelRoute !== undefined),
+        ),
       ),
       getThreadWorktreePaths: (options) =>
         Ref.get(replayState).pipe(

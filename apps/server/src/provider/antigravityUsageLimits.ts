@@ -58,6 +58,7 @@ const Models = Schema.Struct({
     Schema.String,
     Schema.Struct({
       modelProvider: Schema.optional(Schema.String),
+      displayName: Schema.optional(Schema.String),
       quotaInfo: Schema.optional(Quota),
       weeklyQuotaInfo: Schema.optional(Quota),
     }),
@@ -142,10 +143,16 @@ function modelWindows(models: typeof Models.Type) {
       ["weekly", model.weeklyQuotaInfo],
     ] as const) {
       if (!quota) continue;
+      // ProtoJSON omits a scalar's default zero. Only a present Google model
+      // quota message with a valid reset establishes this exhausted state.
+      const normalized =
+        family === "Gemini" && quota.remainingFraction === undefined && iso(quota.resetTime)
+          ? { ...quota, remainingFraction: 0 }
+          : quota;
       const window = quotaWindow(
-        `${family.toLowerCase()}-${suffix}`,
-        `${family} · ${suffix === "weekly" ? "Weekly" : "Reported quota"}`,
-        quota,
+        `${family === "Gemini" ? modelId : family.toLowerCase()}-${suffix}`,
+        `${family === "Gemini" ? model.displayName?.trim() || modelId : family} · ${suffix === "weekly" ? "Weekly" : "Reported quota"}`,
+        normalized,
         suffix === "weekly" ? "weekly" : "other",
         suffix === "weekly" ? 7 * 24 * 60 : undefined,
       );
@@ -282,11 +289,14 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     const summary = yield* fetchWindows("retrieveUserQuotaSummary", (response) =>
       decodeSummary(response).pipe(Effect.map(summaryWindows)),
     );
-    const windows = summary.length
-      ? summary
-      : yield* fetchWindows("fetchAvailableModels", (response) =>
-          decodeModels(response).pipe(Effect.map(modelWindows)),
-        );
+    const models = yield* fetchWindows("fetchAvailableModels", (response) =>
+      decodeModels(response).pipe(Effect.map(modelWindows)),
+    );
+    const hasSharedThirdParty = summary.some((window) => window.id.startsWith("3p-"));
+    const windows = [
+      ...summary,
+      ...models.filter((window) => !hasSharedThirdParty || window.id.startsWith("gemini-")),
+    ];
     if (windows.length === 0) {
       return makeUnavailableUsageLimits({
         checkedAt,

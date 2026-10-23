@@ -108,6 +108,7 @@ describe("resolveThreadProviderInstance", () => {
     expect(
       resolveThreadProviderInstance(serverConfigs.get(environmentId)?.providers, thread),
     ).toMatchObject({
+      instanceId: "codex_work",
       driverKind: "codex",
       displayName: "Codex Work",
       showBadge: true,

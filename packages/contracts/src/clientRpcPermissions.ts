@@ -6,6 +6,7 @@ import {
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
   AuthSettingsWriteScope,
+  AuthProvidersManageScope,
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
@@ -14,6 +15,10 @@ import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
+  [WS_METHODS.privacyGetHelperState]: AuthOrchestrationReadScope,
+  [WS_METHODS.privacyDecideHelper]: AuthOrchestrationOperateScope,
+  [WS_METHODS.providerConnectTinfoilBilling]: AuthProvidersManageScope,
+  [WS_METHODS.providerConfigureClaudeBilling]: AuthProvidersManageScope,
   [WS_METHODS.serverUpstream]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverCreateLocalThreadHandoff]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverRemoveLocalThreadHandoff]: AuthOrchestrationOperateScope,

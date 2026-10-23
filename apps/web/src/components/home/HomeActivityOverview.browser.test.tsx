@@ -123,3 +123,35 @@ it("opens the thread menu on a double-click without navigating to or reading the
   expect(screen.router?.state.location.pathname).toBe("/home");
   await act(() => dismiss());
 });
+
+it("moves completed work to Unread and Done while its preview server keeps running", async () => {
+  const { working } = setup();
+  await using screen = await render(<HomeActivity />, { router: "/home" });
+  await expect.element(screen.getByRole("region", { name: "Working", exact: true })).toBeVisible();
+  const completed = {
+    ...working,
+    runtime: { ...working.runtime!, status: "completed" as const, activeRunId: null },
+    latestRun: {
+      ...working.latestRun!,
+      status: "completed" as const,
+      completedAt: "2026-10-23T12:13:00Z",
+    },
+    pendingBackgroundTasks: [{ kind: "command" as const, taskId: "preview-server" }],
+  };
+  await act(() => {
+    state.threads = [completed];
+    for (const listener of state.listeners) listener();
+  });
+  await expect
+    .element(screen.getByRole("region", { name: "Working", exact: true }))
+    .not.toBeInTheDocument();
+  await expect.element(screen.getByRole("region", { name: "Unread", exact: true })).toBeVisible();
+  await act(() => {
+    state.threads = [{ ...completed, lastVisitedAt: "2026-10-23T12:14:00Z" }];
+    for (const listener of state.listeners) listener();
+  });
+  await expect
+    .element(screen.getByRole("region", { name: "Unread", exact: true }))
+    .not.toBeInTheDocument();
+  await expect.element(screen.getByRole("region", { name: "Done", exact: true })).toBeVisible();
+});

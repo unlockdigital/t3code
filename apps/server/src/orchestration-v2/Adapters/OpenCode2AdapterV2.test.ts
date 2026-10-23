@@ -32,6 +32,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Exit from "effect/Exit";
@@ -197,7 +198,7 @@ const directoryModels = (directory: string): ReadonlyArray<ProviderReplayEntry> 
 ];
 
 const bigPickle: ModelSelection = { instanceId, model: "opencode/big-pickle" };
-const policy = (runtimeMode: "full-access" | "approval-required" = "full-access") => ({
+const policy = (runtimeMode: "full-access" | "approval-required" | "auto" = "full-access") => ({
   runtimeMode,
   interactionMode: "default" as const,
   cwd: WORK,
@@ -224,7 +225,7 @@ const providerThread = (now: DateTime.Utc): OrchestrationV2ProviderThread => ({
 const turnInput = (
   thread: OrchestrationV2ProviderThread,
   modelSelection: ModelSelection = bigPickle,
-  runtimeMode: "full-access" | "approval-required" = "full-access",
+  runtimeMode: "full-access" | "approval-required" | "auto" = "full-access",
 ) => ({
   appThread: { title: TITLE } as OrchestrationV2AppThread,
   threadId,
@@ -312,6 +313,7 @@ const resumed = (
     readonly replayGate?: ProviderReplayGate;
     readonly attachmentsDir?: string;
     readonly fileSystem?: FileSystem.FileSystem;
+    readonly canRetryTurn?: () => Effect.Effect<boolean>;
     readonly onPrompt?: (input: unknown) => void;
   },
 ) =>
@@ -334,6 +336,7 @@ const resumed = (
       ]),
       {
         ...(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem }),
+        ...(options?.canRetryTurn === undefined ? {} : { canRetryTurn: options.canRetryTurn }),
         ...(options?.onPrompt === undefined ? {} : { onPrompt: options.onPrompt }),
         ...(options?.external === undefined ? {} : { external: options.external }),
         ...(options?.replayGate === undefined ? {} : { replayGate: options.replayGate }),
@@ -577,6 +580,129 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         retryable: null,
       });
     }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "retries capacity failures on the requested backoff and continues the same session",
+    () =>
+      Effect.gen(function* () {
+        const delays = [5000, 5000, 10000, 10000, 30000, 30000, 60000, 60000];
+        const gate = makeProviderReplayGate(["ping-6", "seen-6", "ping-7", "seen-7"]);
+        const capacity = event("session.execution.failed", {
+          sessionID: SESSION,
+          error: {
+            type: "provider.overloaded",
+            message: "Selected model at capacity",
+            status: 503,
+          },
+        });
+        const { runtime, thread } = yield* resumed(
+          [
+            out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+            promptAccepted,
+            ...delays.flatMap((delay, index) => [
+              capacity,
+              ...(delay < 45000
+                ? []
+                : [
+                    event("session.execution.started", { sessionID: SESSION }, `ping-${index}`),
+                    event("session.execution.started", { sessionID: SESSION }, `seen-${index}`),
+                  ]),
+              out("session.synthetic", {
+                sessionID: SESSION,
+                text: "Continue from the last completed step after the temporary model capacity error.",
+                resume: true,
+                id: "<any>",
+              }),
+              replyData("session.synthetic", {
+                id: "msg_retry",
+                sessionID: SESSION,
+                type: "synthetic",
+                payload: { text: "Continue" },
+                time: { created: 1 },
+                delivery: "steer",
+              }),
+              event("session.execution.started", { sessionID: SESSION }),
+            ]),
+            event("session.execution.succeeded", { sessionID: SESSION }),
+          ],
+          { replayGate: gate },
+        );
+        const signals = yield* Queue.unbounded<number>();
+        const collected = yield* runtime.events.pipe(
+          Stream.tap((e) =>
+            e.type === "turn_item.updated" &&
+            e.turnItem.type === "error" &&
+            e.turnItem.status === "running"
+              ? Queue.offer(signals, e.turnItem.retry?.retryDelayMs ?? -1)
+              : e.type === "turn.terminal"
+                ? Queue.offer(signals, -1)
+                : Effect.void,
+          ),
+          Stream.takeUntil((e) => e.type === "turn.terminal"),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* runtime.startTurn(turnInput(thread));
+        for (const [index, delay] of delays.entries()) {
+          assert.equal(yield* Queue.take(signals), delay);
+          if (delay >= 45000) {
+            yield* Effect.promise(() => gate.waitForReached(`ping-${index}`));
+            yield* TestClock.adjust(30000);
+            gate.release(`ping-${index}`);
+            yield* Effect.promise(() => gate.waitForReached(`seen-${index}`));
+            gate.release(`seen-${index}`);
+            yield* TestClock.adjust(delay - 30000);
+          } else yield* TestClock.adjust(delay);
+        }
+        const events = yield* Fiber.join(collected);
+        assert.equal(events.at(-1)?.type, "turn.terminal");
+        assert.equal(events.filter((e) => e.type === "turn.terminal").length, 1);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(["stop", "model selection changed"] as const)(
+    "cancels a capacity retry on %s",
+    (reason) =>
+      Effect.gen(function* () {
+        const { runtime, thread } = yield* resumed(
+          [
+            out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+            promptAccepted,
+            event("session.execution.failed", {
+              sessionID: SESSION,
+              error: {
+                type: "provider.overloaded",
+                message: "Selected model at capacity",
+                status: 503,
+              },
+            }),
+          ],
+          { canRetryTurn: () => Effect.succeed(false) },
+        );
+        const waiting = yield* Deferred.make<void>();
+        const terminal = yield* runtime.events.pipe(
+          Stream.tap((e) =>
+            e.type === "turn_item.updated" &&
+            e.turnItem.type === "error" &&
+            e.turnItem.status === "running"
+              ? Deferred.succeed(waiting, undefined)
+              : Effect.void,
+          ),
+          Stream.filter((e) => e.type === "turn.terminal"),
+          Stream.runHead,
+          Effect.forkScoped,
+        );
+        yield* runtime.startTurn(turnInput(thread));
+        yield* Deferred.await(waiting);
+        if (reason === "stop")
+          yield* runtime.interruptTurn({
+            providerThread: thread,
+            providerTurnId: yield* providerTurnId,
+          });
+        yield* TestClock.adjust(5000);
+        assert.equal(Option.getOrUndefined(yield* Fiber.join(terminal))?.status, "interrupted");
+      }).pipe(Effect.scoped),
   );
 
   it.effect("ends the turn when its terminal event is one this build cannot decode", () =>
@@ -1903,6 +2029,83 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       assert.equal(request?.nativeRequestRef?.nativeId, shellAsk.data.id);
       yield* runtime.respondToRuntimeRequest({ requestId: request!.id, decision: "accept" });
       assert.equal((yield* Fiber.join(terminal))?.status, "completed");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("automatically approves a literal shell read using its full tool input", () =>
+    Effect.gen(function* () {
+      const tool = {
+        sessionID: SESSION,
+        assistantMessageID: "msg_assistant",
+        id: "call_1",
+        name: "shell",
+      };
+      const command = `ls -la "${WORK}"`;
+      const { runtime, thread } = yield* resumed(
+        [
+          out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+          promptAccepted,
+          event("session.tool.input.started", tool),
+          event("session.tool.called", {
+            ...tool,
+            input: { command, workdir: WORK },
+            executed: true,
+          }),
+          event("permission.asked", { ...shellAsk.data, resources: [command] }),
+          out("permission.reply", {
+            sessionID: SESSION,
+            requestID: shellAsk.data.id,
+            decision: "once",
+          }),
+          reply("permission.reply", null),
+          event("session.execution.succeeded", { sessionID: SESSION }),
+        ],
+        {
+          supervised: true,
+          fileSystem: FileSystem.makeNoop({ realPath: (path) => Effect.succeed(path) }),
+        },
+      );
+      const terminal = yield* runtime.events.pipe(
+        Stream.filter((e) => e.type === "turn.terminal" || e.type === "runtime_request.updated"),
+        Stream.runHead,
+        Effect.forkScoped,
+      );
+      yield* runtime.startTurn(turnInput(thread, bigPickle, "auto"));
+      assert.equal(Option.getOrUndefined(yield* Fiber.join(terminal))?.type, "turn.terminal");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("automatically approves a workspace edit in Auto", () =>
+    Effect.gen(function* () {
+      const { runtime, thread } = yield* resumed(
+        [
+          out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+          promptAccepted,
+          event("permission.asked", {
+            ...shellAsk.data,
+            action: "edit",
+            resources: [WORK + "/src/index.ts"],
+          }),
+          out("permission.reply", {
+            sessionID: SESSION,
+            requestID: shellAsk.data.id,
+            decision: "once",
+          }),
+          reply("permission.reply", null),
+          event("session.execution.succeeded", { sessionID: SESSION }),
+        ],
+        {
+          supervised: true,
+          fileSystem: FileSystem.makeNoop({ realPath: (path) => Effect.succeed(path) }),
+        },
+      );
+      const terminal = yield* runtime.events.pipe(
+        Stream.filter((e) => e.type === "turn.terminal" || e.type === "runtime_request.updated"),
+        Stream.runHead,
+        Effect.forkScoped,
+      );
+      yield* runtime.startTurn(turnInput(thread, bigPickle, "auto"));
+      assert.equal(Option.getOrUndefined(yield* Fiber.join(terminal))?.type, "turn.terminal");
     }).pipe(Effect.scoped),
   );
 

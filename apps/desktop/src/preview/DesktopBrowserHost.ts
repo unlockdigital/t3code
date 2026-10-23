@@ -6,6 +6,7 @@
 import {
   DesktopBrowserCommand,
   DesktopBrowserEvent,
+  ClaudeConsoleBillingReadError,
   type DesktopBrowserEvent as DesktopBrowserEventType,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -19,9 +20,13 @@ import * as Stream from "effect/Stream";
 
 import { createCdpRelayConnection, type CdpRelayConnection } from "./CdpRelay.ts";
 import { sendPageCommand } from "./GuestInput.ts";
+import * as BrowserSession from "./BrowserSession.ts";
+import { resolvePartitionScope } from "./BrowserProfileScope.ts";
+import { readClaudeConsoleCredits } from "./ClaudeConsoleBilling.ts";
 
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(DesktopBrowserEvent));
 const decodeCommand = Schema.decodeUnknownOption(Schema.fromJsonString(DesktopBrowserCommand));
+const isBillingReadError = Schema.is(ClaudeConsoleBillingReadError);
 const lineEncoder = new TextEncoder();
 const AGENT_INPUT_COMMAND =
   /"method":"(?:Input\.|Page\.navigate"|Runtime\.(?:evaluate|callFunctionOn)")/;
@@ -73,6 +78,7 @@ export class DesktopBrowserHost extends Context.Service<
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
 export const make = Effect.gen(function* () {
+  const browserSessions = yield* Effect.serviceOption(BrowserSession.BrowserSession);
   const outbox = yield* PubSub.unbounded<DesktopBrowserEventType>();
   const pointers = yield* PubSub.sliding<{
     readonly key: DesktopBrowserTabKey;
@@ -165,6 +171,51 @@ export const make = Effect.gen(function* () {
     Effect.sync(() => {
       const command = decodeCommand(line);
       if (Option.isNone(command)) return;
+      if (command.value.type === "claudeBilling") {
+        const { requestId, environmentId, connection } = command.value;
+        runFork(
+          Effect.gen(function* () {
+            if (Option.isNone(browserSessions))
+              return yield* new ClaudeConsoleBillingReadError({ reason: "requestFailed" });
+            const { scope, persistent, namespace } = resolvePartitionScope(
+              environmentId,
+              connection.profileId,
+            );
+            if (!persistent)
+              return yield* new ClaudeConsoleBillingReadError({ reason: "invalidBinding" });
+            const session = yield* browserSessions.value
+              .getSession(scope, persistent, namespace)
+              .pipe(
+                Effect.mapError(
+                  () => new ClaudeConsoleBillingReadError({ reason: "requestFailed" }),
+                ),
+              );
+            return yield* Effect.tryPromise({
+              try: () => readClaudeConsoleCredits(connection, session.fetch.bind(session)),
+              catch: (error) =>
+                isBillingReadError(error)
+                  ? error
+                  : new ClaudeConsoleBillingReadError({ reason: "requestFailed" }),
+            });
+          }).pipe(
+            Effect.matchEffect({
+              onSuccess: (credits) =>
+                PubSub.publish(outbox, {
+                  type: "claudeBilling",
+                  requestId,
+                  result: { _tag: "Success", credits },
+                }),
+              onFailure: (error) =>
+                PubSub.publish(outbox, {
+                  type: "claudeBilling",
+                  requestId,
+                  result: { _tag: "Failure", error },
+                }),
+            }),
+          ),
+        );
+        return;
+      }
       const tab = tabs.get(keyOf(command.value));
       if (!tab) return;
       if (command.value.type === "pointer") {

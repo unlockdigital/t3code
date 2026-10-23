@@ -1,3 +1,5 @@
+import { providerRetryCountdown } from "@t3tools/shared/orchestrationV2ThreadError";
+import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
 import { Button } from "../../components/ui/Button";
 import { SubagentStatusDot } from "./SubagentStatusDot";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
@@ -870,6 +872,29 @@ function ReplCodeText({
   );
 }
 
+function ProviderRetryStatus({
+  item,
+}: {
+  item: Extract<OrchestrationV2TurnItem, { type: "error" }>;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <View className="gap-1 py-1 pl-1">
+      <Text className="text-sm font-t3-medium text-foreground-muted">
+        {providerRetryCountdown(item, now)}
+      </Text>
+      <Text className="text-xs text-foreground-muted">{item.failure.message}</Text>
+      <Text className="text-xs text-foreground-muted">
+        Continuing automatically. Use Stop to cancel.
+      </Text>
+    </View>
+  );
+}
+
 const ThreadWorkLogRow = function ThreadWorkLogRow(
   props: Omit<
     ThreadWorkLogProps,
@@ -898,6 +923,12 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
       : null,
   );
   const failureItem = row.projectedItem.item;
+  if (
+    failureItem.type === "error" &&
+    failureItem.status === "running" &&
+    failureItem.retry !== undefined
+  )
+    return <ProviderRetryStatus item={failureItem} />;
   if (failureItem.type === "error" && failureItem.status === "failed") {
     const warning = failureItem.failure.class === "usage_limit";
     const timestamp = new Date(row.createdAt);

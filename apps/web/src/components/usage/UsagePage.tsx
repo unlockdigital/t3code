@@ -304,15 +304,6 @@ export function UsagePage() {
   const refreshWindow = () => {
     if (refreshingRef.current) return;
 
-    if (showingLimits) {
-      refreshingRef.current = true;
-      setIsRefreshing(true);
-      void refreshLimits().finally(() => {
-        refreshingRef.current = false;
-        setIsRefreshing(false);
-      });
-      return;
-    }
     const nextWindow = makeWindow(windowDays, undefined, isPast24Hours ? "hour" : "day");
     if (
       nextWindow.sinceDay !== window.sinceDay ||
@@ -324,7 +315,10 @@ export function UsagePage() {
     }
     refreshingRef.current = true;
     setIsRefreshing(true);
-    void refresh(nextWindow).finally(() => {
+    void Promise.allSettled([
+      refresh(nextWindow),
+      ...(showingLimits ? [refreshLimits()] : []),
+    ]).finally(() => {
       refreshingRef.current = false;
       setIsRefreshing(false);
     });
@@ -345,6 +339,28 @@ export function UsagePage() {
   useEffect(() => {
     if (showingLimits && connectedLimitsEnvironments) autoRefreshLimits();
   }, [showingLimits, connectedLimitsEnvironments]);
+
+  const refreshRecordedActivity = useEffectEvent(() => {
+    if (document.visibilityState !== "visible" || refreshingRef.current) return;
+    refreshingRef.current = true;
+    const nextWindow = makeWindow(windowDays, undefined, isPast24Hours ? "hour" : "day");
+    if (
+      nextWindow.sinceDay !== window.sinceDay ||
+      nextWindow.untilDay !== window.untilDay ||
+      nextWindow.sinceTime !== window.sinceTime ||
+      nextWindow.untilTime !== window.untilTime
+    ) {
+      setWindowSelection({ days: windowDays, window: nextWindow });
+    }
+    void Promise.allSettled([refresh(nextWindow), refreshLimits(true)]).finally(() => {
+      refreshingRef.current = false;
+    });
+  });
+  useEffect(() => {
+    if (!showingLimits) return;
+    const timer = globalThis.window.setInterval(refreshRecordedActivity, 60_000);
+    return () => globalThis.window.clearInterval(timer);
+  }, [showingLimits]);
 
   const days = enumerateDays(shownWindow.sinceDay, shownWindow.untilDay);
   const hours =
@@ -417,7 +433,6 @@ export function UsagePage() {
           aria-label="Usage period"
           variant="segmented"
           value={[String(windowDays)]}
-          disabled={showingLimits}
           onValueChange={(next) => {
             const value = next[0];
             if (value) selectWindow(Number(value));
@@ -465,11 +480,7 @@ export function UsagePage() {
             ))}
           </SelectPopup>
         </Select>
-        <Select
-          value={String(windowDays)}
-          disabled={showingLimits}
-          onValueChange={(value) => selectWindow(Number(value))}
-        >
+        <Select value={String(windowDays)} onValueChange={(value) => selectWindow(Number(value))}>
           <SelectTrigger
             aria-label="Usage period"
             size="compact"
@@ -512,7 +523,7 @@ export function UsagePage() {
         <WorkspacePageHeader electron={isElectron}>{topbarContent}</WorkspacePageHeader>
 
         <ScrollArea className="min-h-0 flex-1">
-          <WorkspacePageContainer width="wide">
+          <WorkspacePageContainer width={showingLimits ? "expanded" : "wide"}>
             {selectedEnvironments.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {environments.length === 0
@@ -524,6 +535,9 @@ export function UsagePage() {
                 selectedEnvironmentIds={selectedEnvironmentIds}
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
+                historyEnvironments={selectedEnvironments}
+                density={preferences.density ?? "compact"}
+                onDensityChange={(density) => updatePreferences({ density })}
                 cursorPrompt={
                   cursorAccessEnvironments.length > 0 ? (
                     <CursorEnableLimits

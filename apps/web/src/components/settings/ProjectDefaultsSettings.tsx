@@ -263,6 +263,33 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       {category === "project" ? (
         <>
           {modelRow}
+          {isProjectScope &&
+          representative?.serverConfig?.environment.capabilities.privateWorkflow === true &&
+          settings.privateModelRoute !== null ? (
+            <SettingsRow
+              serverScoped
+              settingKeys={["modelPrivacy"]}
+              title="Private workflow"
+              description="Require Tinfoil for new conversations and background model requests in this project. Existing Standard conversations retain their disclosure history; start a fresh conversation."
+              control={
+                <Switch
+                  checked={settings.modelPrivacy === "private"}
+                  disabled={unavailable}
+                  onCheckedChange={(checked) =>
+                    updateSettings(
+                      checked
+                        ? {
+                            modelPrivacy: "private",
+                            defaultModelSelection: settings.privateModelRoute!.modelSelection,
+                          }
+                        : { modelPrivacy: "standard" },
+                    )
+                  }
+                  aria-label="Require private workflow for this project"
+                />
+              }
+            />
+          ) : null}
           {workspaceRow}
         </>
       ) : category === "general" ? (

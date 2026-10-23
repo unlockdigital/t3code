@@ -158,6 +158,7 @@ function HandoffEndpoint(props: {
       {showBadge && provider !== undefined ? (
         <ProviderInstanceIcon
           provider={provider.driver}
+          instanceId={props.instanceId}
           iconUrl={provider.iconUrl}
           size={14}
           displayName={resolveProviderInstanceDisplayName(provider)}
@@ -168,6 +169,7 @@ function HandoffEndpoint(props: {
       ) : (
         <ProviderIcon
           provider={provider?.driver ?? props.instanceId}
+          instanceId={props.instanceId}
           iconUrl={provider?.iconUrl}
           size={12}
         />

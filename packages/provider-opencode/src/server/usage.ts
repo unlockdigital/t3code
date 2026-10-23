@@ -1,3 +1,4 @@
+import type { ProviderInstanceId } from "@t3tools/contracts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import {
   totalTokens,
@@ -335,16 +336,21 @@ export const openCodeUsageReader: ProviderUsageReader<OpenCodeSettings, OpenCode
   kind: "scan",
   provider: "opencode",
   scan: Effect.fn("openCodeUsageReader.scan")(function* ({ instances, windowStartMs }) {
-    const roots = new Set<string>();
+    const roots = new Map<string, Set<ProviderInstanceId>>();
     for (const instance of instances) {
-      for (const root of yield* resolveOpenCodeDataDirs(instance.environment)) roots.add(root);
+      for (const root of yield* resolveOpenCodeDataDirs(instance.environment)) {
+        const bindings = roots.get(root) ?? new Set<ProviderInstanceId>();
+        if (instance.configured) bindings.add(instance.instanceId);
+        roots.set(root, bindings);
+      }
     }
     return yield* Effect.forEach(
       roots,
-      (dir) =>
+      ([dir, bindings]) =>
         readOpenCodeUsage(dir, windowStartMs).pipe(
           Effect.map((result) => ({
             dir,
+            providerInstanceIds: [...bindings],
             files: result.missing && !result.error ? null : result.files,
             status: result.error ? ("partial" as const) : ("ok" as const),
             ...(result.error ? { message: "Some OpenCode history could not be read." } : {}),

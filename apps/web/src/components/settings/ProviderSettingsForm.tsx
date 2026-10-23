@@ -19,11 +19,17 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import type { ProviderClientDefinition } from "@t3tools/provider-core/client";
+import {
+  OpenCodeSettings,
+  resolveOpenCodeUsageProvider,
+} from "@t3tools/provider-opencode/settings";
 
 export type SettingsFormDefinition = Pick<ProviderClientDefinition, "settingsSchema"> & {
   readonly driverKind?: ProviderClientDefinition["driverKind"];
 };
 import { SettingsRow } from "./settingsLayout";
+
+const decodeOpenCodeSettings = Schema.decodeUnknownOption(OpenCodeSettings);
 
 export interface ProviderSettingsFieldModel {
   readonly key: string;
@@ -85,6 +91,7 @@ function readFieldBooleanDefault(
 export function deriveProviderSettingsFields(
   definition: SettingsFormDefinition,
   value?: unknown,
+  supportsTinfoilBilling = false,
 ): ReadonlyArray<ProviderSettingsFieldModel> {
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
@@ -107,6 +114,15 @@ export function deriveProviderSettingsFields(
       const fieldSchema = definition.settingsSchema.fields[key]!;
       const formAnnotation = readProviderSettingsFormAnnotation(fieldSchema);
       if (formAnnotation.hidden) return [];
+      if (key === "tinfoilAdminKey" && definition.driverKind === "opencode") {
+        const settings = decodeOpenCodeSettings(value ?? {});
+        if (
+          !supportsTinfoilBilling ||
+          Option.isNone(settings) ||
+          resolveOpenCodeUsageProvider(settings.value) !== "tinfoil"
+        )
+          return [];
+      }
       if (isLocalAcp && key !== "source" && key !== "commandPath") return [];
 
       const annotatedTitle = readFieldAnnotationString(fieldSchema, "title");
@@ -295,6 +311,7 @@ interface ProviderSettingsFormProps {
   readonly idPrefix: string;
   readonly variant: "card" | "dialog" | "settings";
   readonly onChange: (nextConfig: Record<string, unknown> | undefined) => void;
+  readonly supportsTinfoilBilling?: boolean;
 }
 
 function ProviderSettingsSelect({
@@ -565,8 +582,9 @@ export function ProviderSettingsForm({
   idPrefix,
   variant,
   onChange,
+  supportsTinfoilBilling = false,
 }: ProviderSettingsFormProps) {
-  const fields = deriveProviderSettingsFields(definition, value);
+  const fields = deriveProviderSettingsFields(definition, value, supportsTinfoilBilling);
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
     readProviderConfigString(value, "source") === "local";

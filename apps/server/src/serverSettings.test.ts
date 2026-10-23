@@ -400,6 +400,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       );
 
       assert.equal(error.operation, "read-file");
+      assert.equal((yield* Effect.flip(serverSettings.getRoutingSettings)).operation, "read-file");
       assert.equal(error.settingsPath, config.settingsPath);
       assert.instanceOf(error.cause, Error);
       assert.equal(yield* fs.readFileString(config.settingsPath), raw);
@@ -1302,7 +1303,11 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             antigravity: { driver: "antigravity", config: { apiKey: "legacy-api-key" } },
             opencode: {
               driver: "opencode",
-              config: { serverUrl: "http://127.0.0.1:4096", serverPassword: "legacy-password" },
+              config: {
+                serverUrl: "http://127.0.0.1:4096",
+                serverPassword: "legacy-password",
+                tinfoilAdminKey: "admin_synthetic_billing_key",
+              },
             },
           },
         }),
@@ -1320,7 +1325,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         "legacy-password",
       );
       const client = ServerSettingsModule.redactServerSettingsForClient(saved);
-      for (const value of ["legacy-api-key", "legacy-password"]) {
+      for (const value of ["legacy-api-key", "legacy-password", "admin_synthetic_billing_key"]) {
         assert.notInclude(yield* fs.readFileString(config.settingsPath), value);
         assert.notInclude(JSON.stringify(client), value);
       }
@@ -1337,6 +1342,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepInclude(edited.providerInstances[opencode]?.config, {
         serverUrl: "http://127.0.0.1:4097",
         serverPassword: "legacy-password",
+        tinfoilAdminKey: "admin_synthetic_billing_key",
       });
     }).pipe(Effect.provide(layerServerSettings())),
   );

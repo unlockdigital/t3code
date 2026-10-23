@@ -1,5 +1,7 @@
 import type {
   BackgroundScope,
+  ThreadId,
+  ModelSelection,
   ChatAttachment,
   ServerSettings,
   ServerSettingsError,
@@ -43,6 +45,11 @@ export class ProviderHost extends Context.Service<
       /** Changes buffered from the moment the scoped subscription is acquired. */
       readonly subscribe: Effect.Effect<Stream.Stream<ServerSettings>, never, Scope.Scope>;
     };
+    /** Fail closed when a delayed provider retry can no longer use this selection. */
+    readonly canRetryTurn?: (
+      threadId: ThreadId,
+      selection: ModelSelection,
+    ) => Effect.Effect<boolean>;
     readonly shouldRunBackgroundWork: (scope: BackgroundScope) => Effect.Effect<boolean>;
     /**
      * Absolute path of a stored chat attachment, or `null` when its id does not

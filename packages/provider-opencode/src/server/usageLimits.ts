@@ -19,20 +19,32 @@ import {
   makeUsageLimits,
 } from "@t3tools/provider-core/server/usageLimits";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { readTinfoilUsageLimits } from "./tinfoilUsageLimits.ts";
 
 const AuthFile = Schema.Struct({ "opencode-go": Schema.optionalKey(Schema.Unknown) });
 const ApiAuth = Schema.Struct({ type: Schema.Literal("api"), key: Schema.String });
 const decodeAuthFile = Schema.decodeEffect(Schema.fromJsonString(AuthFile));
 const decodeApiAuth = Schema.decodeUnknownOption(ApiAuth);
 // OpenCode 2's database tags a stored key "key"; auth.json tags it "api".
+const StoredMetadata = Schema.Struct({
+  server: Schema.optionalKey(Schema.Unknown),
+  accountID: Schema.optionalKey(Schema.Unknown),
+});
 const StoredKey = Schema.Struct({
   type: Schema.Literal("key"),
   key: Schema.String,
-  metadata: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ server: Schema.optionalKey(Schema.Unknown) })),
-  ),
+  metadata: Schema.optionalKey(Schema.NullOr(StoredMetadata)),
 });
-const decodeStoredKey = Schema.decodeOption(Schema.fromJsonString(StoredKey));
+// A Console sign-in stores a device OAuth grant. Its access token reads the
+// same Go usage endpoint as an API key; OpenCode itself rotates it on a 401.
+const StoredOAuth = Schema.Struct({
+  type: Schema.Literal("oauth"),
+  access: Schema.String,
+  metadata: Schema.optionalKey(Schema.NullOr(StoredMetadata)),
+});
+const decodeStoredCredential = Schema.decodeOption(
+  Schema.fromJsonString(Schema.Union([StoredKey, StoredOAuth])),
+);
 const UsageWindow = Schema.Struct({
   percent: Schema.Finite,
   resetsAt: Schema.DateTimeUtcFromString,
@@ -41,9 +53,9 @@ const UsageResponse = Schema.Struct({
   usage: Schema.Struct({ rolling: UsageWindow, weekly: UsageWindow, monthly: UsageWindow }),
 });
 
-// Select before decoding so an OAuth or self-hosted connection cannot fall
-// through to another stored account. NULL-active rows predate the selection flag.
-const readConsoleApiKey = (databasePath: string) =>
+// Selecting before decoding preserves the selected account for unsupported
+// credential types and self-hosted connections. NULL-active rows predate the selection flag.
+const readConsoleCredential = (databasePath: string) =>
   Effect.try(() => {
     const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -57,7 +69,7 @@ const readConsoleApiKey = (databasePath: string) =>
         .get();
       const stored =
         typeof row?.value === "string"
-          ? Option.getOrUndefined(decodeStoredKey(row.value))
+          ? Option.getOrUndefined(decodeStoredCredential(row.value))
           : undefined;
       const server = stored?.metadata?.server;
       if (typeof server === "string") {
@@ -65,20 +77,35 @@ const readConsoleApiKey = (databasePath: string) =>
         if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
           return undefined;
       }
-      return stored?.key.trim();
+      if (stored?.type === "oauth") {
+        const key = stored.access.trim();
+        if (!key) return undefined;
+        const accountId = stored.metadata?.accountID;
+        return {
+          key,
+          ...(typeof accountId === "string" && accountId.trim() ? { accountId } : {}),
+        };
+      }
+      const key = stored?.key.trim();
+      return key ? { key } : undefined;
     } finally {
       database.close();
     }
   }).pipe(Effect.orElseSucceed(() => undefined));
 
 /** External OpenCode servers own their credentials; never read the host's account for them. */
-export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(function* (input: {
+export const readOpenCodeUsageLimits = Effect.fn("readOpenCodeUsageLimits")(function* (input: {
   readonly enabled: boolean;
   readonly serverUrl: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly usageProvider?: "tinfoil" | "opencode-go";
+  readonly tinfoilAdminKey?: string;
 }) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const unsupported = makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
+  if (input.enabled && input.usageProvider === "tinfoil") {
+    return yield* readTinfoilUsageLimits({ checkedAt, adminKey: input.tinfoilAdminKey ?? "" });
+  }
   if (!input.enabled || input.serverUrl.trim()) return unsupported;
 
   return yield* Effect.gen(function* () {
@@ -108,11 +135,12 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     // Console supplies Go credentials in OpenCode 2. Inline auth explicitly
     // overrides local credentials, including the Console connection.
     const databaseFile = env.OPENCODE_DB ?? "opencode.db";
-    const consoleKey =
+    const consoleCredential =
       env.OPENCODE_AUTH_CONTENT || databaseFile === ":memory:"
         ? undefined
-        : yield* readConsoleApiKey(path.resolve(dataHome, "opencode", databaseFile));
-    let apiKey = consoleKey || goKey;
+        : yield* readConsoleCredential(path.resolve(dataHome, "opencode", databaseFile));
+    let accountId = consoleCredential?.accountId;
+    let apiKey = consoleCredential?.key || goKey;
     if (!apiKey) return unsupported;
 
     const client = yield* HttpClient.HttpClient;
@@ -124,6 +152,7 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
       );
     let response = yield* readUsage(apiKey);
     if ((response.status === 401 || response.status === 403) && goKey && goKey !== apiKey) {
+      accountId = undefined;
       apiKey = goKey;
       response = yield* readUsage(apiKey);
     }
@@ -159,9 +188,16 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     ];
     const crypto = yield* Crypto.Crypto;
     // An unkeyed hash matches across environments without a shared secret. It
-    // permits offline guesses, but Go keys are randomly generated.
+    // permits offline guesses, but Go keys are randomly generated. OAuth
+    // credentials hash the stable account id so token rotation cannot split
+    // one account into several panel rows.
     const credentialFingerprint = yield* crypto
-      .digest("SHA-256", new TextEncoder().encode(`opencode-go\0${apiKey}`))
+      .digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          accountId ? `opencode-go\0oauth:${accountId}` : `opencode-go\0${apiKey}`,
+        ),
+      )
       .pipe(Effect.map(Hex.encode), Effect.orDie);
     return {
       ...makeUsageLimits({ checkedAt, windows }),

@@ -37,6 +37,7 @@ export function ThreadCommandSubtitle(props: {
   worktreePath: string | null;
   isCurrent: boolean;
   driverKind?: ProviderDriverKind | null;
+  instanceId?: string | undefined;
   providerDisplayName?: string | null;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
@@ -92,6 +93,7 @@ export function ThreadCommandSubtitle(props: {
           {projectLabel || branchLabel ? <CommandPaletteMetaDot /> : null}
           <ProviderInstanceIcon
             driverKind={props.driverKind}
+            instanceId={props.instanceId}
             displayName={props.providerDisplayName ?? props.driverKind}
             acpRegistryAgentId={props.acpRegistryAgentId}
             acpRegistryIconUrl={props.acpRegistryIconUrl}

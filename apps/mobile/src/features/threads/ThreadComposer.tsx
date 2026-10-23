@@ -77,6 +77,7 @@ import { ComposerEditor, type ComposerEditorHandle } from "../../components/Comp
 import { fileRoutePathSegments } from "../files/filePath";
 import { ComposerActionButton, ComposerToolbarRow } from "../../components/ComposerToolbar";
 import { ComposerModelControl } from "../../components/ComposerModelControl";
+import { PrivateControls } from "./PrivateControls";
 import {
   composerStripAttachments,
   type DraftComposerFileAttachment,
@@ -879,6 +880,16 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           Platform.OS === "android" ? themeColorWithAlpha(composerPanel, 1) : undefined,
       }}
     >
+      {props.selectedThread.source.privateModelRoute !== undefined &&
+      props.serverConfig?.environment.capabilities.privateWorkflow === true ? (
+        <PrivateControls
+          key={`${props.environmentId}:${props.selectedThread.id}`}
+          environmentId={props.environmentId}
+          threadId={props.selectedThread.id}
+          policy={props.selectedThread.source.privateHelpers ?? "review"}
+          canOperate={props.canOperateThread}
+        />
+      ) : null}
       {/* The backdrop gradient lives on a plain View: Reanimated's Animated.View
           silently drops experimental_backgroundImage on Android, which left this
           strip fully transparent and the feed text legible through the composer. */}

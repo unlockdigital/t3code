@@ -15,6 +15,7 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import { Tool, Toolkit } from "effect/ai";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import * as WorktreeMcpService from "../../WorktreeMcpService.ts";
 
 const dependencies = [
@@ -75,6 +76,7 @@ const WorktreeListTool = Tool.make("t3_worktree_list", {
   dependencies: [
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
+    ServerSettings.ServerSettingsService,
     ProjectService.ProjectService,
     GitWorkflowService.GitWorkflowService,
   ],

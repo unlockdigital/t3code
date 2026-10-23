@@ -1255,6 +1255,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             <ProviderInstanceIcon
               iconUrl={providerIconUrl}
               provider={providerInstance.driverKind}
+              instanceId={providerInstance.instanceId}
               size={14}
               displayName={providerInstance.displayName}
               accentColor={providerInstance.accentColor}

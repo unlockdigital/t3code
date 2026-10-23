@@ -47,6 +47,8 @@ import { splitTransferredFiles } from "./workspaceFileDrop";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
+  lazy,
+  Suspense,
   memo,
   type ReactNode,
   useEffect,
@@ -292,6 +294,9 @@ import { useComposerContextImport } from "./useComposerContextImport";
 import { useComposerAttachmentIntake } from "./useComposerAttachmentIntake";
 import { ComposerControlsBar } from "./ComposerControlsBar";
 import { useComposerCommandKey } from "./useComposerCommandKey";
+const PrivateControls = lazy(() =>
+  import("./PrivateControls").then((module) => ({ default: module.PrivateControls })),
+);
 
 /** Reads and disarms a paste-as-text deadline: the shortcut applies to one paste only. */
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
@@ -3899,6 +3904,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
                   {composerAttachButton}
+                  {activeThread?.source.privateModelRoute === undefined ? null : (
+                    <Suspense fallback={null}>
+                      <PrivateControls
+                        key={`${environmentId}:${activeThread.id}`}
+                        environmentId={environmentId}
+                        threadId={activeThread.id}
+                        policy={activeThread.source.privateHelpers ?? "review"}
+                        canOperate={canOperateThread}
+                      />
+                    </Suspense>
+                  )}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}

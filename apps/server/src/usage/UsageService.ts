@@ -96,6 +96,7 @@ interface TranscriptSource {
   readonly dir: string;
   readonly volumeId: string;
   readonly fileName?: string;
+  readonly providerInstanceIds: readonly ProviderInstanceId[];
 }
 
 const RatesCacheFile = Schema.Struct({
@@ -337,14 +338,22 @@ export const make = Effect.gen(function* () {
     retentionCutoffMs: number,
   ) {
     const dirs: Array<TranscriptSource> = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     for (const { driver, reader } of transcriptReaders) {
       const { provider, format } = reader;
       const directories = yield* Effect.forEach(
         yield* usageInstances(driver, settings),
-        (instance) => reader.directories(instance),
+        (instance) =>
+          reader.directories(instance).pipe(
+            Effect.map((directories) =>
+              directories.map((directory) => ({
+                ...directory,
+                providerInstanceIds: instance.configured ? [instance.instanceId] : [],
+              })),
+            ),
+          ),
       );
-      for (const { dir: directory, fileName } of directories.flat()) {
+      for (const { dir: directory, fileName, providerInstanceIds } of directories.flat()) {
         const sourceKey = provider + "\0" + directory;
         const previous = sourceCache.get(sourceKey);
         const dir = yield* fileSystem
@@ -369,13 +378,24 @@ export const make = Effect.gen(function* () {
           cacheDirty = true;
         }
         const key = `${provider}\0${dir}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const index = seen.get(key);
+        if (index !== undefined) {
+          const existing = dirs[index]!;
+          dirs[index] = {
+            ...existing,
+            providerInstanceIds: [
+              ...new Set([...existing.providerInstanceIds, ...providerInstanceIds]),
+            ],
+          };
+          continue;
+        }
+        seen.set(key, dirs.length);
         dirs.push({
           provider,
           format,
           dir,
           volumeId,
+          providerInstanceIds,
           ...(fileName === undefined ? {} : { fileName }),
         });
       }
@@ -558,6 +578,7 @@ export const make = Effect.gen(function* () {
     readonly dir: string;
     readonly volumeId: string;
     readonly hostId?: string;
+    readonly providerInstanceIds?: readonly ProviderInstanceId[];
     readonly status?: UsageSource["status"];
     readonly message?: string;
     readonly action?: UsageSource["action"];
@@ -670,7 +691,14 @@ export const make = Effect.gen(function* () {
     // time, so open files stay at `TRANSCRIPT_READ_CONCURRENCY`. The result
     // keeps this order, since aggregation keeps the first copy of a duplicate.
     const [transcripts, scanDirs] = yield* Effect.all(
-      [Effect.forEach(dirs, (dir) => scanTranscriptDir(dir, windowStartMs)), scans],
+      [
+        Effect.forEach(dirs, (dir) =>
+          scanTranscriptDir(dir, windowStartMs).pipe(
+            Effect.map((scanned) => ({ ...scanned, providerInstanceIds: dir.providerInstanceIds })),
+          ),
+        ),
+        scans,
+      ],
       { concurrency: "unbounded" },
     );
     const scanned: readonly ScannedDir[] = [...transcripts, ...scanDirs.flat()];
@@ -818,7 +846,18 @@ export const make = Effect.gen(function* () {
 
     for (const [
       index,
-      { provider, dir, volumeId, files, status, message, action, refreshing, hostId: sourceHostId },
+      {
+        provider,
+        dir,
+        volumeId,
+        files,
+        status,
+        message,
+        action,
+        refreshing,
+        providerInstanceIds,
+        hostId: sourceHostId,
+      },
     ] of scannedDirs.entries()) {
       let scannedFiles = 0;
       let skippedFiles = 0;
@@ -865,6 +904,7 @@ export const make = Effect.gen(function* () {
         message ?? (files === null ? "No transcript directory on this environment." : null);
       sources.push({
         fingerprint: { hostId: sourceHostId ?? hostId, provider, resolvedHomePath: dir, volumeId },
+        ...(providerInstanceIds?.length ? { providerInstanceIds } : {}),
         status:
           files === null && scannedFiles === 0
             ? "missing"

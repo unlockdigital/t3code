@@ -1,3 +1,5 @@
+import * as ProviderBilling from "./provider/ProviderBilling.ts";
+import * as PrivateHelpers from "./privacy/PrivateHelpers.ts";
 import * as UpstreamUpdates from "./upstream/UpstreamUpdates.ts";
 import * as LocalThreadHandoff from "./orchestration-v2/LocalThreadHandoff.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -339,6 +341,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
+  Layer.mock(ProviderBilling.ProviderBilling)({}),
+  Layer.mock(PrivateHelpers.PrivateHelpers)({}),
   Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({}),
   Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({}),
   Layer.mock(ServerSelfUpdate.ServerSelfUpdate)({}),

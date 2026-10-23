@@ -22,10 +22,28 @@ export interface CodexRateLimitSnapshot {
   readonly rateLimitReachedType?: string | null;
   readonly primary?: CodexRateLimitWindow | null;
   readonly secondary?: CodexRateLimitWindow | null;
+  readonly credits?: {
+    readonly hasCredits: boolean;
+    readonly unlimited: boolean;
+    readonly balance?: string | null;
+  } | null;
   readonly individualLimit?: {
     readonly remainingPercent: number;
     readonly resetsAt: number;
   } | null;
+}
+
+function creditBalance(snapshot: CodexRateLimitSnapshot) {
+  const credits = snapshot.credits;
+  if (!credits) return undefined;
+  const balance = credits.balance?.trim();
+  return {
+    hasCredits: credits.hasCredits,
+    unlimited: credits.unlimited,
+    ...(balance && /^\d+(?:\.\d+)?$/.test(balance) && Number.isFinite(Number(balance))
+      ? { balance }
+      : {}),
+  };
 }
 
 export interface CodexResetCreditsSummary {
@@ -129,13 +147,16 @@ export function codexRateLimitsToLimits(input: {
   readonly checkedAt: string;
 }): ServerProviderUsageLimits {
   const resetCredits = codexResetCreditsToContract(input.resetCredits);
-  const windows = codexRateLimitsToWindows(input.rateLimitsByLimitId?.codex ?? input.snapshot);
+  const snapshot = input.rateLimitsByLimitId?.codex ?? input.snapshot;
+  const windows = codexRateLimitsToWindows(snapshot);
+  const credits = creditBalance(snapshot);
   return {
     ...makeUsageLimits({
       checkedAt: input.checkedAt,
       windows,
     }),
     ...(resetCredits ? { resetCredits } : {}),
+    ...(credits ? { creditBalance: credits } : {}),
   };
 }
 
@@ -143,7 +164,15 @@ export function codexRateLimitsToUpdate(
   snapshot: CodexRateLimitSnapshot,
 ): ProviderUsageLimitsUpdate | undefined {
   const windows = codexRateLimitsToWindows(snapshot);
-  return windows.length > 0 ? { windows } : undefined;
+  if (snapshot.limitId && snapshot.limitId !== "codex") return undefined;
+  return windows.length > 0 || snapshot.credits !== undefined
+    ? {
+        windows,
+        ...(snapshot.credits !== undefined
+          ? { creditBalance: creditBalance(snapshot) ?? null }
+          : {}),
+      }
+    : undefined;
 }
 
 export function codexRateLimitsFailureMessage(error: CodexErrors.CodexAppServerError): string {
@@ -182,6 +211,7 @@ export function mergeCodexRateLimits(
       : {}),
     ...(update.primary !== undefined ? { primary: update.primary } : {}),
     ...(update.secondary !== undefined ? { secondary: update.secondary } : {}),
+    ...(update.credits !== undefined ? { credits: update.credits } : {}),
     ...(update.individualLimit !== undefined ? { individualLimit: update.individualLimit } : {}),
   };
 }

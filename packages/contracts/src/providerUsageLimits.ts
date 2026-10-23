@@ -31,6 +31,20 @@ export const ServerProviderResetCredits = Schema.Struct({
 });
 export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 
+export const ServerProviderCreditBalance = Schema.Struct({
+  hasCredits: Schema.Boolean,
+  unlimited: Schema.Boolean,
+  /** Provider credit units, distinct from currency and quota-reset credits. */
+  balance: Schema.optional(TrimmedNonEmptyString.check(Schema.isPattern(/^\d+(?:\.\d+)?$/))),
+});
+export type ServerProviderCreditBalance = typeof ServerProviderCreditBalance.Type;
+
+export const ServerProviderPrepaidBalance = Schema.Struct({
+  remainingUsd: Schema.Finite,
+  totalGrantedUsd: Schema.optional(Schema.Finite.check(Schema.isGreaterThan(0))),
+});
+export type ServerProviderPrepaidBalance = typeof ServerProviderPrepaidBalance.Type;
+
 /**
  * `unavailable` distinguishes an account that can never report windows (API
  * key, Bedrock) from a probe that failed this time, so clients can keep the
@@ -41,6 +55,8 @@ export const ServerProviderUsageLimits = Schema.Struct({
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
   credentialFingerprint: Schema.optional(TrimmedNonEmptyString),
   resetCredits: Schema.optional(ServerProviderResetCredits),
+  creditBalance: Schema.optional(ServerProviderCreditBalance),
+  prepaidBalance: Schema.optional(ServerProviderPrepaidBalance),
   externalUsage: Schema.optional(
     Schema.Struct({
       label: TrimmedNonEmptyString,
@@ -63,6 +79,7 @@ export type ServerProviderUsageLimits = typeof ServerProviderUsageLimits.Type;
  */
 export const ProviderUsageLimitsUpdate = Schema.Struct({
   windows: Schema.Array(ServerProviderUsageWindow),
+  creditBalance: Schema.optional(Schema.NullOr(ServerProviderCreditBalance)),
 });
 export type ProviderUsageLimitsUpdate = typeof ProviderUsageLimitsUpdate.Type;
 

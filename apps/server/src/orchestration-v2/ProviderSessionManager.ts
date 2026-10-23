@@ -7,6 +7,7 @@ import {
   OrchestrationV2DomainEvent,
   OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2AppThread,
   OrchestrationV2RuntimeRequest,
   ProviderInstanceId,
   ProviderSessionId,
@@ -52,6 +53,12 @@ import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import {
+  assertPrivateModelSelection,
+  isPrivateInferenceSelection,
+  projectRequiresPrivateModels,
+  ModelRoutingError,
+} from "../privacy/modelRoutingPolicy.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -328,6 +335,29 @@ export const layerWithOptions = (
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const assertRuntimeModelRoute = Effect.fn("ProviderSessionManager.assertRuntimeModelRoute")(
+        function* (
+          thread: OrchestrationV2AppThread,
+          instanceId: ProviderInstanceId,
+          selection: ModelSelection,
+        ) {
+          if (Option.isNone(serverSettings)) {
+            if (thread.privateModelRoute !== undefined)
+              return yield* new ModelRoutingError({ reason: "context-unavailable" });
+            return;
+          }
+          const settings = yield* serverSettings.value.getRoutingSettings;
+          if (
+            thread.privateModelRoute === undefined &&
+            !projectRequiresPrivateModels(settings, thread.projectId) &&
+            !isPrivateInferenceSelection(settings, selection)
+          )
+            return;
+          if (selection.instanceId !== instanceId)
+            return yield* new ModelRoutingError({ reason: "destination-blocked" });
+          yield* assertPrivateModelSelection(settings, thread, selection);
+        },
+      );
       const agentScope = yield* AgentScope;
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
@@ -1730,6 +1760,58 @@ export const layerWithOptions = (
               modelFamily: normalizeModelMetricLabel(model),
             },
           });
+        const assertTurnRoute = (input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+          assertRuntimeModelRoute(input.appThread, runtime.instanceId, input.modelSelection).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver: runtime.driver,
+                  detail: "Private model routing blocked the request",
+                  cause,
+                }),
+            ),
+          );
+        const assertThreadRoute = Effect.fn("ProviderSessionManager.assertThreadRoute")(
+          function* (threadId: ThreadId, selection?: ModelSelection) {
+            if (Option.isNone(serverSettings)) return;
+            const settings = yield* serverSettings.value.getRoutingSettings;
+            const cached = (yield* projectionStore.getPrivateModelRoutingThreads).find(
+              (thread) => thread.id === threadId,
+            );
+            if (
+              cached === undefined &&
+              settings.modelPrivacy === "standard" &&
+              !Object.values(settings.projectSettingsOverrides).some(
+                (project) => project.modelPrivacy === "private",
+              ) &&
+              !isPrivateInferenceSelection(settings, { instanceId: runtime.instanceId })
+            )
+              return;
+            const thread = cached ?? (yield* projectionStore.getThread(threadId));
+            yield* assertRuntimeModelRoute(
+              thread,
+              runtime.instanceId,
+              selection ?? { ...thread.modelSelection, instanceId: runtime.instanceId },
+            );
+          },
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapter.ProviderAdapterProtocolError({
+                driver: runtime.driver,
+                detail: "Private model routing blocked the request",
+                cause,
+              }),
+          ),
+        );
+        const assertAttachedRoutes = Ref.get(sessions).pipe(
+          Effect.flatMap((entries) =>
+            Effect.forEach(
+              [...(entries.get(sessionKey(providerSessionId))?.attachedThreadIds ?? [])],
+              (threadId) => assertThreadRoute(threadId),
+              { discard: true },
+            ),
+          ),
+        );
         return {
           ...runtime,
           subscribeEvents,
@@ -1737,25 +1819,29 @@ export const layerWithOptions = (
             subscribeEvents.pipe(Effect.map((subscription) => subscription.events)),
           ),
           ensureThread: (input) =>
-            observeActivity(
-              providerSessionId,
-              ensureThreadAttached({
-                providerSessionId,
-                threadId: input.threadId,
-                providerInstanceId: runtime.instanceId,
-              }),
-            ).pipe(
-              Effect.andThen(runtime.ensureThread(input)),
-              Effect.tap((providerThread) =>
-                markProviderThreadLoaded({
+            assertThreadRoute(input.threadId, input.modelSelection).pipe(
+              Effect.andThen(
+                observeActivity(
                   providerSessionId,
-                  threadId: input.threadId,
-                  providerThreadKey: providerThreadLoadKey({
-                    providerThread,
-                    modelSelection: input.modelSelection,
-                    runtimePolicy: input.runtimePolicy,
+                  ensureThreadAttached({
+                    providerSessionId,
+                    threadId: input.threadId,
+                    providerInstanceId: runtime.instanceId,
                   }),
-                }),
+                ).pipe(
+                  Effect.andThen(runtime.ensureThread(input)),
+                  Effect.tap((providerThread) =>
+                    markProviderThreadLoaded({
+                      providerSessionId,
+                      threadId: input.threadId,
+                      providerThreadKey: providerThreadLoadKey({
+                        providerThread,
+                        modelSelection: input.modelSelection,
+                        runtimePolicy: input.runtimePolicy,
+                      }),
+                    }),
+                  ),
+                ),
               ),
             ),
           resumeThread: (input) => {
@@ -1778,6 +1864,7 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
+              Effect.andThen(assertThreadRoute(threadId, input.modelSelection)),
               Effect.andThen(
                 holdThreadLoaded({
                   providerSessionId,
@@ -1809,72 +1896,93 @@ export const layerWithOptions = (
             );
           },
           forkThread: (input) =>
-            observeActivity(
-              providerSessionId,
-              ensureThreadAttached({
-                providerSessionId,
-                threadId: input.targetThreadId,
-                providerInstanceId: runtime.instanceId,
-              }),
-            ).pipe(
-              Effect.andThen(runtime.forkThread(input)),
-              Effect.tap((providerThread) =>
-                markProviderThreadLoaded({
-                  providerSessionId,
-                  threadId: input.targetThreadId,
-                  providerThreadKey: providerThreadLoadKey({
-                    providerThread,
-                    ...(input.modelSelection === undefined
-                      ? {}
-                      : { modelSelection: input.modelSelection }),
-                    ...(input.runtimePolicy === undefined
-                      ? {}
-                      : { runtimePolicy: input.runtimePolicy }),
-                  }),
-                }),
-              ),
-            ),
-          startTurn: (input) =>
-            observeActivity(
-              providerSessionId,
-              ensureThreadAttached({
-                providerSessionId,
-                threadId: input.threadId,
-                providerInstanceId: runtime.instanceId,
-              }),
-            ).pipe(
-              // A start that fails or is stopped may never emit turn.terminal,
-              // so it clears its own turn or the session never goes idle.
+            assertThreadRoute(input.targetThreadId, input.modelSelection).pipe(
               Effect.andThen(
-                holdThreadLoaded({
+                observeActivity(
                   providerSessionId,
-                  threadId: input.threadId,
-                  providerThread: input.providerThread,
-                }),
-              ),
-              Effect.andThen(
-                Effect.acquireUseRelease(
-                  observeActivity(
+                  ensureThreadAttached({
                     providerSessionId,
-                    markBusy(
+                    threadId: input.targetThreadId,
+                    providerInstanceId: runtime.instanceId,
+                  }),
+                ).pipe(
+                  Effect.andThen(runtime.forkThread(input)),
+                  Effect.tap((providerThread) =>
+                    markProviderThreadLoaded({
                       providerSessionId,
-                      busyTurnKey(input.providerThread.id, input.runOrdinal),
-                    ),
+                      threadId: input.targetThreadId,
+                      providerThreadKey: providerThreadLoadKey({
+                        providerThread,
+                        ...(input.modelSelection === undefined
+                          ? {}
+                          : { modelSelection: input.modelSelection }),
+                        ...(input.runtimePolicy === undefined
+                          ? {}
+                          : { runtimePolicy: input.runtimePolicy }),
+                      }),
+                    }),
                   ),
-                  () =>
-                    runtime.startTurn(input).pipe(turnMetrics("send", input.modelSelection.model)),
-                  (_, exit) =>
-                    Exit.isFailure(exit)
-                      ? observeActivity(
-                          providerSessionId,
-                          markIdle(providerSessionId, input.providerThread.id, input.runOrdinal),
-                        )
-                      : Effect.void,
                 ),
               ),
             ),
+          startTurn: (input) =>
+            assertTurnRoute(input).pipe(
+              Effect.andThen(
+                observeActivity(
+                  providerSessionId,
+                  ensureThreadAttached({
+                    providerSessionId,
+                    threadId: input.threadId,
+                    providerInstanceId: runtime.instanceId,
+                  }),
+                ).pipe(
+                  // A start that fails or is stopped may never emit turn.terminal,
+                  // so it clears its own turn or the session never goes idle.
+                  Effect.andThen(
+                    holdThreadLoaded({
+                      providerSessionId,
+                      threadId: input.threadId,
+                      providerThread: input.providerThread,
+                    }),
+                  ),
+                  Effect.andThen(
+                    Effect.acquireUseRelease(
+                      observeActivity(
+                        providerSessionId,
+                        markBusy(
+                          providerSessionId,
+                          busyTurnKey(input.providerThread.id, input.runOrdinal),
+                        ),
+                      ),
+                      () =>
+                        runtime
+                          .startTurn(input)
+                          .pipe(turnMetrics("send", input.modelSelection.model)),
+                      (_, exit) =>
+                        Exit.isFailure(exit)
+                          ? observeActivity(
+                              providerSessionId,
+                              markIdle(
+                                providerSessionId,
+                                input.providerThread.id,
+                                input.runOrdinal,
+                              ),
+                            )
+                          : Effect.void,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ...(runtime.compactThread === undefined
+            ? {}
+            : {
+                compactThread: (input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+                  assertTurnRoute(input).pipe(Effect.andThen(runtime.compactThread!(input))),
+              }),
           steerTurn: (input) =>
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
+              Effect.andThen(assertThreadRoute(input.threadId)),
               Effect.andThen(runtime.steerTurn(input).pipe(turnMetrics("steer"))),
             ),
           interruptTurn: (input) =>
@@ -1883,6 +1991,7 @@ export const layerWithOptions = (
             ),
           respondToRuntimeRequest: (input) =>
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
+              Effect.andThen(assertAttachedRoutes),
               Effect.andThen(
                 runtime
                   .respondToRuntimeRequest(input)

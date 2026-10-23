@@ -9,6 +9,24 @@ import {
 } from "./ProviderSettingsForm";
 
 describe("ProviderSettingsForm helpers", () => {
+  it("offers Tinfoil billing secrets only to a compatible backend and Tinfoil connection", () => {
+    const opencode = providerClients.get(ProviderDriverKind.make("opencode"))!;
+    const tinfoil = { customModels: ["tinfoil/llama3-3-70b"] };
+    expect(deriveProviderSettingsFields(opencode, tinfoil).map((field) => field.key)).not.toContain(
+      "tinfoilAdminKey",
+    );
+    expect(
+      deriveProviderSettingsFields(opencode, tinfoil, true).find(
+        (field) => field.key === "tinfoilAdminKey",
+      ),
+    ).toMatchObject({ secret: true, control: "password" });
+    expect(
+      deriveProviderSettingsFields(opencode, { customModels: ["opencode/gpt-5"] }, true).map(
+        (field) => field.key,
+      ),
+    ).not.toContain("tinfoilAdminKey");
+  });
+
   it("keeps every masked field as a stored secret", () => {
     const settingsSchema = makeProviderSettingsSchema({
       token: TrimmedString.pipe(

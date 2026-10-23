@@ -135,6 +135,7 @@ const FAVORITES_PROVIDER_FILTER = "@favorites";
 const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
 function ProviderHeader(props: {
   readonly driver: string | undefined;
+  readonly instanceId: string | undefined;
   readonly iconUrl: string | undefined;
   readonly label: string;
   readonly collapsible: boolean;
@@ -144,7 +145,12 @@ function ProviderHeader(props: {
 }) {
   const content = (
     <>
-      <ProviderIcon iconUrl={props.iconUrl} provider={props.driver} size={15} />
+      <ProviderIcon
+        iconUrl={props.iconUrl}
+        provider={props.driver}
+        instanceId={props.instanceId}
+        size={15}
+      />
       <Text className="text-sm font-t3-medium text-foreground-muted">{props.label}</Text>
       {props.collapsible ? (
         <>
@@ -667,6 +673,7 @@ function useThreadSettingsSession() {
 
 type ThreadSettingsProviderCatalog = {
   readonly key: string;
+  readonly instanceId: string | undefined;
   readonly driver: string | undefined;
   readonly iconUrl: string | undefined;
   readonly label: string;
@@ -742,6 +749,7 @@ function ThreadSettingsProviderListHeader(props: {
       collapsible={props.provider.collapsible}
       collapsed={props.provider.collapsed}
       driver={props.provider.driver}
+      instanceId={props.provider.instanceId}
       iconUrl={props.provider.iconUrl}
       label={props.provider.label}
       modelCount={props.provider.modelCount}
@@ -802,6 +810,7 @@ function buildThreadSettingsCatalogItems(
     });
     const provider: ThreadSettingsProviderCatalog = {
       key: group.providerKey,
+      instanceId: group.models[0]?.selection.instanceId,
       driver,
       iconUrl: group.models[0]?.providerIconUrl,
       label: group.providerLabel,

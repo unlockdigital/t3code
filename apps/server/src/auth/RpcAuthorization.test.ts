@@ -29,6 +29,14 @@ import {
 import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("requires provider management to connect a private billing key", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.providerConnectTinfoilBilling)).toBe(
+      AuthProvidersManageScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.providerConfigureClaudeBilling)).toBe(
+      AuthProvidersManageScope,
+    );
+  });
   it("requires operate permission to create or remove local handoff files", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.serverCreateLocalThreadHandoff)).toBe(
       AuthOrchestrationOperateScope,

@@ -41,6 +41,8 @@ import {
   ThreadId,
   SERVER_BROWSER_AUTOMATION_CLIENT_ID,
   type PreviewAppearancePreference,
+  ClaudeConsoleBillingReadError,
+  type ClaudeConsoleBillingConnection,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
@@ -83,6 +85,8 @@ import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
+import { readClaudeConsoleCredits } from "./ClaudeConsoleBilling.ts";
+import { ClaudeConsoleBillingReader } from "../provider/claudePlatformBilling.ts";
 
 const SERVER_HOST_CLIENT_ID = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
 const RENDER_SCALE = 2;
@@ -134,6 +138,7 @@ export class ServerBrowserTabNotFoundError extends Schema.TaggedError<ServerBrow
 }
 
 const isTabNotFound = Schema.is(ServerBrowserTabNotFoundError);
+const isClaudeBillingReadError = Schema.is(ClaudeConsoleBillingReadError);
 const isHostSetupError = Schema.is(
   Schema.Union([
     PreviewBrowserHost.PreviewBrowserSandboxError,
@@ -2535,13 +2540,42 @@ const make = Effect.gen(function* () {
       catch: (cause) => new PreviewClearProfileError({ profileId, cause }),
     });
 
-  return ServerBrowser.of({
-    attachViewer,
-    clearProfile,
-    reportProfiles,
-    openDownload,
-    answerFileChooser,
+  const readClaudeBilling = Effect.fn("ServerBrowser.readClaudeBilling")(function* (
+    connection: ClaudeConsoleBillingConnection,
+  ) {
+    const profile = findBrowserProfile(
+      reportedProfiles?.profiles ?? BUILT_IN_BROWSER_PROFILES,
+      connection.profileId,
+    );
+    if (!profile || profile.kind === "incognito")
+      return yield* new ClaudeConsoleBillingReadError({ reason: "invalidBinding" });
+    const readFromServerProfile = Effect.tryPromise({
+      try: async () =>
+        readClaudeConsoleCredits(await contexts.contextFor(profile.id), connection, host),
+      catch: (error) =>
+        isClaudeBillingReadError(error)
+          ? error
+          : new ClaudeConsoleBillingReadError({ reason: "requestFailed" }),
+    });
+    if (!desktopChannel.available) return yield* readFromServerProfile;
+    return yield* desktopChannel
+      .readClaudeBilling({
+        environmentId: yield* environment.getEnvironmentId,
+        connection,
+      })
+      .pipe(Effect.catch(() => readFromServerProfile));
   });
+
+  return Context.make(
+    ServerBrowser,
+    ServerBrowser.of({
+      attachViewer,
+      clearProfile,
+      reportProfiles,
+      openDownload,
+      answerFileChooser,
+    }),
+  ).pipe(Context.add(ClaudeConsoleBillingReader, { read: readClaudeBilling }));
 });
 
-export const layer = Layer.effect(ServerBrowser, make);
+export const layer = Layer.effectContext(make);

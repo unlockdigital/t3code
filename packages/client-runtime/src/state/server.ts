@@ -1360,6 +1360,18 @@ export function createServerEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
     }),
+    getPrivateHelperState: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:privacy:helper-state",
+      tag: WS_METHODS.privacyGetHelperState,
+    }),
+    decidePrivateHelper: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:privacy:helper-decision",
+      tag: WS_METHODS.privacyDecideHelper,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.packetId}`,
+      },
+    }),
     refreshUsageRates: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-usage-rates",
       tag: WS_METHODS.serverRefreshUsageRates,

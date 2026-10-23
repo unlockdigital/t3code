@@ -111,6 +111,8 @@ const make = Effect.gen(function* () {
         projection.thread.projectId,
       ).settings;
       const result = yield* textGeneration.generateThreadTitle({
+        threadId: projection.thread.id,
+        projectId: projection.thread.projectId,
         cwd: projection.thread.worktreePath ?? project.value.workspaceRoot,
         message: context.message,
         attachments: context.attachments,
