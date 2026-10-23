@@ -14,3 +14,7 @@
     animation: activity-enter 240ms ease-out both;
   }
 }
+
+.held * {
+  animation-play-state: paused;
+}

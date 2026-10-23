@@ -1,12 +1,20 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ActivityIcon,
   ArrowUpRightIcon,
   CheckIcon,
   CircleAlertIcon,
   LayersIcon,
+  EllipsisIcon,
 } from "lucide-react";
-import { useDeferredValue, useState } from "react";
+import {
+  useDeferredValue,
+  useState,
+  useRef,
+  useEffect,
+  useEffectEvent,
+  type MouseEvent,
+} from "react";
 import type { ServerProvider } from "@t3tools/contracts";
 import {
   scopedProjectKey,
@@ -32,6 +40,9 @@ import {
   type HomeActivity as Activity,
   type HomeActivityKind,
 } from "./HomeActivity.logic";
+import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
+import { HomeThreadRenameDialog } from "./HomeThreadRenameDialog";
+import { toastManager } from "../ui/toast";
 import styles from "./HomeActivity.module.css";
 import { cn } from "../../lib/utils";
 
@@ -54,7 +65,64 @@ export function HomeActivity() {
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
   const now = useNowMinute();
-  const rows = buildHomeActivity(threads, `${now}:00.000Z`);
+  const liveRows = buildHomeActivity(threads, `${now}:00.000Z`);
+  const [held, setHeld] = useState<{ rows: Activity[]; at: string } | null>(null);
+  const rows = held?.rows ?? liveRows;
+  const [renaming, setRenaming] = useState<Activity | null>(null);
+  const { openMenu, closeMenu } = useThreadActionMenu();
+  const navigate = useNavigate();
+  const pendingNavigation = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelNavigation = () => {
+    if (pendingNavigation.current !== null) clearTimeout(pendingNavigation.current);
+    pendingNavigation.current = null;
+  };
+  const closeMenuOnUnmount = useEffectEvent(() => closeMenu());
+  useEffect(
+    () => () => {
+      if (pendingNavigation.current !== null) clearTimeout(pendingNavigation.current);
+      closeMenuOnUnmount();
+    },
+    [],
+  );
+  const openThreadMenu = (row: Activity, position: { x: number; y: number }, at: string) => {
+    cancelNavigation();
+    if (held) return;
+    // Live groups can move a row to another section while its native menu is still open.
+    setHeld({ rows, at });
+    const project = projects.find(
+      (entry) =>
+        entry.environmentId === row.thread.environmentId && entry.id === row.thread.projectId,
+    );
+    void openMenu(position, {
+      threadRef: scopeThreadRef(row.thread.environmentId, row.thread.id),
+      projectCwd: project?.workspaceRoot ?? null,
+      onStartRename: () => setRenaming(row),
+    })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Thread action failed",
+          description:
+            error instanceof Error ? error.message : "Try opening the thread menu again.",
+        });
+      })
+      .finally(() => setHeld(null));
+  };
+  const openThread = (row: Activity, event: MouseEvent) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.detail === 0)
+      return;
+    event.preventDefault();
+    cancelNavigation();
+    if (event.detail > 1) return;
+    // Match the chat title's double-click window so a menu gesture never opens the chat first.
+    pendingNavigation.current = setTimeout(() => {
+      pendingNavigation.current = null;
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(row.thread.environmentId, row.thread.id)),
+      });
+    }, 500);
+  };
   const projectNames = new Map(
     projects.map((project) => [
       scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
@@ -68,7 +136,12 @@ export function HomeActivity() {
   const visible = rows.slice(0, visibleCount);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 px-5 py-8 sm:px-10 sm:py-12">
+    <div
+      className={cn(
+        "mx-auto w-full max-w-5xl space-y-8 px-5 py-8 sm:px-10 sm:py-12",
+        held && styles.held,
+      )}
+    >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
           <p className="text-2xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -143,6 +216,9 @@ export function HomeActivity() {
                     <ActivityRow
                       key={row.key}
                       row={row}
+                      pausedAt={held?.at ?? null}
+                      onOpen={(event) => openThread(row, event)}
+                      onMenu={(position, at) => openThreadMenu(row, position, at)}
                       providers={providers.get(row.thread.environmentId) ?? []}
                       project={
                         projectNames.get(
@@ -173,6 +249,9 @@ export function HomeActivity() {
           </Button>
         </div>
       )}
+      {renaming && (
+        <HomeThreadRenameDialog thread={renaming.thread} onClose={() => setRenaming(null)} />
+      )}
       <p className="text-center text-2xs text-muted-foreground">
         Viewing Home preserves unread activity. Opening a thread marks it read as usual.
       </p>
@@ -187,6 +266,9 @@ function ActivityRow({
   environment,
   online,
   unread,
+  pausedAt,
+  onOpen,
+  onMenu,
 }: {
   readonly row: Activity;
   readonly providers: readonly ServerProvider[];
@@ -194,6 +276,9 @@ function ActivityRow({
   readonly environment: string;
   readonly online: boolean;
   readonly unread: boolean;
+  readonly pausedAt: string | null;
+  readonly onOpen: (event: MouseEvent) => void;
+  readonly onMenu: (position: { x: number; y: number }, at: string) => void;
 }) {
   const current = providers.find(
     (provider) => provider.instanceId === row.thread.modelSelection.instanceId,
@@ -216,11 +301,28 @@ function ActivityRow({
   const Icon =
     row.kind === "attention" ? CircleAlertIcon : row.kind === "working" ? ActivityIcon : CheckIcon;
   return (
-    <li className={styles.enter}>
+    <li className={cn(styles.enter, "flex items-center pr-2")}>
       <Link
         to="/$environmentId/$threadId"
         params={buildThreadRouteParams(scopeThreadRef(row.thread.environmentId, row.thread.id))}
-        className="group flex items-center gap-3 px-4 py-4 outline-none transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-4 sm:px-5"
+        onClick={onOpen}
+        onDoubleClick={(event) => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onMenu({ x: event.clientX, y: event.clientY }, new Date(Date.now()).toISOString());
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu({ x: event.clientX, y: event.clientY }, new Date(Date.now()).toISOString());
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            onMenu({ x: rect.left, y: rect.bottom }, new Date(Date.now()).toISOString());
+          }
+        }}
+        className="group flex min-w-0 flex-1 items-center gap-3 px-4 py-4 outline-none transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-4 sm:px-5"
       >
         <span className="hidden size-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background sm:flex">
           {current ? (
@@ -303,9 +405,9 @@ function ActivityRow({
               <AgentElapsed
                 compact
                 agent={{
-                  status: row.completedAt ? "completed" : "running",
+                  status: row.completedAt || pausedAt ? "completed" : "running",
                   startedAt: row.startedAt,
-                  completedAt: row.completedAt,
+                  completedAt: row.completedAt ?? pausedAt,
                 }}
               />
             ) : online ? (
@@ -320,6 +422,17 @@ function ActivityRow({
           />
         </div>
       </Link>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Actions for ${row.thread.title}`}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          onMenu({ x: rect.left, y: rect.bottom }, new Date(Date.now()).toISOString());
+        }}
+      >
+        <EllipsisIcon />
+      </Button>
     </li>
   );
 }

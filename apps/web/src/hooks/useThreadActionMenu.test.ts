@@ -180,3 +180,34 @@ describe("thread menu permissions", () => {
     },
   );
 });
+
+describe("thread menu lifecycle", () => {
+  it("resolves only after the menu closes so live lists can hold their rows", async () => {
+    const choice = deferred<ThreadActionMenuId | null>();
+    state.show.mockReturnValue(choice.promise);
+    const completion = createMenu().openMenu(position);
+    expect(completion).toBeInstanceOf(Promise);
+    choice.resolve(null);
+    await completion;
+    expect(state.effects).toEqual([]);
+  });
+
+  it("uses the explicit destination and its permissions when opened from an overview", async () => {
+    const menu = useThreadActionMenu();
+    state.show.mockResolvedValue("rename");
+    await menu.openMenu(position, {
+      threadRef: target,
+      projectCwd: "/secondary-project",
+      onStartRename: () => recordEffect("rename"),
+    });
+    expect(state.show.mock.calls[0]?.[0].find((item) => item.id === "rename")?.disabled).toBe(true);
+    expect(state.effects).toEqual([]);
+    state.granted.add("secondary");
+    await menu.openMenu(position, {
+      threadRef: target,
+      projectCwd: "/secondary-project",
+      onStartRename: () => recordEffect("rename"),
+    });
+    expect(state.effects).toEqual(["rename"]);
+  });
+});

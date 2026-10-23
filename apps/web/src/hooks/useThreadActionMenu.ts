@@ -57,12 +57,11 @@ function failureToast(title: string, error: unknown) {
   );
 }
 
-export function useThreadActionMenu(input: {
+export function useThreadActionMenu(input?: {
   readonly threadRef: ScopedThreadRef | null;
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
 }) {
-  const { threadRef, projectCwd, onStartRename } = input;
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -111,9 +110,10 @@ export function useThreadActionMenu(input: {
     onError: (error) => failureToast("Failed to copy thread ID", error),
   });
 
-  const openMenu = (position: { x: number; y: number }) => {
-    if (threadRef === null) return;
-    void (async () => {
+  const openMenu = (position: { x: number; y: number }, target = input) => {
+    if (!target?.threadRef) return Promise.resolve();
+    const { threadRef, projectCwd, onStartRename } = target;
+    return (async () => {
       const api = readLocalApi();
       if (!api) return;
       const thread = readThreadShell(threadRef);
