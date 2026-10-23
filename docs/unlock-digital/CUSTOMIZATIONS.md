@@ -52,4 +52,4 @@ For a future upstream proposal, use these commit boundaries and their validation
 
 ## Later experiment
 
-Connecting the configured workstations is deferred until the single-machine workflow has been tried. Evaluate remote work, project grouping, and optional placement of new threads when their usefulness is established.
+Connecting additional workstations across environments is deferred until the single-machine workflow has been evaluated. Evaluate remote work, project grouping, and optional placement of new threads when their usefulness is established.

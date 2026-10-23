@@ -10,10 +10,10 @@ Same-thread model, account, and cross-provider transitions preserved the sample 
 
 Next account work: follow [Kimi K3 setup and trial](KIMI_SETUP.md) to install a supported OpenCode release, try OpenCode Go at $10/month, and compare a capped Tinfoil API route through its verifying proxy. NEAR AI also lists Kimi K3 through an attested third-party host and remains an optional follow-up. The $40 Go Plus tier follows measured usage. Account activation, actual model access, exact Tinfoil pricing, and runtime privacy checks remain pending.
 
-The GitHub Copilot faculty Education route remains available for a later account session. Check existing entitlement before enrollment, then configure its supported OpenCode connection. OpenRouter is an optional future route. Enrollment links and billing distinctions are recorded in PROVIDERS.md.
+The GitHub Copilot Education route remains available for a later account session. Check existing entitlement before enrollment, then configure its supported OpenCode connection. OpenRouter is an optional future route. Enrollment links and billing distinctions are recorded in PROVIDERS.md.
 
 The user is trying the usage dashboard and the new Upstream Updates panel. The panel checks official releases and public advisories and prepares separate candidates that retain committed customizations. Its native T3 implementation chat preserves the work trace. All required checks passed with 101 tests across 10 files. The latest live check returned v0.1.2, matching the recorded base. The existing daily upstream watch retains its schedule.
 
 Keep provider-reported limits, reset timestamps, and billing links accurate; expose unavailable data explicitly. A future account-by-account cost view or direct billing integration should use a provider-supported data source with the required account access. Source development uses the local launcher with stable server/desktop bundles so agents can edit the IDE through T3; load backend changes after active chats finish.
 
-Later experiment: connect the configured workstations after the single-machine account workflow establishes a need. Multi-computer setup is deferred. Continue through the command line and user-operated sign-in surfaces.
+Later experiment: connect additional workstations across environments after the single-machine account workflow establishes a need. Multi-computer setup is deferred. Continue through the command line and user-operated sign-in surfaces.

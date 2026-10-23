@@ -6,11 +6,11 @@ Verified October 23, 2026, America/Chicago. Credentials, account identifiers, an
 
 | Friendly connection    | Runtime                                           | Authentication category        | Observed result                                                                                                           |
 | ---------------------- | ------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| UDM Codex              | Existing Codex CLI 0.163.0-alpha.11.1             | ChatGPT subscription           | Authenticated; GPT-6.1-Sol completed the sample README check                                                              |
-| Secondary Codex               | Same CLI with a separate shadow home              | ChatGPT subscription           | Authenticated as a distinct account; sample task and same-thread account transition passed                                |
-| UDM Google             | T3-managed Antigravity ACP 1.3.0                  | Google browser login           | Authenticated; Gemini 3.8 Flash completed the README check and continued a Codex conversation                             |
+| Primary Codex          | Existing Codex CLI 0.163.0-alpha.11.1             | ChatGPT subscription           | Authenticated; GPT-6.1-Sol completed the sample README check                                                              |
+| Secondary Codex        | Same CLI with a separate shadow home              | ChatGPT subscription           | Authenticated as a distinct account; sample task and same-thread account transition passed                                |
+| Primary Google         | T3-managed Antigravity ACP 1.3.0                  | Google browser login           | Authenticated; Gemini 3.8 Flash completed the README check and continued a Codex conversation                             |
 | Claude · Subscription  | Claude Code 2.1.308                               | Claude Enterprise subscription | Authenticated; provider-reported monthly spending budget prevented the inference check; user chose to retain this account |
-| UDM Anthropic API      | Claude Code with a separate configuration home    | Metered Anthropic API key      | Haiku 4.5 completed a small API-route check; key remains in T3's sensitive secret storage                                 |
+| Primary Anthropic API  | Claude Code with a separate configuration home    | Metered Anthropic API key      | Haiku 4.5 completed a small API-route check; key remains in T3's sensitive secret storage                                 |
 | Copilot · Subscription | Supported route through OpenCode to be configured | GitHub subscription login      | Faculty enrollment route verified; account connection follows the initial setup                                           |
 | OpenRouter · API       | Route to be configured                            | Metered API key                | User account and billing choice pending                                                                                   |
 
@@ -47,11 +47,11 @@ A disposable sample project established a codename and a setup decision. The sam
 
 The Codex lead also delegated a read-only README task to Google and incorporated the correct result. A separate harmless Google task was stopped, with its saved child run and task nodes marked interrupted. Sample files remained unchanged. Cross-provider continuation transfers a budgeted transcript; earlier tool state and attachments have documented limits.
 
-## GitHub Copilot for education faculty
+## GitHub Copilot Education benefits
 
-GitHub's verified-teacher benefit provides free Copilot Pro. Use a personal GitHub account, a verifiable university-issued email address, and documents proving faculty or researcher affiliation. Start an application in [Education benefits](https://github.com/settings/education/benefits). After approval, open Copilot settings and activate the eligible benefit. GitHub reevaluates eligibility monthly. These steps follow [GitHub's teacher application guide](https://docs.github.com/en/education/about-github-education/github-education-for-teachers/apply-to-github-education-as-a-teacher) and [free Copilot Pro activation guide](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/enable-copilot/set-up-for-teachers-and-os-maintainers).
+GitHub's verified educator/researcher benefit provides free Copilot Pro. Use an eligible personal GitHub account and academic verification through [Education benefits](https://github.com/settings/education/benefits). After approval, open Copilot settings and activate the eligible benefit. These steps follow [GitHub's teacher application guide](https://docs.github.com/en/education/about-github-education/github-education-for-teachers/apply-to-github-education-as-a-teacher) and [free Copilot Pro activation guide](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/enable-copilot/set-up-for-teachers-and-os-maintainers).
 
-The institution's [AI toolkit](https://education.github.com/) separately lists Microsoft 365 Copilot for university productivity tools. GitHub Copilot is the coding service relevant to the OpenCode route. Verify any existing GitHub entitlement before applying again. Enrollment and private affiliation documents remain user-operated steps.
+Verify any existing GitHub entitlement before applying. Enrollment and academic affiliation verification remain user-operated steps.
 
 OpenCode can connect an existing Copilot account through its GitHub device flow. The supported partnership is documented by [GitHub](https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/). Inspect existing OpenCode data before installing or upgrading: T3's [OpenCode guide](../user/providers-opencode.md) requires 2.0.18+ for the newer integration and describes its shared-database migration. OpenRouter has its own account, credits, and billing.
 
