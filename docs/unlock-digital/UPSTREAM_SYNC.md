@@ -7,8 +7,8 @@
 - `origin`: `https://github.com/unlockdigital/t3code.git`.
 - `upstream`: `https://github.com/pingdotgg/t3code.git`.
 - Working branch and fork default: `unlock-digital/main`.
-- Baseline branch: `upstream-v0.1.2`.
-- Local `main` tracks the fork's original upstream-derived main branch.
+- Preserved baseline tag: `v0.1.2`.
+- Upstream development is available through `upstream/main`; the fork keeps one maintained public branch.
 - `remote.pushDefault` is `origin`.
 
 ## Update procedure
@@ -21,7 +21,9 @@ Use stable upstream releases for routine maintenance. Prioritize applicable secu
 4. Run `vp run check:changed <selected-upstream-tag>`, build and launch the candidate, and verify the custom usage labels, account routes, provider switching, and delegation. Record failures and remaining compatibility questions before cutover.
 5. Once the candidate passes and active work has settled, stop the current development instance and make a private backup of its dedicated application data, including the database, settings, and associated secrets. Preserve its compatible runtime/source versions for recovery.
 6. Advance the customization branch to the verified candidate, rebuild and launch through the local launcher, and verify saved conversations, configured accounts, and the recorded runtime. Use the existing account test results to choose small focused checks.
-7. Push the verified result to `origin`, record the new upstream tag/SHA here, and retain the previous compatible data/source checkpoint. Preserve the historical `upstream-v0.1.2` baseline.
+7. Push the verified result to `origin`, record the new upstream tag/SHA here, and retain the previous compatible data/source checkpoint. Preserve the historical `v0.1.2` baseline tag.
+
+GitHub's ahead/behind banner compares this maintained branch with upstream development. Custom commits contribute to the ahead count, and upstream changes after the recorded stable base contribute to the behind count. Review stable updates through the procedure above. Delete merged release-candidate branches after integration; upstream tags and the `upstream` remote retain the reference history.
 
 The update request authorizes this maintenance sequence. Monitoring remains observational; applying an update belongs to the requested update task. Keep pushes directed to the user's fork. Submit an upstream contribution when the user requests it.
 

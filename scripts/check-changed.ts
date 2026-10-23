@@ -4,7 +4,7 @@
 // packages and their dependents, and the test files beside the changed files.
 // CI still runs the full test suites and the jobs listed in the summary.
 //
-//   vp run check:changed          compare against the merge base with origin/main
+//   vp run check:changed          compare against origin's default branch (origin/main fallback)
 //   vp run check:changed <ref>    compare against the merge base with <ref>
 //
 // Uncommitted and untracked files count. Affected packages come from
@@ -22,7 +22,12 @@ const git = (...args: Array<string>) =>
     .split("\n")
     .filter(Boolean);
 
-const ref = process.argv[2] ?? "origin/main";
+const originHead = NodeChildProcess.spawnSync(
+  "git",
+  ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+  { cwd: root, encoding: "utf8" },
+);
+const ref = process.argv[2] ?? (originHead.status === 0 ? originHead.stdout.trim() : "origin/main");
 const mergeBase = NodeChildProcess.spawnSync("git", ["merge-base", "HEAD", ref], {
   cwd: root,
   encoding: "utf8",
