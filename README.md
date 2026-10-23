@@ -11,7 +11,7 @@ This edition builds on upstream stable releases while providing tailored capabil
 - **Home Activity Overview**: A dedicated Home view offering a compact agent activity overview, live elapsed task durations, grouped subagent counts, and steady thread action menus during live background work.
 - **Upstream Updates Management**: Built-in **Settings → Upstream Updates** to monitor official upstream releases and security advisories, and safely prepare candidates in isolated git worktrees without interrupting active development runs.
 - **Usage & Billing Clarity**: Clarified five-hour and monthly provider limit labels, Anthropic Console billing links, and multi-account status across models.
-- **Private Local Isolation**: Dedicated application state directories ensuring conversations, database migrations, and sensitive provider credentials remain strictly local.
+- **Private Local Storage Isolation**: Dedicated application state directories ensuring local conversations, settings, and database migrations remain isolated locally on your machine.
 
 ## Upstream Relationship
 
@@ -34,9 +34,8 @@ This edition is maintained as a reproducible source build with an isolated, pinn
 
 2. Build and launch:
    ```bash
-   ./Launch\ T3\ Code.command
-   # or run:
    vp run build && vp run dev:desktop
+   # (or use the parent workspace launcher: "../Launch T3 Code.command")
    ```
 
 ### Prerequisites & Providers
