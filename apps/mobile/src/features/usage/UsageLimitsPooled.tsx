@@ -2,11 +2,12 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
+  ANTIGRAVITY_USAGE_SCOPE,
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
-  cursorUsageWindowDetails,
+  usageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
   paceRemainingPercent,
@@ -30,7 +31,7 @@ import { usageProviderKind, useProviderColors } from "./usageProviders";
 const DRIVER_LABEL: Partial<Record<string, string>> = {
   codex: "Codex",
   claudeAgent: "Claude",
-  antigravity: "Antigravity",
+  antigravity: "Google / Antigravity",
 };
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
@@ -338,9 +339,13 @@ export function UsageLimitsSection({
                   {DRIVER_LABEL[pool.driver] ?? pool.driver}
                 </Text>
               </View>
+              {pool.driver === "antigravity" ? (
+                <Text className="px-1 text-sm text-foreground-muted">
+                  {ANTIGRAVITY_USAGE_SCOPE}
+                </Text>
+              ) : null}
               {windows.map((window) => {
-                const details =
-                  pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
+                const details = usageWindowDetails(pool.driver, window.id);
                 return (
                   <PoolWindowCard
                     key={`${window.kind}:${window.id}`}

@@ -41,7 +41,7 @@ describe("claudeUsageResponseToLimits", () => {
           {
             id: "five_hour",
             kind: "session",
-            label: "Session",
+            label: "5-hour",
             usedPercent: 54,
             windowDurationMins: 300,
             resetsAt: "2026-07-18T14:39:00.000Z",
@@ -133,7 +133,7 @@ describe("claudeUsageResponseToLimits", () => {
   const monthlyWindow = {
     id: "monthly_spend",
     kind: "monthly",
-    label: "Monthly spend",
+    label: "Monthly spending limit",
     usedPercent: expect.closeTo(9.262, 10),
   };
 
@@ -160,7 +160,7 @@ describe("claudeUsageResponseToLimits", () => {
       {
         id: "five_hour",
         kind: "session",
-        label: "Session",
+        label: "5-hour",
         usedPercent: 12,
         windowDurationMins: 300,
       },

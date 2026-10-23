@@ -1,10 +1,11 @@
 import {
   CHATGPT_USAGE_URL,
+  ANTIGRAVITY_USAGE_SCOPE,
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
-  cursorUsageWindowDetails,
+  usageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
   type LimitAccount,
@@ -564,7 +565,10 @@ function PoolWindowCard({
 
 function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
   const color = barColor(pool.driver);
-  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
+  const label =
+    pool.driver === "antigravity"
+      ? "Google / Antigravity"
+      : (providerClients.get(pool.driver)?.label ?? String(pool.driver));
   const windows = displayLimitWindows(pool);
   return (
     <section className="flex flex-col gap-3">
@@ -578,8 +582,11 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
         />
         {label}
       </h2>
+      {pool.driver === "antigravity" ? (
+        <p className="text-xs text-muted-foreground">{ANTIGRAVITY_USAGE_SCOPE}</p>
+      ) : null}
       {windows.map((window) => {
-        const details = pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
+        const details = usageWindowDetails(pool.driver, window.id);
         return (
           <PoolWindowCard
             key={`${window.kind}:${window.id}`}

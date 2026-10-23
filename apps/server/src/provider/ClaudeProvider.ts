@@ -649,10 +649,16 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
+  const firstPartyApiKey =
+    !customApiEndpoint &&
+    (capabilities.apiProvider === undefined || capabilities.apiProvider === "firstParty") &&
+    capabilities.tokenSource === "none" &&
+    Boolean(capabilities.apiKeySource) &&
+    capabilities.apiKeySource !== "none";
   const authMetadata =
     claudeAuthMetadata({
       subscriptionType: capabilities.subscriptionType,
-      authMethod: capabilities.tokenSource,
+      authMethod: firstPartyApiKey ? "apiKey" : capabilities.tokenSource,
     }) ??
     apiProviderAuthMetadata(capabilities.apiProvider) ??
     (customApiEndpoint ? { type: "customEndpoint", label: "Custom API endpoint" } : undefined);
@@ -694,7 +700,27 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...(authMetadata ? authMetadata : {}),
       },
       ...(versionUpgradeMessage ? { message: versionUpgradeMessage } : {}),
-      usageLimits: resetCredits ? { ...usageLimits, resetCredits } : usageLimits,
+      usageLimits: {
+        ...usageLimits,
+        ...(resetCredits ? { resetCredits } : {}),
+        ...(firstPartyApiKey
+          ? {
+              externalUsage: {
+                label: "Anthropic API billing",
+                url: "https://platform.claude.com/settings/billing",
+              },
+              ...(usageLimits.unavailable?.reason === "unsupported"
+                ? {
+                    unavailable: {
+                      ...usageLimits.unavailable,
+                      message:
+                        "This connection uses an API key. View actual API spending and credit balance in Anthropic Console.",
+                    },
+                  }
+                : {}),
+            }
+          : {}),
+      },
     },
   });
 });

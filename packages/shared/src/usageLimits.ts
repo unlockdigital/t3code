@@ -48,8 +48,18 @@ export const CURSOR_USAGE_WINDOWS = [
   },
 ] as const;
 
-export function cursorUsageWindowDetails(id: string) {
-  return CURSOR_USAGE_WINDOWS.find((window) => window.id === id);
+export const ANTIGRAVITY_USAGE_SCOPE =
+  "These quotas cover models accessed through your Google account in Antigravity. Your separate Codex and Claude subscriptions appear in their own sections. Google supplies the quota windows shown here.";
+
+export function usageWindowDetails(driver: ServerProvider["driver"], id: string) {
+  if (driver === "cursor") return CURSOR_USAGE_WINDOWS.find((window) => window.id === id);
+  if (driver === "claudeAgent" && id === "monthly_spend") {
+    return {
+      label: "Monthly spending limit",
+      description:
+        "Budget reported by this Claude account. The bar shows the percentage of that budget remaining.",
+    };
+  }
 }
 
 function cursorUsageWindowRank(id: string): number {

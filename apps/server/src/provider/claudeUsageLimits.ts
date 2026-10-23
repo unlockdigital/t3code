@@ -22,7 +22,7 @@ const WEEK_MINS = 7 * 24 * 60;
 const WINDOWS: Readonly<
   Record<string, Pick<ServerProviderUsageWindow, "kind" | "label" | "windowDurationMins">>
 > = {
-  five_hour: { kind: "session", label: "Session", windowDurationMins: SESSION_MINS },
+  five_hour: { kind: "session", label: "5-hour", windowDurationMins: SESSION_MINS },
   seven_day: { kind: "weekly", label: "Weekly", windowDurationMins: WEEK_MINS },
 };
 
@@ -219,7 +219,7 @@ export function claudeUsageResponseToLimits(input: {
     windows.push({
       id: "monthly_spend",
       kind: "monthly",
-      label: "Monthly spend",
+      label: "Monthly spending limit",
       usedPercent: spendPercent,
     });
   }

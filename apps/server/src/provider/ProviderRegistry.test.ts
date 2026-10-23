@@ -2193,6 +2193,7 @@ it.layer(
         assert.strictEqual(status.auth.status, "authenticated");
         assert.strictEqual(status.auth.type, "customEndpoint");
         assert.strictEqual(status.auth.label, "Custom API endpoint");
+        assert.strictEqual(status.usageLimits?.externalUsage, undefined);
       }).pipe(
         Effect.provide(
           layerMockSpawner((args) => {
@@ -2254,6 +2255,11 @@ it.layer(
         );
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.auth.status, "authenticated");
+        assert.strictEqual(status.auth.type, "apiKey");
+        assert.deepEqual(status.usageLimits?.externalUsage, {
+          label: "Anthropic API billing",
+          url: "https://platform.claude.com/settings/billing",
+        });
       }).pipe(
         Effect.provide(
           layerMockSpawner((args) => {
