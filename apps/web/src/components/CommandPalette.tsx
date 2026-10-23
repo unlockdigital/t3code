@@ -1,3 +1,4 @@
+import { HouseIcon } from "lucide-react";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -1184,6 +1185,16 @@ function OpenCommandPaletteDialog(props: {
   };
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  actionItems.push({
+    kind: "action",
+    value: "action:home",
+    title: "Home",
+    searchTerms: ["home", "overview", "background", "leave chat"],
+    icon: <HouseIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/home" });
+    },
+  });
 
   if (projects.length > 0) {
     const activeProjectTitle =

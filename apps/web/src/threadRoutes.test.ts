@@ -1,3 +1,9 @@
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
 import { describe, expect, it } from "vite-plus/test";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EMPTY_ENVIRONMENT_THREAD_STATE } from "@t3tools/client-runtime/state/threads";
@@ -15,6 +21,40 @@ import {
 } from "./threadRoutes";
 
 describe("threadRoutes", () => {
+  it("matches encoded MCP thread IDs from real router navigation", async () => {
+    const root = createRootRoute();
+    const thread = createRoute({ getParentRoute: () => root, path: "$environmentId/$threadId" });
+    const home = createRoute({ getParentRoute: () => root, path: "home" });
+    const router = createRouter({
+      routeTree: root.addChildren([thread, home]),
+      history: createMemoryHistory({ initialEntries: ["/home"] }),
+    });
+    await router.load();
+    const ref = scopeThreadRef("local" as never, ThreadId.make("mcp:example"));
+    await router.navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: ref.environmentId, threadId: ref.threadId },
+    });
+    expect(router.state.location.pathname).toBe("/local/mcp%3Aexample");
+    expect(isThreadRoutePathname(router.state.location.pathname, ref)).toBe(true);
+    await router.navigate({ to: "/home" });
+    expect(isThreadRoutePathname(router.state.location.pathname, ref)).toBe(false);
+  });
+
+  it("decodes each path component once and handles malformed escapes safely", () => {
+    const ref = scopeThreadRef("env space" as never, ThreadId.make("mcp:example/part"));
+    expect(isThreadRoutePathname("/env%20space/mcp%3Aexample%2Fpart", ref)).toBe(true);
+    expect(isThreadRoutePathname("/env%20space/mcp%3Aexample/part", ref)).toBe(false);
+    expect(isThreadRoutePathname("/env%20space/mcp%253Aexample%2Fpart", ref)).toBe(false);
+    expect(isThreadRoutePathname("/env%20space/mcp%ZZexample", ref)).toBe(false);
+    expect(isThreadRoutePathname("/env%20space/mcp%3Aexample%2Fpart/extra", ref)).toBe(false);
+  });
+
+  it("resolves a neutral Home match without a server thread or draft", () => {
+    expect(resolveThreadRouteTarget({})).toBeNull();
+    expect(resolveActiveThreadRouteRef(null, null)).toBeNull();
+  });
+
   it("matches only the thread's own route pathname", () => {
     const ref = scopeThreadRef("env-1" as never, ThreadId.make("thread-1"));
 
@@ -22,6 +62,7 @@ describe("threadRoutes", () => {
     expect(isThreadRoutePathname("/env-1/thread-1/", ref)).toBe(true);
     // A pending navigation away from the thread already shows these locations.
     expect(isThreadRoutePathname("/new", ref)).toBe(false);
+    expect(isThreadRoutePathname("/home", ref)).toBe(false);
     expect(isThreadRoutePathname("/env-1/thread-2", ref)).toBe(false);
     expect(isThreadRoutePathname("/env-2/thread-1", ref)).toBe(false);
     expect(isThreadRoutePathname("/draft/thread-1", ref)).toBe(false);

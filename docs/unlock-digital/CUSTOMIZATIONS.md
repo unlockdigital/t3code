@@ -17,6 +17,10 @@ The existing sidebar Usage entry provides one-click access to pooled limits and 
 
 Server labels feed all clients and the in-conversation usage command. Web and desktop share the explanatory UI; mobile uses the same wording through the shared helper. The existing wire contracts and pooling behavior are preserved. Focused Codex, Claude-window, and Claude-provider tests cover the changes. All required changed-file checks passed. Runtime refresh verified the new labels, API authentication category, and billing link after restart. The user performs visual review in the live app under their command-line operation preference.
 
+## Home and background work
+
+Choose **Home** beneath Search in the chat sidebar, or search for **Home** in the command palette, to leave the current conversation. Home keeps every agent running and preserves composer drafts. Later activity and completion retain the sidebar’s normal unread and status indicators. Opening a conversation again applies its normal read behavior. Home groups work into **Needs attention**, **Working**, and **Ready to revisit**, with provider/model, latest activity, elapsed task time, and linked-agent counts. Completed task durations stay fixed; disconnected environments show their last known state. Agent counts reflect linked threads and currently reported background agents. Both web/desktop sidebar variants include Home; mobile keeps its existing thread-list navigation.
+
 ## Working on the IDE from inside T3
 
 The running instance includes the fork as the project `T3 Code · Unlock Digital`. Agents can edit the source checkout in response to requested interface changes, inspect development results, and save focused commits on `unlock-digital/main`. Keep application data in its separate home and preserve recoverable source checkpoints. The local launcher keeps the server and desktop running through source edits, with an explicit rebuild and restart after active work settles.

@@ -1,3 +1,4 @@
+import { SidebarHomeNavigation } from "./sidebar/SidebarHomeNavigation";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -2878,6 +2879,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
               </CommandDialogTrigger>
             </SidebarMenuItem>
           </SidebarMenu>
+          <SidebarHomeNavigation />
         </SidebarGroup>
       }
     >
