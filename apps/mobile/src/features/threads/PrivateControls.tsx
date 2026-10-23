@@ -51,9 +51,11 @@ export function PrivateControls(props: {
           current.map((entry) => (entry.id === packet.id ? result.value : entry)),
         );
       setReviewed(null);
-    } finally {
+    } catch (error) {
       setBusy(false);
+      throw error;
     }
+    setBusy(false);
   };
   return (
     <>
