@@ -33,6 +33,23 @@ The user prefers command-line work and direct instructions for necessary sign-in
 
 Preparation merges the reviewed stable release into a separate worktree containing the fork's committed customizations. Candidates await review and testing before integration. Cleanup preserves local edits, ignored files, conflicts, and later commits, and retains the candidate branch for recovery. The mobile environment screen uses the same service; direct MCP tools remain a future extension. The implementation was performed in the native T3 chat **Build Upstream updates panel**. Required changed-file checks passed with 101 tests across 10 files, including Git fixtures and the documented advisory payload. See [upstream maintenance](UPSTREAM_SYNC.md) for the operating procedure.
 
+## Source history and upstream review
+
+The customization series starts at upstream `v0.1.2` (`044f07257c9684ae4543bd1e1ebf9c394e9e3830`). These focused commits preserve the purpose and boundaries of each adaptation:
+
+| Commit                                                                  | Change                                                                          | Review boundary                                                                                        |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [8256e9cf80](https://github.com/unlockdigital/t3code/commit/8256e9cf80) | Usage windows, spending limits, and account billing labels                      | Shared wording and provider-reported data                                                              |
+| [c3972f0912](https://github.com/unlockdigital/t3code/commit/c3972f0912) | Upstream release/security status and candidate preparation                      | Fork source configuration stays behind the update service; candidates await verification               |
+| [3b0360217b](https://github.com/unlockdigital/t3code/commit/3b0360217b) | Dedicated Upstream Updates navigation, source-build guidance, and Auto defaults | Explicit permission choices remain intact; fork defaults are a local policy choice                     |
+| [602372a3bd](https://github.com/unlockdigital/t3code/commit/602372a3bd) | Source-update guidance for an older development desktop shell                   | Explicit packaged installation metadata retains authority                                              |
+| [4c4f682f11](https://github.com/unlockdigital/t3code/commit/4c4f682f11) | Neutral Home, compact activity overview, and unread-navigation guards           | Web/desktop navigation; environment-scoped thread identity and existing unread semantics               |
+| [09f8f6fbad](https://github.com/unlockdigital/t3code/commit/09f8f6fbad) | Shared Home thread menus and a steady view during selection                     | Destination permissions, pending navigation, guarded rename, and buffered presentation of live updates |
+
+Home validation passed `vp run check:changed 602372a3bd` in an isolated source checkout: formatting, lint, unused-code checks, affected typechecking, and 154 tests across 10 files, including headless browser regressions. The user verified the activity overview and thread menu in the running native client. The application server and provider turns stayed running. Native mobile retains its thread-list navigation.
+
+For a future upstream proposal, use these commit boundaries and their validation records to select a focused change. Review the Home/navigation behavior and usage clarity separately from the fork's permission defaults, local setup, and upstream-maintenance policy. Keep the configured accounts and application data in the user's environment. Upstream contributions follow the repository's contribution guidance when requested.
+
 ## Later experiment
 
 Connecting the configured workstations is deferred until the single-machine workflow has been tried. Evaluate remote work, project grouping, and optional placement of new threads when their usefulness is established.
