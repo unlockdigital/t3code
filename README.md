@@ -1,141 +1,67 @@
-# T3 Code
+# T3 Code · Unlock Digital Edition
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+This repository is Unlock Digital's maintained fork of [T3 Code](https://github.com/pingdotgg/t3code), an open-source agent harness control surface. It enables unified control of coding agents running on your machine with desktop, web, and mobile interfaces.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+Works with your subscriptions and configurations across Claude Code, Codex, Google Antigravity, OpenCode, Cursor, and Grok Build.
 
-## "Wait, what are you selling me?"
+## Unlock Digital Enhancements
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+This edition builds on upstream stable releases while providing tailored capabilities for multi-provider orchestration and local development:
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+- **Home Activity Overview**: A dedicated Home view offering a compact agent activity overview, live elapsed task durations, grouped subagent counts, and steady thread action menus during live background work.
+- **Upstream Updates Management**: Built-in **Settings → Upstream Updates** to monitor official upstream releases and security advisories, and safely prepare candidates in isolated git worktrees without interrupting active development runs.
+- **Usage & Billing Clarity**: Clarified five-hour and monthly provider limit labels, Anthropic Console billing links, and multi-account status across models.
+- **Private Local Isolation**: Dedicated application state directories ensuring conversations, database migrations, and sensitive provider credentials remain strictly local.
 
-## Installation
+## Upstream Relationship
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+- Upstream canonical repository: [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
+- Base release: `v0.1.2`
+- Operating branch: `unlock-digital/main`
+- Maintenance plan: See [docs/unlock-digital/UPSTREAM_SYNC.md](./docs/unlock-digital/UPSTREAM_SYNC.md)
 
-### Command line
+## Installation & Running
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+### Running from source
 
-On Windows, in PowerShell:
+This edition is maintained as a reproducible source build with an isolated, pinned toolchain.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+1. Install dependencies with Vite+:
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+   ```bash
+   vp i
+   ```
 
-To try it once without installing, run `npx t3@latest` instead.
+2. Build and launch:
+   ```bash
+   ./Launch\ T3\ Code.command
+   # or run:
+   vp run build && vp run dev:desktop
+   ```
 
-### Desktop app
+### Prerequisites & Providers
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+Install and authenticate at least one provider before use:
 
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### Windows (`scoop`)
-
-```bash
-scoop install extras/t3code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+- **Codex**: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
+- **Claude**: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
+- **Antigravity**: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**.
+- **OpenCode**: install [OpenCode](https://opencode.ai) and run `opencode auth login`
+- **Cursor**: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
+- **Grok Build**: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
 
 ## Documentation
 
-Full docs live in [docs/](./docs). There's no docs site yet.
-
+- [Unlock Digital setup and customizations](./docs/unlock-digital/SETUP.md)
+- [Upstream synchronization guide](./docs/unlock-digital/UPSTREAM_SYNC.md)
+- [Provider connections & ledger](./docs/unlock-digital/PROVIDERS.md)
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
 - [Project settings](./docs/user/project-settings.md)
-- [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
 
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
+Building from source internals? See [docs/internals/overview.md](./docs/internals/overview.md).
 
-## If you REALLY want to contribute still.... read this first
+## Contributing & Upstream
 
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
-
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+Custom features in this edition follow modular review boundaries so that general-purpose improvements (such as Home activity overviews and usage clarity) can be proposed upstream to [pingdotgg/t3code](https://github.com/pingdotgg/t3code) in accordance with upstream contribution guidelines.
