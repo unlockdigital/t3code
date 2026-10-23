@@ -13,16 +13,30 @@
 
 ## Update procedure
 
-1. Settle active agent work, stop this development instance, and make a private backup of its dedicated data directory.
-2. Commit the selected source changes and record a recoverable checkpoint.
-3. Fetch upstream tags and read the selected stable release's compatibility and database-migration notes.
-4. Integrate that release into the customization branch. Preserve upstream license and attribution.
-5. Source the isolated environment, install the frozen lockfile, and verify its resolved Node and package-manager versions.
-6. Run `vp run check:changed`, launch the source desktop app, and repeat provider switching and delegation checks with the selected accounts.
-7. Push the verified result to `origin` and record the new base here.
+Use stable upstream releases for routine maintenance. Prioritize applicable security fixes; assess a published upstream fix separately when it precedes a stable release. Keep each customization in a focused commit and use existing settings and skills where they provide the requested behavior. Accepted upstream contributions can reduce the custom changes maintained here.
+
+1. When an update is requested, inspect local work, fetch upstream tags, and read the selected release's compatibility, security, runtime, and database-migration notes. Preserve a recoverable source checkpoint.
+2. Create an update candidate from `unlock-digital/main` in a separate worktree. Merge the selected upstream release into that candidate and resolve overlapping edits while preserving the intended custom behavior. Keep the running checkout available during preparation.
+3. Source the isolated toolchain, install the candidate's frozen lockfile, and verify its resolved Node and package-manager versions. Give its server a separate application home and disposable project.
+4. Run `vp run check:changed <selected-upstream-tag>`, build and launch the candidate, and verify the custom usage labels, account routes, provider switching, and delegation. Record failures and remaining compatibility questions before cutover.
+5. Once the candidate passes and active work has settled, stop the current development instance and make a private backup of its dedicated application data, including the database, settings, and associated secrets. Preserve its compatible runtime/source versions for recovery.
+6. Advance the customization branch to the verified candidate, rebuild and launch through the local launcher, and verify saved conversations, configured accounts, and the recorded runtime. Use the existing account test results to choose small focused checks.
+7. Push the verified result to `origin`, record the new upstream tag/SHA here, and retain the previous compatible data/source checkpoint. Preserve the historical `upstream-v0.1.2` baseline.
+
+The update request authorizes this maintenance sequence. Monitoring remains observational; applying an update belongs to the requested update task. Keep pushes directed to the user's fork. Submit an upstream contribution when the user requests it.
+
+## Release and security watch
+
+On October 23, 2026, the latest official stable release was verified as v0.1.2. The fork's Dependency vulnerability alerts were enabled and their enabled state confirmed through GitHub's API. GitHub evaluates the supported dependency graph; source dependency alerts and deployed-runtime applicability are separate evidence.
+
+The Codex chat has an active daily heartbeat named **T3 upstream releases and security**, id `t3-upstream-releases-and-security`. It checks official stable releases, published security advisories, and accessible Dependabot alerts against this recorded upstream base. It stays quiet on unchanged state and reports actionable changes or meaningful monitoring failures. Its first scheduled execution remains pending as of setup; the creation response establishes configuration, and later run receipts establish execution.
+
+The local watch needs this Mac and the app available. GitHub's repository alerts operate independently. Inspect the existing watch before creating another one. Routine monitoring preserves the running app, credentials, repository files, branches, and installed dependencies.
 
 Source builds use manual rebuilds initially. Development-mode desktop updating is disabled by the application; packaged upstream auto-updates belong to the official release app. A future packaged fork needs its own explicit update distribution. Keep desktop and server protocol versions compatible.
 
 Rollback restores both a source checkpoint and a database backup compatible with it. Preserve newer state separately before restoring a backup.
 
 Primary guidance: [updating](../user/updating.md), [development](../operations/development.md).
+
+Official maintenance references: [GitHub fork syncing](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/syncing-a-fork), [Dependabot alerts](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-dependabot-alerts), [upstream releases](https://github.com/pingdotgg/t3code/releases), [T3 security policy](https://t3.codes/security-policy).
