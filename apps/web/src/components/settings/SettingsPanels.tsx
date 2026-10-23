@@ -1,3 +1,4 @@
+import { UpstreamUpdatesSettings } from "./UpstreamUpdatesSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
@@ -1908,6 +1909,7 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="about" title="About">
+        <UpstreamUpdatesSettings />
         {isElectron || HOSTED_APP_CHANNEL ? (
           <AboutVersionSection />
         ) : (

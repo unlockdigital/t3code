@@ -7,6 +7,7 @@ import type { RpcSession } from "../rpc/session.ts";
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
+  AuthEnvironmentMaintainScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
@@ -105,6 +106,32 @@ describe("command permissions", () => {
             ...grant(true),
             scopes: [AuthSettingsWriteScope],
             permissions: [AuthSettingsWriteScope],
+          }),
+        );
+        expect(registry.get(cleanup.permissionAtom(env))).toBe(true);
+        yield* cleanup.authorize(registry, env);
+        registry.set(sessions(other), AsyncResult.success(grant(false)));
+        expect(registry.get(cleanup.permissionAtom(other))).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("requires the destination maintenance grant to prepare upstream candidates", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const cleanup = createCommandPermissions(runtime, WS_METHODS.serverUpstream);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(cleanup.permissionAtom(env))).toBe(false);
+        expect((yield* cleanup.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(true),
+            scopes: [AuthEnvironmentMaintainScope],
+            permissions: [AuthEnvironmentMaintainScope],
           }),
         );
         expect(registry.get(cleanup.permissionAtom(env))).toBe(true);

@@ -525,6 +525,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
+    id: "upstream-updates",
+    title: "Upstream updates",
+    to: "/settings/general",
+    scope: "environment",
+    searchTerms: ["fork maintenance stable release security advisories prepare candidate"],
+  },
+  {
     id: "app-version",
     title: "Version",
     to: "/settings/general",

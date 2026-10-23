@@ -25,6 +25,16 @@ Use stable upstream releases for routine maintenance. Prioritize applicable secu
 
 The update request authorizes this maintenance sequence. Monitoring remains observational; applying an update belongs to the requested update task. Keep pushes directed to the user's fork. Submit an upstream contribution when the user requests it.
 
+## Upstream updates panel
+
+Open **Settings → General → About → Upstream updates**, then select one environment in the Settings filter. The command palette and Settings search also find “Upstream updates.” Mobile exposes the same service under **Settings → Maintenance → Manage environments → [environment] → Upstream updates**. Maintenance permission controls access on the destination server.
+
+Check upstream reads GitHub's official latest stable release and public advisories. The panel shows successful check times, failures, published patched versions, and release-note security mentions with their source links. Dependabot alerts open on GitHub through the user's sign-in. Review deployed-runtime applicability separately. The existing daily watch keeps its schedule.
+
+Prepare update requires a clean source checkout and the reviewed release. It starts a candidate from committed HEAD in a sibling `t3code-upstream-candidates/<id>` worktree, retains custom commits, and merges the fetched official tag. Every candidate awaits verification through the procedure above. Conflicts stay available for manual review. Preparation leaves the running checkout, dependencies, and application data in place.
+
+Source identity and the recorded base live in `upstream.json` beside this guide. Candidate records and cached checks live in `t3-upstream-state.json` under Git's common directory. Reopening Settings restores them. Interrupted preparations and missing worktrees remain visible for manual inspection. Preserve that journal and the candidate branches during recovery. Cleanup removes an unchanged clean worktree only after checking ordinary edits, untracked and ignored files (including `.env`), branch identity, and later commits. It retains the branch as a recovery point. Conflicted, interrupted, changed, and missing candidates require manual review.
+
 ## Release and security watch
 
 On October 23, 2026, the latest official stable release was verified as v0.1.2. The fork's Dependency vulnerability alerts were enabled and their enabled state confirmed through GitHub's API. GitHub evaluates the supported dependency graph; source dependency alerts and deployed-runtime applicability are separate evidence.

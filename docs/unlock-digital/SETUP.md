@@ -30,18 +30,19 @@ The initial dependency attempt selected an ambient pnpm 11 runtime and timed out
 
 ## Launch and data
 
-The parent workspace contains `Launch T3 Code.command`. It starts the source desktop development build with the local toolchain. Its data directory is the parent's `.t3-development`; state lives below `userdata`.
+The parent workspace contains `Launch T3 Code.command`. It builds the fork once with the local toolchain, then starts the desktop and server from those bundles alongside the web development server. Its data directory is the parent's `.t3-development`; state lives below `userdata`.
 
 Equivalent command from this checkout:
 
 ```sh
-source ../.t3-runtime/env.sh
-vp run dev:desktop --home-dir ../.t3-development --no-seed
+"../Launch T3 Code.command"
 ```
 
-The launcher disables optional T3 product telemetry and OpenTelemetry export for this environment. Development state starts fresh. The normal installed-app data location is `~/.t3/userdata`; development always uses the explicit separate home. Provider authentication follows each provider's supported storage mechanism and can persist outside the T3 home.
+The launcher disables optional T3 product telemetry and OpenTelemetry export for this environment. This dedicated home holds the user's saved conversations and configured accounts. The normal installed-app data location is `~/.t3/userdata`; this source build always uses the explicit separate home. Provider authentication follows each provider's supported storage mechanism and can persist outside the T3 home.
 
-Desktop development binds to loopback. Remote access can be configured separately when requested. Keep the launch terminal open and stop the process with Control-C after agent work settles.
+Desktop development binds to loopback. Remote access can be configured separately when requested. Keep the launch terminal open and stop the process with Control-C after agent work settles. The launcher tracks its own child processes and checks for an existing instance before starting.
+
+Web edits reload in place. Desktop and server source edits preserve the active runtime until an explicit restart. After active chats finish, stop the launcher and run it again to build and load those changes. This arrangement lets agents improve T3 from inside T3: the ordinary `dev:desktop` watcher restarts the agent's own server when shared source changes, which interrupted the panel implementation. Keep that watcher for separate disposable development environments.
 
 The unchanged source desktop build launched successfully. The customized build was restarted successfully after the usage changes, preserving its saved conversations and provider configurations. A private pre-customization data backup is retained in the parent workspace. Its backend and development web server listen on loopback ports 13773 and 5733 respectively. The startup log confirmed main-window creation and successful authentication/API responses. Two Codex accounts, Google, and the separate Anthropic API route completed tasks through T3. Claude Enterprise authenticated and reported an external spending-budget limit. Account details are recorded in `PROVIDERS.md`.
 

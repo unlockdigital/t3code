@@ -1,3 +1,4 @@
+import { UpstreamRequest, UpstreamStatus, UpstreamError } from "./upstream.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -481,6 +482,7 @@ export const WS_METHODS = {
   serverRemoveKeybinding: "server.removeKeybinding",
   serverRunStorageCleanup: "server.runStorageCleanup",
   serverGetStorageCleanupReport: "server.getStorageCleanupReport",
+  serverUpstream: "server.upstream",
   serverGetDatabaseStorage: "server.getDatabaseStorage",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -746,6 +748,12 @@ const WsServerGetStorageCleanupReportRpc = Rpc.make(WS_METHODS.serverGetStorageC
   success: Schema.NullOr(StorageCleanupReport),
   stream: true,
   error: EnvironmentAuthorizationError,
+});
+
+const WsServerUpstreamRpc = Rpc.make(WS_METHODS.serverUpstream, {
+  payload: UpstreamRequest,
+  success: UpstreamStatus,
+  error: Schema.Union([UpstreamError, EnvironmentAuthorizationError]),
 });
 
 const WsServerGetDatabaseStorageRpc = Rpc.make(WS_METHODS.serverGetDatabaseStorage, {
@@ -1906,6 +1914,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRemoveKeybindingRpc,
   WsServerRunStorageCleanupRpc,
   WsServerGetStorageCleanupReportRpc,
+  WsServerUpstreamRpc,
   WsServerGetDatabaseStorageRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,

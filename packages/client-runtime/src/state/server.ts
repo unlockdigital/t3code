@@ -995,6 +995,11 @@ export function createServerEnvironmentAtoms<R, E>(
   });
 
   return {
+    upstream: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:upstream",
+      tag: WS_METHODS.serverUpstream,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     configValueAtom,
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:run-storage-cleanup",

@@ -1,3 +1,4 @@
+import { UpstreamUpdatesSection } from "./UpstreamUpdatesSection";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
@@ -301,6 +302,9 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                     />
                   ) : null}
                 </SettingsSection>
+                {config.environment.capabilities.upstreamUpdates === true && (
+                  <UpstreamUpdatesSection key={environmentId} environmentId={environmentId} />
+                )}
                 <SettingsSection title="Providers">
                   <SettingsActionRow
                     icon="arrow.clockwise"
