@@ -287,9 +287,10 @@ const make = Effect.gen(function* () {
         }
         result.updateAvailable =
           result.latest !== null && compareVersions(result.latest.tag, source.baseTag) > 0;
+        const primaryRoot = NodePath.basename(common) === ".git" ? NodePath.dirname(common) : root;
         const candidateRoot = NodePath.join(
-          NodePath.dirname(root),
-          `${NodePath.basename(root)}-upstream-candidates`,
+          NodePath.dirname(primaryRoot),
+          `${NodePath.basename(primaryRoot)}-upstream-candidates`,
         );
         for (const candidate of result.candidates) {
           if (

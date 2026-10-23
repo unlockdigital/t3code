@@ -119,7 +119,7 @@ const fixture = (
         ),
       ),
     );
-    return { ...setup, service, calls };
+    return { ...setup, directory, service, calls, host };
   });
 
 it("validates stable release metadata", () => {
@@ -405,6 +405,34 @@ it.live("keeps missing candidate records visible for manual recovery", () =>
         (yield* service.execute({ action: "cleanup", candidateId: candidate.id }).pipe(Effect.flip))
           .stage,
       ).toBe("candidate-review");
+    }),
+  ),
+);
+
+it.live("resolves candidate path stably when read from a linked worktree", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { root, directory, service, host } = yield* fixture();
+      const candidate = (yield* service.execute({ action: "prepare", selectedTag: "v0.1.3" }))
+        .candidates[0]!;
+      const linkedWorktree = NodePath.join(directory, "linked-worktree");
+      yield* Effect.tryPromise(async () => {
+        await git(root, ["worktree", "add", "-b", "linked-branch", "--", linkedWorktree, "HEAD"]);
+      });
+      const worktreeService = yield* UpstreamUpdates.UpstreamUpdates.pipe(
+        Effect.provide(
+          UpstreamUpdates.layerWithHost.pipe(
+            Layer.provide(host),
+            Layer.provide(
+              ServerConfig.layerTest(linkedWorktree, NodePath.join(directory, "home2")),
+            ),
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+      );
+      const read = yield* worktreeService.execute({ action: "read" });
+      expect(read.candidates[0]?.id).toBe(candidate.id);
+      expect(read.candidates[0]?.status).toBe("clean");
     }),
   ),
 );
