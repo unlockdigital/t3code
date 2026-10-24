@@ -17,6 +17,7 @@ import {
   type MouseEvent,
 } from "react";
 import type { ServerProvider } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   scopedProjectKey,
   scopeProjectRef,
@@ -25,10 +26,24 @@ import {
 import {
   useThreadShells,
   useProjects,
+  useProject,
   useAllEnvironmentShellsBootstrapped,
 } from "../../state/entities";
 import { useEnvironments, useEnvironmentProviders } from "../../state/environments";
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
+import {
+  deriveEffectiveComposerModelState,
+  useComposerDraftModelState,
+} from "../../composerDraftStore";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  sortProviderInstanceEntries,
+} from "../../providerInstances";
+import { getAppModelOptionsForInstance } from "../../modelSelection";
+import { deriveLockedProvider, resolveComposerProviderSelection } from "../ChatView.logic";
+import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
 import { useUiStateStore } from "../../uiStateStore";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -263,14 +278,67 @@ function ActivityRow({
   readonly onOpen: (event: MouseEvent) => void;
   readonly onMenu: (position: { x: number; y: number }, at: string) => void;
 }) {
-  const current = providers.find(
-    (provider) => provider.instanceId === row.thread.modelSelection.instanceId,
-  );
+  const thread = row.thread;
+  const draft = useComposerDraftModelState(scopeThreadRef(thread.environmentId, thread.id));
+  const settings = useEnvironmentSettings(thread.environmentId);
+  const threadProject = useProject(scopeProjectRef(thread.environmentId, thread.projectId));
+  const projectModelSelection = resolveProjectSettings(settings, thread.projectId, threadProject)
+    .settings.defaultModelSelection;
+  const { selectedProviderEntry } = resolveComposerProviderSelection({
+    entries: sortProviderInstanceEntries(
+      applyProviderInstanceSettings(
+        deriveProviderInstanceEntries(providers),
+        settings,
+        thread.projectId,
+      ),
+    ),
+    candidateInstanceIds: [
+      draft.activeProvider,
+      thread.runtime?.providerInstanceId,
+      thread.modelSelection.instanceId,
+      projectModelSelection?.instanceId,
+    ],
+    lockedProvider: deriveLockedProvider({
+      thread,
+      selectedProvider: draft.activeProvider,
+      threadProvider: thread.modelSelection.instanceId,
+      providers,
+    }),
+    lockedInstanceId: thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
+  });
+  const instanceId = selectedProviderEntry?.instanceId ?? thread.modelSelection.instanceId;
+  const model = selectedProviderEntry
+    ? deriveEffectiveComposerModelState({
+        draft,
+        providers,
+        settings,
+        selectedProvider: selectedProviderEntry.driverKind,
+        selectedInstanceId: instanceId,
+        threadModelSelection: thread.modelSelection,
+        projectModelSelection,
+      }).selectedModel
+    : thread.modelSelection.model;
+  const modelOption = selectedProviderEntry
+    ? getAppModelOptionsForInstance(settings, selectedProviderEntry, model).find(
+        (option) => option.slug === model,
+      )
+    : undefined;
+  const modelName = modelOption ? getTriggerDisplayModelName(modelOption) : model;
+  const current =
+    selectedProviderEntry?.snapshot ??
+    providers.find((provider) => provider.instanceId === instanceId);
   const providerName =
+    selectedProviderEntry?.displayName ??
     current?.displayName ??
-    row.thread.runtime?.providerName ??
-    row.thread.modelSelection.instanceId;
-  const uniqueIds = [...new Set(row.members.map((member) => member.modelSelection.instanceId))];
+    (thread.runtime?.providerInstanceId === instanceId ? thread.runtime.providerName : null) ??
+    instanceId;
+  const uniqueIds = [
+    ...new Set(
+      row.members.map((member) =>
+        member === thread ? instanceId : member.modelSelection.instanceId,
+      ),
+    ),
+  ];
   const roster = uniqueIds
     .map((id) => providers.find((provider) => provider.instanceId === id))
     .filter((provider): provider is ServerProvider => provider !== undefined);
@@ -338,11 +406,8 @@ function ActivityRow({
           </div>
           {preview && <p className="truncate text-xs text-muted-foreground">{preview}</p>}
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
-            <span
-              className="max-w-48 truncate"
-              aria-label={`${providerName} · ${row.thread.modelSelection.model}`}
-            >
-              {providerName} · {row.thread.modelSelection.model}
+            <span className="max-w-48 truncate" aria-label={`${providerName} · ${modelName}`}>
+              {providerName} · {modelName}
             </span>
             <span aria-hidden>·</span>
             <span className="max-w-32 truncate">{project}</span>
