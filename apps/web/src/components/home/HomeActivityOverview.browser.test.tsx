@@ -42,6 +42,7 @@ vi.mock("../../hooks/useThreadActionMenu", () => ({
   useThreadActionMenu: () => ({ openMenu: state.show, closeMenu: () => {} }),
 }));
 vi.mock("./HomeThreadRenameDialog", () => ({ HomeThreadRenameDialog: () => null }));
+vi.mock("./HomeCreateActions", () => ({ HomeCreateActions: () => null }));
 import { HomeActivity } from "./HomeActivityOverview";
 
 function setup() {
@@ -154,4 +155,57 @@ it("moves completed work to Unread and Done while its preview server keeps runni
     .element(screen.getByRole("region", { name: "Unread", exact: true }))
     .not.toBeInTheDocument();
   await expect.element(screen.getByRole("region", { name: "Done", exact: true })).toBeVisible();
+});
+
+it("clears an old child usage limit when the parent continues and waits for new reviewers", async () => {
+  const { working } = setup();
+  const child = {
+    ...working,
+    id: ThreadId.make("old-child"),
+    title: "Old validation task",
+    runtime: {
+      ...working.runtime!,
+      status: "failed" as const,
+      activeRunId: null,
+      lastErrorClass: "usage_limit" as const,
+    },
+    latestRun: {
+      ...working.latestRun!,
+      status: "failed" as const,
+      completedAt: "2026-10-23T12:01:00Z",
+    },
+    lineage: {
+      rootThreadId: working.id,
+      parentThreadId: working.id,
+      relationshipToParent: "subagent" as const,
+    },
+  };
+  state.threads = [working, child];
+  await using screen = await render(<HomeActivity />, { router: "/home" });
+  await expect.element(screen.getByRole("region", { name: "Needs attention" })).toBeVisible();
+  await expect.element(screen.getByText("Usage limit", { exact: true })).toBeVisible();
+  await act(() => {
+    state.threads = [
+      {
+        ...working,
+        runtime: { ...working.runtime!, status: "idle", activeRunId: null },
+        latestRun: {
+          ...working.latestRun!,
+          runId: RunId.make("continued-run"),
+          status: "completed",
+          requestedAt: "2026-10-23T12:02:00Z",
+          startedAt: "2026-10-23T12:02:00Z",
+          completedAt: "2026-10-23T12:03:00Z",
+        },
+        pendingBackgroundTasks: [{ kind: "subagent", taskId: "new-review" }],
+      },
+      child,
+    ];
+    for (const listener of state.listeners) listener();
+  });
+  await expect
+    .element(screen.getByRole("region", { name: "Needs attention" }))
+    .not.toBeInTheDocument();
+  await expect.element(screen.getByRole("region", { name: "Working", exact: true })).toBeVisible();
+  await expect.element(screen.getByText("Waiting for agents", { exact: true })).toBeVisible();
 });

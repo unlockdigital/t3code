@@ -27,8 +27,14 @@ export interface HomeActivity {
   readonly nativeAgentCount: number;
 }
 const keyOf = (thread: Thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-const needsAttention = (thread: Thread) =>
-  ["approval", "input", "failed", "limited"].includes(resolveSidebarThreadStatus(thread));
+const needsAttention = (thread: Thread, acknowledgedAt: readonly (string | null | undefined)[]) => {
+  const status = resolveSidebarThreadStatus(thread);
+  if (status === "approval" || status === "input") return true;
+  if (status !== "failed" && status !== "limited") return false;
+  const failedAt = Date.parse(thread.latestRun?.completedAt ?? thread.runtime?.updatedAt ?? "");
+  if (!Number.isFinite(failedAt)) return true;
+  return !acknowledgedAt.some((at) => at && Date.parse(at) >= failedAt);
+};
 const doingWork = (thread: Thread) =>
   threadRuntimeIsActive(thread.runtime) ||
   backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks);
@@ -70,14 +76,24 @@ export function buildHomeActivity(
   const rows: HomeActivity[] = [];
   for (const [key, { thread, members }] of groups) {
     if (thread.settledOverride === "settled") continue;
-    const active = members.filter(
-      (member) =>
-        doingWork(member) || (member.settledOverride !== "settled" && needsAttention(member)),
-    );
-    if (effectiveSnoozed(thread, { now }) && active.length === 0) continue;
-    const attention = active.find(needsAttention);
-    const working = active.filter(doingWork);
     const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localVisits[key]);
+    const attention = members.find(
+      (member) =>
+        member.settledOverride !== "settled" &&
+        needsAttention(member, [
+          resolveThreadLastVisitedAt(member.lastVisitedAt, localVisits[keyOf(member)]),
+          lastVisitedAt,
+          // Continuing the parent handles results from older child tasks.
+          member !== thread ? (thread.latestRun?.startedAt ?? thread.latestRun?.requestedAt) : null,
+        ]) &&
+        !effectiveSnoozed(member, { now }) &&
+        !effectiveSnoozed(
+          { ...member, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
+          { now },
+        ),
+    );
+    const working = members.filter(doingWork);
+    if (effectiveSnoozed(thread, { now }) && !attention && working.length === 0) continue;
     const unread =
       Number.isFinite(Date.parse(thread.latestRun?.completedAt ?? "")) &&
       (!lastVisitedAt || hasUnseenCompletion({ ...thread, lastVisitedAt }));
@@ -99,7 +115,10 @@ export function buildHomeActivity(
             : attentionStatus === "limited"
               ? "Usage limit"
               : kind === "working"
-                ? thread.blockedOnThreadWait
+                ? thread.blockedOnThreadWait ||
+                  (!threadRuntimeIsActive(thread.runtime) &&
+                    (working.some((member) => member !== thread) ||
+                      thread.pendingBackgroundTasks.some((task) => task.kind === "subagent")))
                   ? "Waiting for agents"
                   : "Working"
                 : kind === "unread"

@@ -42,6 +42,7 @@ import {
 } from "./HomeActivity.logic";
 import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
 import { HomeThreadRenameDialog } from "./HomeThreadRenameDialog";
+import { HomeCreateActions } from "./HomeCreateActions";
 import { toastManager } from "../ui/toast";
 import styles from "./HomeActivity.module.css";
 import { cn } from "../../lib/utils";
@@ -145,12 +146,9 @@ export function HomeActivity() {
       )}
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Workspace activity</p>
-          <h1 className="text-lg font-medium">Your agents at a glance</h1>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            Your agents work here. Open a thread when it needs your attention.
-          </p>
+        <div className="space-y-3">
+          <h1 className="text-sm font-medium">Workspace activity</h1>
+          <HomeCreateActions />
         </div>
         <p className="text-xs text-muted-foreground">
           {connected} {connected === 1 ? "environment" : "environments"} connected
@@ -181,7 +179,7 @@ export function HomeActivity() {
           <EmptyHeader>
             <EmptyTitle>A quiet workspace</EmptyTitle>
             <EmptyDescription>
-              Your threads appear here as you work. Start a thread from the sidebar to get going.
+              Your threads appear here as you work. Start a new thread to get going.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
