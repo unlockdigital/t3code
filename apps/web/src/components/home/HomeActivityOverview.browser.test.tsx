@@ -2,6 +2,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import {
   EnvironmentId,
+  ProviderDriverKind,
   ProviderInstanceId,
   RunId,
   ThreadId,
@@ -231,24 +232,26 @@ it("follows the main thread's model picker through local model and provider chan
   const { working } = setup();
   const primary = ProviderInstanceId.make("opencode-home-primary");
   const secondary = ProviderInstanceId.make("opencode-home-secondary");
+  const driver = ProviderDriverKind.make("opencode");
   state.settings = {
     ...DEFAULT_UNIFIED_SETTINGS,
     providerInstances: {
-      [primary]: { driver: "opencode", enabled: true, config: {} },
-      [secondary]: { driver: "opencode", enabled: true, config: {} },
+      [primary]: { driver, enabled: true, config: {} },
+      [secondary]: { driver, enabled: true, config: {} },
     },
   };
   const models = [
     { slug: "invented/first", name: "First model", isCustom: false, capabilities: {} },
     { slug: "invented/second", name: "Second model", isCustom: false, capabilities: {} },
   ];
-  state.providers.set(working.environmentId, [
-    ...[
+  state.providers.set(
+    working.environmentId,
+    [
       { instanceId: primary, displayName: "Unlock Digital" },
       { instanceId: secondary, displayName: "Unlock Digital Review" },
     ].map((identity): ServerProvider => ({
       ...identity,
-      driver: "opencode",
+      driver,
       enabled: true,
       installed: true,
       version: null,
@@ -259,7 +262,7 @@ it("follows the main thread's model picker through local model and provider chan
       slashCommands: [],
       skills: [],
     })),
-  ]);
+  );
   const parent = {
     ...working,
     modelSelection: { instanceId: primary, model: "invented/first" },
