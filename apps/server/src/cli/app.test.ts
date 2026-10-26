@@ -40,8 +40,19 @@ const liveProcess = Effect.acquireRelease(
 
 const encodeRuntimeState = Schema.encodeEffect(Schema.fromJsonString(PersistedServerRuntimeState));
 
-const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
-  Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
+// Bound the fixture to its provided services so tsc-rs keeps the full CLI's requirements concrete.
+const runCliWithServices = <const Name extends string, Input, E, ContextInput>(
+  command: Command.Command<
+    Name,
+    Input,
+    ContextInput,
+    E,
+    NodeServices.NodeServices | NetService.NetService
+  >,
+  args: ReadonlyArray<string>,
+  env: Record<string, string>,
+) =>
+  Command.runWith(command, { version: "0.0.0" })(args).pipe(
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
@@ -50,6 +61,9 @@ const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =
       ),
     ),
   );
+
+const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
+  runCliWithServices(makeCli(), args, env);
 
 const pathExists = (path: string) =>
   Effect.promise(() =>

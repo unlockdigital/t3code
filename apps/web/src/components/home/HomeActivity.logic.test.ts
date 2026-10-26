@@ -193,51 +193,103 @@ describe("Home activity", () => {
       buildHomeActivity([parent, { ...child, hasPendingApprovals: true }], now)[0],
     ).toMatchObject({ kind: "attention", label: "Approval needed" });
   });
-  it("lets completed threads leave Working while persistent commands keep running", () => {
-    const thread = {
-      ...completed(),
-      runtime: { ...running().runtime, status: "completed" as const, activeRunId: null },
-      pendingBackgroundTasks: [{ kind: "command" as const, taskId: "preview-server" }],
-    };
-    expect(buildHomeActivity([thread], now)[0]).toMatchObject({
-      kind: "unread",
-      label: "Unread",
-      startedAt: start,
-      completedAt: now,
-    });
-    expect(buildHomeActivity([{ ...thread, lastVisitedAt: now }], now)[0]).toMatchObject({
-      kind: "done",
-      label: "Done",
-      completedAt: now,
-    });
-    const parent = completed();
-    const child = {
-      ...thread,
-      id: ThreadId.make("child"),
-      lineage: {
-        rootThreadId: parent.id,
-        parentThreadId: parent.id,
-        relationshipToParent: "subagent" as const,
-      },
-    };
-    expect(buildHomeActivity([parent, child], now)[0]?.kind).toBe("unread");
-  });
-  it.each(["subagent", "monitor", "background_task"] as const)(
-    "keeps completion-holding %s work in Working",
-    (kind) => {
+  it.each([
+    { kind: "command", awaited: undefined },
+    { kind: "monitor", awaited: undefined },
+  ] as const)(
+    "shows completed $kind work with awaited=$awaited as Unread or Done after a visit",
+    ({ kind, awaited }) => {
       const thread = {
         ...completed(),
+        runtime: { ...running().runtime, status: "completed" as const, activeRunId: null },
+        pendingBackgroundTasks: [
+          { kind, taskId: "persistent-work", ...(awaited === undefined ? {} : { awaited }) },
+        ],
+      };
+      expect(buildHomeActivity([thread], now)[0]).toMatchObject({
+        kind: "unread",
+        unread: true,
+        label: "Unread",
+        startedAt: start,
+        completedAt: now,
+      });
+      expect(buildHomeActivity([{ ...thread, lastVisitedAt: now }], now)[0]).toMatchObject({
+        kind: "done",
+        unread: false,
+        label: "Done",
+        completedAt: now,
+      });
+      expect(
+        buildHomeActivity([{ ...thread, lastVisitedAt: now, hasPendingApprovals: true }], now)[0],
+      ).toMatchObject({ kind: "attention", label: "Approval needed" });
+      const parent = completed();
+      const child = {
+        ...thread,
+        id: ThreadId.make("child"),
+        lineage: {
+          rootThreadId: parent.id,
+          parentThreadId: parent.id,
+          relationshipToParent: "subagent" as const,
+        },
+      };
+      expect(buildHomeActivity([parent, child], now)[0]?.kind).toBe("unread");
+      expect(buildHomeActivity([{ ...parent, lastVisitedAt: now }, child], now)[0]?.kind).toBe(
+        "done",
+      );
+      expect(buildHomeActivity([{ ...parent, settledOverride: "settled" }, child], now)).toEqual(
+        [],
+      );
+      expect(buildHomeActivity([{ ...thread, settledOverride: "settled" }], now)).toEqual([]);
+    },
+  );
+  it.each([
+    { kind: "command", awaited: true },
+    { kind: "monitor", awaited: true },
+    { kind: "subagent", awaited: undefined },
+    { kind: "background_task", awaited: undefined },
+  ] as const)(
+    "keeps completed $kind work with awaited=$awaited in Working",
+    ({ kind, awaited }) => {
+      const thread = {
+        ...completed(),
+        lastVisitedAt: now,
         pendingBackgroundTasks: [
           { kind: "command" as const, taskId: "preview-server" },
-          { kind, taskId: "active-work" },
+          { kind, taskId: "active-work", ...(awaited === undefined ? {} : { awaited }) },
         ],
       };
       expect(buildHomeActivity([thread], now)[0]).toMatchObject({
         kind: "working",
         completedAt: null,
       });
+      expect(buildHomeActivity([{ ...thread, hasPendingApprovals: true }], now)[0]).toMatchObject({
+        kind: "attention",
+        label: "Approval needed",
+      });
+      expect(buildHomeActivity([{ ...thread, settledOverride: "settled" }], now)).toEqual([]);
     },
   );
+  it("keeps a completed parent Working while a child runs and surfaces its approval", () => {
+    const parent = { ...completed(), lastVisitedAt: now };
+    const child = {
+      ...running(),
+      id: ThreadId.make("active-child"),
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    expect(buildHomeActivity([parent, child], now)[0]).toMatchObject({
+      kind: "working",
+      label: "Waiting for agents",
+      completedAt: null,
+    });
+    expect(
+      buildHomeActivity([parent, { ...child, hasPendingApprovals: true }], now)[0],
+    ).toMatchObject({ kind: "attention", label: "Approval needed" });
+    expect(buildHomeActivity([{ ...parent, settledOverride: "settled" }, child], now)).toEqual([]);
+  });
   it("separates unopened completions from read, resting threads", () => {
     const unread = completed();
     const done = {
