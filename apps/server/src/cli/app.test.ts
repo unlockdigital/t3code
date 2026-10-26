@@ -19,7 +19,7 @@ import * as Schema from "effect/Schema";
 import { Command } from "effect/cli";
 import { describe, expect } from "vite-plus/test";
 
-import { cli } from "../binCli.ts";
+import { makeCli } from "../binCli.ts";
 import { PersistedServerRuntimeState } from "../serverRuntimeState.ts";
 
 const liveProcess = Effect.acquireRelease(
@@ -41,12 +41,12 @@ const liveProcess = Effect.acquireRelease(
 const encodeRuntimeState = Schema.encodeEffect(Schema.fromJsonString(PersistedServerRuntimeState));
 
 const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
-  Command.runWith(cli, { version: "0.0.0" })(args).pipe(
+  Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
         NetService.layer,
-        ConfigProvider.layer(ConfigProvider.fromEnv({ env })),
+        Layer.succeed(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env })),
       ),
     ),
   );
