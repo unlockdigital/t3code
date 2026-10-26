@@ -1,9 +1,19 @@
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
-import { EnvironmentId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  RunId,
+  ThreadId,
+  type ServerProvider,
+} from "@t3tools/contracts";
+import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { act, render, fakeTimers } from "../../../test/render";
 import { makeThreadFixture } from "../../test-fixtures";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { useComposerDraftStore } from "../../composerDraftStore";
 
 const state = vi.hoisted(() => ({
   threads: [] as EnvironmentThreadShell[],
@@ -11,7 +21,8 @@ const state = vi.hoisted(() => ({
   projects: [] as never[],
   visits: {},
   environments: [{ environmentId: "local", label: "This Mac", connection: { phase: "connected" } }],
-  providers: new Map(),
+  providers: new Map<EnvironmentId, readonly ServerProvider[]>(),
+  settings: null as UnifiedSettings | null,
   show: vi.fn(),
 }));
 vi.mock("../../state/entities", async () => {
@@ -28,6 +39,7 @@ vi.mock("../../state/entities", async () => {
         () => state.threads,
       ),
     useProjects: () => state.projects,
+    useProject: () => null,
     useAllEnvironmentShellsBootstrapped: () => true,
   };
 });
@@ -38,15 +50,22 @@ vi.mock("../../state/environments", () => ({
 vi.mock("../../uiStateStore", () => ({
   useUiStateStore: () => state.visits,
 }));
+vi.mock("../../hooks/useSettings", () => ({
+  useEnvironmentSettings: () => state.settings ?? DEFAULT_UNIFIED_SETTINGS,
+}));
 vi.mock("../../hooks/useThreadActionMenu", () => ({
   useThreadActionMenu: () => ({ openMenu: state.show, closeMenu: () => {} }),
 }));
 vi.mock("./HomeThreadRenameDialog", () => ({ HomeThreadRenameDialog: () => null }));
+vi.mock("./HomeCreateActions", () => ({ HomeCreateActions: () => null }));
 import { HomeActivity } from "./HomeActivityOverview";
 
 function setup() {
   state.listeners.clear();
   state.show.mockReset();
+  state.providers.clear();
+  state.settings = null;
+  useComposerDraftStore.setState({ draftsByThreadKey: {} });
   const runId = RunId.make("run");
   const working = makeThreadFixture({
     id: ThreadId.make("mcp:working"),
@@ -154,4 +173,152 @@ it("moves completed work to Unread and Done while its preview server keeps runni
     .element(screen.getByRole("region", { name: "Unread", exact: true }))
     .not.toBeInTheDocument();
   await expect.element(screen.getByRole("region", { name: "Done", exact: true })).toBeVisible();
+});
+
+it("clears an old child usage limit when the parent continues and waits for new reviewers", async () => {
+  const { working } = setup();
+  const child = {
+    ...working,
+    id: ThreadId.make("old-child"),
+    title: "Old validation task",
+    runtime: {
+      ...working.runtime!,
+      status: "failed" as const,
+      activeRunId: null,
+      lastErrorClass: "usage_limit" as const,
+    },
+    latestRun: {
+      ...working.latestRun!,
+      status: "failed" as const,
+      completedAt: "2026-10-23T12:01:00Z",
+    },
+    lineage: {
+      rootThreadId: working.id,
+      parentThreadId: working.id,
+      relationshipToParent: "subagent" as const,
+    },
+  };
+  state.threads = [working, child];
+  await using screen = await render(<HomeActivity />, { router: "/home" });
+  await expect.element(screen.getByRole("region", { name: "Needs attention" })).toBeVisible();
+  await expect.element(screen.getByText("Usage limit", { exact: true })).toBeVisible();
+  await act(() => {
+    state.threads = [
+      {
+        ...working,
+        runtime: { ...working.runtime!, status: "idle", activeRunId: null },
+        latestRun: {
+          ...working.latestRun!,
+          runId: RunId.make("continued-run"),
+          status: "completed",
+          requestedAt: "2026-10-23T12:02:00Z",
+          startedAt: "2026-10-23T12:02:00Z",
+          completedAt: "2026-10-23T12:03:00Z",
+        },
+        pendingBackgroundTasks: [{ kind: "subagent", taskId: "new-review" }],
+      },
+      child,
+    ];
+    for (const listener of state.listeners) listener();
+  });
+  await expect
+    .element(screen.getByRole("region", { name: "Needs attention" }))
+    .not.toBeInTheDocument();
+  await expect.element(screen.getByRole("region", { name: "Working", exact: true })).toBeVisible();
+  await expect.element(screen.getByText("Waiting for agents", { exact: true })).toBeVisible();
+});
+
+it("follows the main thread's model picker through local model and provider changes", async () => {
+  const { working } = setup();
+  const primary = ProviderInstanceId.make("opencode-home-primary");
+  const secondary = ProviderInstanceId.make("opencode-home-secondary");
+  const driver = ProviderDriverKind.make("opencode");
+  state.settings = {
+    ...DEFAULT_UNIFIED_SETTINGS,
+    providerInstances: {
+      [primary]: { driver, enabled: true, config: {} },
+      [secondary]: { driver, enabled: true, config: {} },
+    },
+  };
+  const models = [
+    { slug: "invented/first", name: "First model", isCustom: false, capabilities: {} },
+    { slug: "invented/second", name: "Second model", isCustom: false, capabilities: {} },
+  ];
+  state.providers.set(
+    working.environmentId,
+    [
+      { instanceId: primary, displayName: "Unlock Digital" },
+      { instanceId: secondary, displayName: "Unlock Digital Review" },
+    ].map((identity): ServerProvider => ({
+      ...identity,
+      driver,
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-10-23T12:00:00Z",
+      models,
+      slashCommands: [],
+      skills: [],
+    })),
+  );
+  const parent = {
+    ...working,
+    modelSelection: { instanceId: primary, model: "invented/first" },
+    runtime: { ...working.runtime!, providerInstanceId: primary, providerName: "opencode" },
+  };
+  state.threads = [
+    parent,
+    {
+      ...working,
+      id: ThreadId.make("review-child"),
+      title: "Review task",
+      modelSelection: { instanceId: secondary, model: "invented/second" },
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent",
+      },
+    },
+  ];
+  const threadRef = scopeThreadRef(parent.environmentId, parent.id);
+  // Another environment can have a thread and provider with the same IDs.
+  useComposerDraftStore
+    .getState()
+    .setModelSelection(
+      scopeThreadRef(EnvironmentId.make("other-environment"), parent.id),
+      { instanceId: primary, model: "invented/second" },
+      { explicit: true },
+    );
+  await using screen = await render(<HomeActivity />, { router: "/home" });
+  await expect.element(screen.getByLabelText("Unlock Digital · First model")).toBeVisible();
+  await act(() => {
+    useComposerDraftStore
+      .getState()
+      .setModelSelection(
+        threadRef,
+        { instanceId: primary, model: "invented/second" },
+        { explicit: true },
+      );
+  });
+  await expect.element(screen.getByLabelText("Unlock Digital · Second model")).toBeVisible();
+  await act(() => {
+    useComposerDraftStore
+      .getState()
+      .setModelSelection(
+        threadRef,
+        { instanceId: secondary, model: "invented/first" },
+        { explicit: true },
+      );
+  });
+  await expect.element(screen.getByLabelText("Unlock Digital Review · First model")).toBeVisible();
+  await act(() => {
+    useComposerDraftStore.setState({ draftsByThreadKey: {} });
+    state.threads = [
+      { ...parent, modelSelection: { instanceId: primary, model: "invented/second" } },
+    ];
+    for (const listener of state.listeners) listener();
+  });
+  await expect.element(screen.getByLabelText("Unlock Digital · Second model")).toBeVisible();
 });

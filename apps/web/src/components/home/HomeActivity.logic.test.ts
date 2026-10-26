@@ -36,7 +36,163 @@ const completed = () => {
     latestRun: { ...thread.latestRun, status: "completed" as const, completedAt: now },
   };
 };
+const limited = () => {
+  const thread = completed();
+  return {
+    ...thread,
+    runtime: {
+      ...running().runtime,
+      status: "failed" as const,
+      activeRunId: null,
+      lastErrorClass: "usage_limit" as const,
+    },
+    latestRun: { ...thread.latestRun, status: "failed" as const },
+  };
+};
 describe("Home activity", () => {
+  it("keeps an old child failure from masking a parent waiting for new agents", () => {
+    const parent = {
+      ...completed(),
+      lastVisitedAt: now,
+      latestRun: {
+        ...completed().latestRun,
+        requestedAt: "2026-10-23T11:55:00.000Z",
+        startedAt: "2026-10-23T11:55:00.000Z",
+      },
+      runtime: { ...running().runtime, status: "idle" as const, activeRunId: null },
+      pendingBackgroundTasks: [
+        { kind: "subagent" as const, taskId: "new-review", childThreadId: ThreadId.make("review") },
+      ],
+    };
+    const oldFailure = {
+      ...limited(),
+      id: ThreadId.make("old-failure"),
+      latestRun: { ...limited().latestRun, completedAt: start },
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    const reviewer = { ...running(), id: ThreadId.make("review"), lineage: oldFailure.lineage };
+    expect(buildHomeActivity([parent, oldFailure, reviewer], now)[0]).toMatchObject({
+      kind: "working",
+      label: "Waiting for agents",
+    });
+    expect(
+      buildHomeActivity([{ ...parent, lastVisitedAt: null }, oldFailure, reviewer], now)[0]?.kind,
+    ).toBe("working");
+  });
+  it("acknowledges child failures when either the child or its parent has been read", () => {
+    const parent = completed();
+    const child = {
+      ...limited(),
+      id: ThreadId.make("failed-child"),
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    expect(buildHomeActivity([parent, { ...child, lastVisitedAt: now }], now)[0]?.kind).toBe(
+      "unread",
+    );
+    expect(buildHomeActivity([{ ...parent, lastVisitedAt: now }, child], now)[0]?.kind).toBe(
+      "done",
+    );
+    expect(
+      buildHomeActivity(
+        [
+          { ...parent, lastVisitedAt: now },
+          { ...child, hasPendingApprovals: true },
+        ],
+        now,
+      )[0]?.label,
+    ).toBe("Approval needed");
+  });
+  it("keeps new failures visible after an earlier parent visit", () => {
+    const parent = { ...running(), lastVisitedAt: start };
+    const child = {
+      ...limited(),
+      id: ThreadId.make("failed-child"),
+      lastVisitedAt: start,
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    expect(buildHomeActivity([parent, child], now)[0]).toMatchObject({
+      kind: "attention",
+      label: "Usage limit",
+    });
+  });
+  it("hides an acknowledged usage limit while the thread is snoozed", () => {
+    const thread = {
+      ...limited(),
+      lastVisitedAt: now,
+      snoozedAt: now,
+      snoozedUntil: "2026-10-24T12:00:00.000Z",
+    };
+    expect(buildHomeActivity([thread], now)).toEqual([]);
+  });
+  it("keeps a snoozed child usage limit out of its parent's attention status", () => {
+    const parent = { ...completed(), lastVisitedAt: now };
+    const child = {
+      ...limited(),
+      id: ThreadId.make("limited-child"),
+      lastVisitedAt: now,
+      snoozedAt: now,
+      snoozedUntil: "2026-10-24T12:00:00.000Z",
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    expect(buildHomeActivity([parent, child], now)[0]).toMatchObject({
+      kind: "done",
+      label: "Done",
+    });
+    expect(buildHomeActivity([running(), child], now)[0]).toMatchObject({
+      kind: "working",
+      label: "Working",
+    });
+    const freshFailure = { ...child, snoozedAt: start, lastVisitedAt: start };
+    expect(
+      buildHomeActivity([{ ...parent, lastVisitedAt: start }, freshFailure], now)[0],
+    ).toMatchObject({
+      kind: "attention",
+      label: "Usage limit",
+    });
+    const expired = { ...child, snoozedUntil: now };
+    expect(buildHomeActivity([parent, expired], now)[0]?.kind).toBe("done");
+  });
+  it("honors a parent snooze for old child failures and surfaces new requests", () => {
+    const parent = {
+      ...completed(),
+      lastVisitedAt: start,
+      snoozedAt: now,
+      snoozedUntil: "2026-10-24T12:00:00.000Z",
+    };
+    const child = {
+      ...limited(),
+      id: ThreadId.make("limited-child"),
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    expect(buildHomeActivity([parent, child], now)).toEqual([]);
+    expect(buildHomeActivity([{ ...parent, snoozedAt: start }, child], now)[0]).toMatchObject({
+      kind: "attention",
+      label: "Usage limit",
+    });
+    expect(
+      buildHomeActivity([parent, { ...child, hasPendingApprovals: true }], now)[0],
+    ).toMatchObject({ kind: "attention", label: "Approval needed" });
+  });
   it("lets completed threads leave Working while persistent commands keep running", () => {
     const thread = {
       ...completed(),
