@@ -26,6 +26,7 @@ import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as CoordinatorApprovals from "../orchestration-v2/CoordinatorApprovals.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import {
@@ -78,6 +79,10 @@ import * as WorkflowReview from "../workflowReview/WorkflowReview.ts";
 import { WorkflowReviewToolkit } from "./toolkits/workflowReview/tools.ts";
 import { PrivacyToolkit } from "./toolkits/privacy/tools.ts";
 import * as PrivacyHandlers from "./toolkits/privacy/handlers.ts";
+import { N2itionToolkit } from "./toolkits/n2ition/tools.ts";
+import * as N2itionHandlers from "./toolkits/n2ition/handlers.ts";
+import { AccountRoutingToolkit } from "./toolkits/accountRouting/tools.ts";
+import * as AccountRoutingHandlers from "./toolkits/accountRouting/handlers.ts";
 import * as WorkflowReviewHandlers from "./toolkits/workflowReview/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 
@@ -1021,7 +1026,9 @@ export const layerOrchestratorToolkit = toolkitRegistration(
   OrchestratorHandlers.layer,
 ).pipe(Layer.provide(OrchestratorMcpService.layer), Layer.provide(ThreadMetadataMcpService.layer));
 
-export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
+export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer).pipe(
+  Layer.provide(CoordinatorApprovals.layer),
+);
 
 const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
@@ -1055,6 +1062,10 @@ export const layerWorkflowReviewToolkit = toolkitRegistration(
 ).pipe(Layer.provide(WorkflowReview.layer), Layer.provide(SkillLibrary.layer));
 
 export const layerPrivacyToolkit = toolkitRegistration(PrivacyToolkit, PrivacyHandlers.layer);
+const layerAccountRoutingToolkit = toolkitRegistration(
+  AccountRoutingToolkit,
+  AccountRoutingHandlers.layer,
+);
 
 const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
@@ -1095,12 +1106,14 @@ export const layer = Layer.mergeAll(
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,
+  toolkitRegistration(N2itionToolkit, N2itionHandlers.layer),
   layerAttachmentToolkit,
   layerProjectRegistration,
   layerEnvironmentToolkit,
   layerSkillToolkit,
   layerWorkflowReviewToolkit,
   layerPrivacyToolkit,
+  layerAccountRoutingToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

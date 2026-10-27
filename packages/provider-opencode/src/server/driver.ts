@@ -372,6 +372,7 @@ export const OpenCodeDriver: ProviderDriver<
           environment: processEnv,
           usageProvider,
           tinfoilAdminKey: effectiveConfig.tinfoilAdminKey,
+          tinfoilMonthlyBudgetUsd: effectiveConfig.tinfoilMonthlyBudgetUsd,
         }),
       },
       { concurrency: "unbounded" },

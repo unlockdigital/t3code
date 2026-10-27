@@ -4,6 +4,9 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import {
@@ -43,6 +46,80 @@ function catalogWithInspection(
 }
 
 describe("acpRegistrySnapshotReadiness", () => {
+  it.live("publishes the signed-in Copilot account quota in the usage panel snapshot", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-copilot-quota-" });
+      const executable = path.join(dir, "copilot.mjs");
+      yield* fs.writeFileString(
+        executable,
+        `
+        let input = Buffer.alloc(0);
+        process.stdin.on('data', (chunk) => {
+          input = Buffer.concat([input, chunk]);
+          const end = input.indexOf('\\r\\n\\r\\n');
+          if (end < 0) return;
+          const size = Number(input.subarray(0, end).toString().split(':')[1]);
+          if (input.length < end + 4 + size) return;
+          const request = JSON.parse(input.subarray(end + 4, end + 4 + size));
+          if (request.method !== 'account.getQuota') process.exit(1);
+          if (!process.argv.includes('--headless') || process.argv.includes('--acp')) process.exit(2);
+          const result = { quotaSnapshots: { premium_interactions: {
+            entitlementRequests: 1500, usedRequests: 6, remainingPercentage: 99.6,
+            isUnlimitedEntitlement: false, tokenBasedBilling: true, hasQuota: true,
+            resetDate: '2026-11-01T00:00:00Z'
+          } } };
+          const body = JSON.stringify({ jsonrpc: '2.0', id: request.id, result });
+          process.stdout.write('Content-Length: ' + Buffer.byteLength(body) + '\\r\\n\\r\\n' + body);
+        });
+      `,
+      );
+      const settings = decodeSettings({ agentId: "github-copilot-cli" });
+      const catalog = catalogWithInspection({
+        status: "ready",
+        agentId: "github-copilot-cli",
+        version: "1.0.103",
+        distribution: "npx",
+      });
+      const provider = yield* checkAcpRegistryProviderReadiness({
+        ...identity,
+        settings,
+        environment: process.env,
+      }).pipe(
+        Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, {
+          ...catalog,
+          resolve: (_settings, _cwd, environment) =>
+            Effect.succeed({
+              distribution: "local",
+              spawn: {
+                command: process.execPath,
+                args: [executable, "--acp"],
+                cwd: dir,
+                ...(environment ? { env: environment } : {}),
+              },
+            }),
+        }),
+      );
+      expect(provider.usageLimits?.unavailable).toBeUndefined();
+      expect(provider.auth.status).toBe("authenticated");
+      expect(provider.usageLimits?.windows).toEqual([
+        {
+          id: "copilot_premium_interactions",
+          kind: "monthly",
+          label: "AI credits · 6 / 1,500",
+          usedPercent: expect.closeTo(0.4, 5),
+          resetsAt: "2026-11-01T00:00:00.000Z",
+        },
+      ]);
+      expect(provider.usageLimits?.creditBalance).toEqual({
+        hasCredits: true,
+        unlimited: false,
+        balance: "1494",
+      });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it("treats a live empty command advertisement as an authoritative replacement", () => {
     const provider = buildCheckedAcpRegistrySnapshot({
       ...identity,

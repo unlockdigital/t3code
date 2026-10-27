@@ -2,6 +2,7 @@ import {
   formatResetsIn,
   remainingPercent,
   prepaidCreditPercent,
+  monthlySpendProgress,
   usageWindowDetails,
   usageAccountWindows,
   type UsageAccount,
@@ -66,7 +67,9 @@ function AccountRow({
   const external = limits?.externalUsage;
   const credits = limits?.creditBalance;
   const prepaidBalance = limits?.prepaidBalance;
+  const balanceCheckedAt = prepaidBalance?.checkedAt ?? limits?.checkedAt;
   const creditPercent = prepaidCreditPercent(prepaidBalance);
+  const monthlySpend = monthlySpendProgress(limits, now);
   const creditValue = credits?.unlimited
     ? "Unlimited"
     : credits?.balance !== undefined
@@ -236,7 +239,7 @@ function AccountRow({
           {isApi ? (
             <div className="min-w-0 space-y-0.5">
               <dt className="text-xs text-muted-foreground">
-                Credits remaining
+                Dollars remaining
                 {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
               </dt>
               <dd className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tabular-nums">
@@ -247,6 +250,14 @@ function AccountRow({
                   </span>
                 ) : null}
               </dd>
+              {prepaidBalance && balanceCheckedAt ? (
+                <dd className="text-xs text-muted-foreground wrap-anywhere">
+                  Updated{" "}
+                  <time dateTime={balanceCheckedAt}>
+                    {new Date(balanceCheckedAt).toLocaleString()}
+                  </time>
+                </dd>
+              ) : null}
               {creditPercent !== null ? (
                 <div
                   role="meter"
@@ -305,13 +316,56 @@ function AccountRow({
         <div className="min-w-0 space-y-3">
           {windows.length ? <div className="min-w-0">{quotaRows(windows)}</div> : null}
           {prepaidBalance ? (
-            <p className="text-xs text-muted-foreground">
-              Account balance · Updated {new Date(limits!.checkedAt).toLocaleString()}. Covers all
-              account usage.
-              {prepaidBalance.totalGrantedUsd !== undefined
-                ? ` ${formatUsd(prepaidBalance.totalGrantedUsd)} in settled credits.`
-                : " Credit total unavailable."}
-            </p>
+            <p className="text-xs text-muted-foreground">Balance covers all account usage.</p>
+          ) : null}
+          {monthlySpend ? (
+            <div className="max-w-sm space-y-1.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
+                <span className="text-muted-foreground">
+                  Monthly API spending{monthlySpend.stale ? " · stale" : ""}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {monthlySpend.spentUsd === null ? "—" : formatUsd(monthlySpend.spentUsd)} /{" "}
+                  {formatUsd(monthlySpend.budgetUsd)}
+                </span>
+              </div>
+              {monthlySpend.percentUsed !== null ? (
+                <div
+                  role="meter"
+                  aria-label={`Monthly spending for ${account.label}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={monthlySpend.percentUsed}
+                  aria-valuetext={`${formatUsd(monthlySpend.spentUsd!)} spent of ${formatUsd(monthlySpend.budgetUsd)} monthly budget`}
+                  className="h-1 overflow-hidden rounded-full bg-foreground/10"
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${monthlySpend.percentUsed}%`,
+                      backgroundColor:
+                        monthlySpend.percentUsed >= 90 ? "var(--color-destructive)" : color,
+                    }}
+                  />
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {monthlySpend.spentUsd === null
+                  ? "Monthly usage unavailable. Refresh to check."
+                  : monthlySpend.overBudgetUsd! > 0
+                    ? `${formatUsd(monthlySpend.overBudgetUsd!)} over budget.`
+                    : `${formatUsd(monthlySpend.remainingUsd!)} left in budget.`}{" "}
+                Account-wide · Calendar month (UTC) · Tracking only.
+              </p>
+              {monthlySpend.spentUsd !== null ? (
+                <p className="text-xs text-muted-foreground">
+                  Updated{" "}
+                  <time dateTime={monthlySpend.checkedAt}>
+                    {new Date(monthlySpend.checkedAt).toLocaleString()}
+                  </time>
+                </p>
+              ) : null}
+            </div>
           ) : null}
           <div
             className={cn(

@@ -176,11 +176,16 @@ export function resolveThreadListV2Status(
     | "blockedOnThreadWait"
   >,
 ): ThreadListV2Status {
+  // The agent is waiting on its agents: it handles delegated traffic itself and
+  // will ask the user directly, so a child's propagated request yields to the
+  // blocked run on the user's list as it does on the web home.
+  const blockedOnAgents =
+    thread.runtime?.status === "running" && thread.blockedOnThreadWait === true;
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
-    return "approval";
+    return !thread.hasPendingApprovals && blockedOnAgents ? "waiting" : "approval";
   }
   if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
-    return "input";
+    return !thread.hasPendingUserInput && blockedOnAgents ? "waiting" : "input";
   }
   if (thread.runtime?.status === "running" && thread.blockedOnThreadWait === true) {
     return "waiting";

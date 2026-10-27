@@ -100,11 +100,18 @@ export const readOpenCodeUsageLimits = Effect.fn("readOpenCodeUsageLimits")(func
   readonly environment: NodeJS.ProcessEnv;
   readonly usageProvider?: "tinfoil" | "opencode-go";
   readonly tinfoilAdminKey?: string;
+  readonly tinfoilMonthlyBudgetUsd?: number | undefined;
 }) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const unsupported = makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
   if (input.enabled && input.usageProvider === "tinfoil") {
-    return yield* readTinfoilUsageLimits({ checkedAt, adminKey: input.tinfoilAdminKey ?? "" });
+    return yield* readTinfoilUsageLimits({
+      checkedAt,
+      adminKey: input.tinfoilAdminKey ?? "",
+      ...(input.tinfoilMonthlyBudgetUsd === undefined
+        ? {}
+        : { monthlyBudgetUsd: input.tinfoilMonthlyBudgetUsd }),
+    });
   }
   if (!input.enabled || input.serverUrl.trim()) return unsupported;
 

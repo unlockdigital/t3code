@@ -1,4 +1,6 @@
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
+import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -81,6 +83,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   options: McpSessionRegistryOptions = {},
 ) {
   const crypto = yield* Crypto.Crypto;
+  const n2itionGrants = yield* Effect.serviceOption(N2itionGrantStore.N2itionGrantStore);
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const environmentId = yield* environment.getEnvironmentId;
   const httpServer = yield* HttpServer.HttpServer;
@@ -103,6 +106,20 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
       const browserToolsAvailable = request.browserToolsAvailable ?? true;
+      const n2itionGrantEpoch = yield* Effect.gen(function* () {
+        if (Option.isNone(n2itionGrants)) return undefined;
+        const grant = yield* n2itionGrants.value.read;
+        if (
+          !grant ||
+          grant.environmentId !== environmentId ||
+          grant.threadId !== request.threadId ||
+          grant.providerInstanceId !== request.providerInstanceId
+        )
+          return undefined;
+        yield* Effect.try(() => N2itionGrantStore.validateGrant(grant, issuedAt));
+        yield* n2itionGrants.value.checkRouteFiles(grant);
+        return grant.epoch;
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)));
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
         requestNamespace: providerSessionId,
@@ -117,9 +134,13 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           "orchestration",
           "worktree",
           "pull-requests",
-          ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
+          ...[
+            ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
+          ].filter((capability) => capability !== "n2ition-read"),
+          ...(n2itionGrantEpoch === undefined ? [] : ["n2ition-read" as const]),
         ]),
         issuedAt,
+        ...(n2itionGrantEpoch === undefined ? {} : { n2itionGrantEpoch }),
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);

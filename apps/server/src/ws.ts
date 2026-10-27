@@ -1,3 +1,4 @@
+import * as N2itionContext from "./n2ition/N2itionContext.ts";
 import * as ProviderBilling from "./provider/ProviderBilling.ts";
 import type * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import type * as ServerSecretStore from "./auth/ServerSecretStore.ts";
@@ -165,6 +166,7 @@ import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
+import * as AccountRouting from "./provider/AccountRoutingService.ts";
 import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
@@ -551,6 +553,11 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const CoreWsRpcGroup = ServerWsRpcGroup.omit(
+  WS_METHODS.n2itionStatus,
+  WS_METHODS.n2itionControl,
+  WS_METHODS.n2itionRefresh,
+);
 type WsRpcHandlerServices =
   | Crypto.Crypto
   | FileSystem.FileSystem
@@ -569,7 +576,7 @@ type WsRpcHandlerServices =
   | WorkspacePaths.WorkspacePaths;
 // A fixed service boundary keeps the growing RPC union within the compiler's instantiation limit.
 type WsRpcHandlers = {
-  readonly [Current in RpcGroup.Rpcs<typeof ServerWsRpcGroup> as Current["_tag"]]: Rpc.ToHandlerFn<
+  readonly [Current in RpcGroup.Rpcs<typeof CoreWsRpcGroup> as Current["_tag"]]: Rpc.ToHandlerFn<
     Current,
     WsRpcHandlerServices
   >;
@@ -1217,7 +1224,7 @@ export const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  CoreWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1301,6 +1308,7 @@ export const layerWsRpc = (
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+      const accountRouting = yield* AccountRouting.AccountRoutingService;
       const modelManifest = yield* ModelManifest.ModelManifest;
       const providerLatestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
       const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
@@ -2428,6 +2436,7 @@ export const layerWsRpc = (
         [WS_METHODS.serverGetDatabaseStorage]: () => databaseStorage.status,
         [WS_METHODS.serverGetSettings]: (_input) =>
           serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
+        [WS_METHODS.accountRoutingPreview]: (input) => accountRouting.preview(input),
         [WS_METHODS.serverUpdateSettings]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* ({ patch, providerInstanceMutation }) {
@@ -2442,6 +2451,10 @@ export const layerWsRpc = (
               : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
             return ServerSettings.redactServerSettingsForClient(settings);
           }),
+        [WS_METHODS.serverSetApprovalCoordinator]: ({ threadId, enabled }) =>
+          serverSettings
+            .setApprovalCoordinator(threadId, enabled)
+            .pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
           TraceDiagnostics.readTraceDiagnostics({
@@ -3172,6 +3185,23 @@ export const layerWsRpc = (
       };
       return handlers;
     }),
+  ).pipe(
+    Layer.merge(
+      Layer.mergeAll(
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionStatus,
+          Effect.map(N2itionContext.N2itionContext, (service) => () => service.status),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionControl,
+          Effect.map(N2itionContext.N2itionContext, (service) => (input) => service.control(input)),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionRefresh,
+          Effect.map(N2itionContext.N2itionContext, (service) => () => service.refresh),
+        ),
+      ),
+    ),
   );
 
 // RpcServer's default sends a socket-level Defect frame instead, and the client

@@ -383,3 +383,31 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch(input)).toEqual(input);
   });
 });
+
+describe("personal agent shortcut", () => {
+  it("keeps the conversation identity through name changes and settings round trips", () => {
+    const agentShortcut = { environmentId: "env-one", threadId: "thread-one", name: "Teddy" };
+    const settings = decodeClientSettings({ agentShortcut });
+    expect(decodeClientSettings(encodeClientSettings(settings)).agentShortcut).toEqual(
+      agentShortcut,
+    );
+    const renamed = decodeClientSettingsPatch({
+      agentShortcut: { ...agentShortcut, name: "Scout" },
+    });
+    expect(renamed.agentShortcut).toEqual({ ...agentShortcut, name: "Scout" });
+  });
+
+  it("supports older settings and explicit reset while rejecting incomplete targets", () => {
+    expect(decodeClientSettings({}).agentShortcut).toBeNull();
+    expect(decodeClientSettingsPatch({ agentShortcut: null }).agentShortcut).toBeNull();
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("agentShortcut");
+    expect(() =>
+      decodeClientSettingsPatch({ agentShortcut: { name: "Teddy", threadId: "thread-one" } }),
+    ).toThrow();
+    expect(() =>
+      decodeClientSettingsPatch({
+        agentShortcut: { environmentId: "env-one", threadId: "thread-one", name: " " },
+      }),
+    ).toThrow();
+  });
+});

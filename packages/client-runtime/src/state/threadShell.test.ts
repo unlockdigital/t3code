@@ -345,6 +345,63 @@ describe("v2 thread shell lists", () => {
     }
   });
 
+  it("lets a mid-run question or approval start and resolve in the quiet shell", () => {
+    const harness = makeHarness();
+    const runId = RunId.make("input-run");
+    const running: OrchestrationV2ThreadShell = {
+      ...v2ThreadShell,
+      latestRunId: runId,
+      activeRunId: runId,
+      status: "running",
+      itemCount: 1,
+      visibleItemCount: 1,
+    };
+    const question = {
+      id: RuntimeRequestId.make("question"),
+      kind: "user_input" as const,
+      createdAt: v2Now,
+    };
+    const approval = {
+      id: RuntimeRequestId.make("cat-file"),
+      kind: "command" as const,
+      createdAt: v2Now,
+    };
+    const setThread = (thread: OrchestrationV2ThreadShell, sequence: number) =>
+      harness.registry.set(harness.snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        snapshotSequence: sequence,
+        threads: [thread],
+      });
+    const at = (seconds: number) => DateTime.add(v2Now, { seconds });
+    setThread(running, 1);
+    const ref = { environmentId, threadId: v2ThreadShell.id };
+    const quietAtom = harness.threads.quietThreadShellAtom(ref);
+    const dispose = harness.registry.mount(quietAtom);
+    try {
+      const asked: OrchestrationV2ThreadShell = {
+        ...running,
+        pendingRuntimeRequest: question,
+        updatedAt: at(1),
+      };
+      setThread(asked, 2);
+      expect(harness.registry.get(quietAtom)?.hasPendingUserInput).toBe(true);
+
+      // The user answers mid-run; the run keeps streaming until the provider
+      // resumes, so the resolution must not be swallowed as streaming noise.
+      setThread({ ...running, updatedAt: at(2), itemCount: 4 }, 3);
+      expect(harness.registry.get(quietAtom)?.hasPendingUserInput).toBe(false);
+
+      const approving = { ...running, pendingRuntimeRequest: approval, updatedAt: at(3) };
+      setThread(approving, 4);
+      expect(harness.registry.get(quietAtom)?.hasPendingApprovals).toBe(true);
+      setThread({ ...running, updatedAt: at(4) }, 5);
+      expect(harness.registry.get(quietAtom)?.hasPendingApprovals).toBe(false);
+    } finally {
+      dispose();
+      harness.registry.dispose();
+    }
+  });
+
   it("keeps the quiet shell list through streaming ticks", () => {
     const harness = makeHarness();
     const runId = RunId.make("streaming-list-run");

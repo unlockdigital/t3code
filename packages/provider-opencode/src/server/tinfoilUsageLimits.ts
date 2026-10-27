@@ -1,6 +1,7 @@
 import type { ServerProviderUsageLimits } from "@t3tools/contracts";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
@@ -10,17 +11,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 const Balance = Schema.Struct({ balance_dollars: Schema.Finite });
-const CreditHistory = Schema.Struct({
-  history: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      amount_dollars: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-      status: Schema.Literals(["paid", "granted", "pending", "failed"]),
-    }),
-  ),
-  has_more: Schema.optionalKey(Schema.Boolean),
-  next_cursor: Schema.optionalKey(Schema.NullOr(Schema.String)),
-});
+const MonthlyUsage = Schema.Struct({ cost: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)) });
 const Caller = Schema.Struct({
   context_type: Schema.Literals(["personal", "organization"]),
   user_id: Schema.String,
@@ -30,6 +21,7 @@ const Caller = Schema.Struct({
 export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(function* (input: {
   readonly checkedAt: string;
   readonly adminKey: string;
+  readonly monthlyBudgetUsd?: number;
 }) {
   const externalUsage = { label: "Tinfoil billing", url: "https://dash.tinfoil.sh/?tab=billing" };
   const unavailable = (
@@ -50,6 +42,7 @@ export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(functi
       "Tinfoil billing requires an admin key. Inference keys cannot read account credits.",
     );
   let failureMessage = "Tinfoil billing could not be refreshed. Try again.";
+  let balanceOnly: ServerProviderUsageLimits | undefined;
   return yield* Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
     const get = (path: string) =>
@@ -69,11 +62,29 @@ export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(functi
     const balance = yield* HttpClientResponse.filterStatusOk(response).pipe(
       Effect.flatMap(HttpClientResponse.schemaBodyJson(Balance)),
     );
-    const [history, caller] = yield* Effect.all(
+    const monthStart = DateTime.startOf(DateTime.makeUnsafe(input.checkedAt), "month");
+    const periodStart = DateTime.formatIso(monthStart);
+    const periodEnd = DateTime.formatIso(DateTime.add(monthStart, { months: 1 }));
+    const usageQuery = new URLSearchParams({ start: periodStart, end: input.checkedAt });
+    const monthlySpend = {
+      budgetUsd: input.monthlyBudgetUsd ?? 25,
+      spentUsd: null,
+      periodStart,
+      periodEnd,
+      checkedAt: input.checkedAt,
+    };
+    balanceOnly = {
+      checkedAt: input.checkedAt,
+      windows: [],
+      externalUsage,
+      prepaidBalance: { remainingUsd: balance.balance_dollars, checkedAt: input.checkedAt },
+      monthlySpend,
+    };
+    const [usage, caller] = yield* Effect.all(
       [
-        get("/api/billing/credits/history").pipe(
+        get(`/api/billing/usage?${usageQuery}`).pipe(
           Effect.flatMap(HttpClientResponse.filterStatusOk),
-          Effect.flatMap(HttpClientResponse.schemaBodyJson(CreditHistory)),
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(MonthlyUsage)),
           Effect.orElseSucceed(() => undefined),
         ),
         get("/api/auth/context").pipe(
@@ -84,17 +95,6 @@ export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(functi
       ],
       { concurrency: "unbounded" },
     );
-    // The dashboard ledger marks settled purchases paid and promotional credits granted.
-    // Pending top-ups and failed charges contribute no funding to the remaining percentage.
-    const totalGrantedUsd =
-      history && !history.has_more && !history.next_cursor
-        ? [...new Map(history.history.map((entry) => [entry.id, entry])).values()].reduce(
-            (sum, entry) =>
-              sum +
-              (entry.status === "paid" || entry.status === "granted" ? entry.amount_dollars : 0),
-            0,
-          )
-        : undefined;
     const owner =
       caller?.context_type === "organization" ? caller.organization?.id : caller?.user_id;
     const crypto = yield* Crypto.Crypto;
@@ -109,11 +109,11 @@ export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(functi
       externalUsage,
       prepaidBalance: {
         remainingUsd: balance.balance_dollars,
-        ...(totalGrantedUsd !== undefined &&
-        totalGrantedUsd > 0 &&
-        totalGrantedUsd >= balance.balance_dollars
-          ? { totalGrantedUsd }
-          : {}),
+        checkedAt: input.checkedAt,
+      },
+      monthlySpend: {
+        ...monthlySpend,
+        spentUsd: usage?.cost ?? null,
       },
       ...(credentialFingerprint ? { credentialFingerprint } : {}),
     };
@@ -121,6 +121,7 @@ export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(functi
   }).pipe(
     Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error" }),
     Effect.timeout("5 seconds"),
-    Effect.orElseSucceed(() => unavailable(failureMessage)),
+    // A slow auxiliary read still leaves the independently verified balance usable.
+    Effect.orElseSucceed(() => balanceOnly ?? unavailable(failureMessage)),
   );
 });

@@ -553,6 +553,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     ready: Effect.void,
     getSettings: Ref.get(settings),
     getRoutingSettings: Ref.get(settings),
+    setApprovalCoordinator: () => Effect.die("Unexpected coordinator update"),
     updateSettings,
     updateProviderInstance: () => Effect.die("Unexpected provider mutation"),
     withSettingsSnapshot: (use) => Ref.get(settings).pipe(Effect.flatMap(use)),

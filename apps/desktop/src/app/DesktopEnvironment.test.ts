@@ -38,6 +38,27 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("uses the standard macOS app data directory by default", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment();
+
+      assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
+    }),
+  );
+
+  it.effect("uses an explicit app data directory override", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {},
+        {
+          T3CODE_DESKTOP_APP_DATA_DIR: "/tmp/t3-first-trial/app-data",
+        },
+      );
+
+      assert.equal(environment.appDataDirectory, "/tmp/t3-first-trial/app-data");
+    }),
+  );
+
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({

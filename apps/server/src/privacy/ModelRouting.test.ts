@@ -115,7 +115,11 @@ it.effect("keeps private inference approval stable when only billing authorizati
         ...settings.providerInstances,
         [privateSelection.instanceId]: {
           ...instance,
-          config: { ...instance.config, tinfoilAdminKey: "synthetic-billing-reference" },
+          config: {
+            ...instance.config,
+            tinfoilAdminKey: "synthetic-billing-reference",
+            tinfoilMonthlyBudgetUsd: 40,
+          },
         },
       },
     };

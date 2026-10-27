@@ -203,6 +203,7 @@ const fixture = Effect.fn("fixture")(function* (
         ready: Effect.void,
         getSettings: Ref.get(settings),
         getRoutingSettings: Ref.get(settings),
+        setApprovalCoordinator: () => Effect.die("Unexpected coordinator update"),
         updateSettings: (patch) =>
           Ref.updateAndGet(settings, (current) => ({
             ...current,

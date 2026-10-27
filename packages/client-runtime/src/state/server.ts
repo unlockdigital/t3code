@@ -1226,6 +1226,12 @@ export function createServerEnvironmentAtoms<R, E>(
       concurrency: configConcurrency,
     }),
     updateSettings,
+    setApprovalCoordinator: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:set-approval-coordinator",
+      tag: WS_METHODS.serverSetApprovalCoordinator,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     mutateProviderInstance: updateSettings,
     prepareAcpRegistryAgent: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:acp-registry:prepare",
@@ -1359,6 +1365,20 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
+    }),
+    n2itionStatus: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:n2ition:status",
+      tag: WS_METHODS.n2itionStatus,
+    }),
+    n2itionControl: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:n2ition:control",
+      tag: WS_METHODS.n2itionControl,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
+    n2itionRefresh: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:n2ition:refresh",
+      tag: WS_METHODS.n2itionRefresh,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
     getPrivateHelperState: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:privacy:helper-state",

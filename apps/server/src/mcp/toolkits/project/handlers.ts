@@ -10,6 +10,8 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
+import * as ServerConfig from "../../../config.ts";
+import * as ProjectLaunchPolicy from "../../../project/ProjectLaunchPolicy.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveRuntimeMode } from "../../OrchestratorMcpService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -91,6 +93,26 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 ),
               )).projectId
             : yield* resolveProjectId(context, input.projectId);
+        const config = yield* ServerConfig.ServerConfig;
+        const launchPolicy = yield* ProjectLaunchPolicy.read(config.stateDir).pipe(
+          Effect.mapError(
+            () =>
+              new OrchestratorMcpFailure({
+                code: "capability_denied",
+                message:
+                  "The project launch policy is invalid or unavailable. No thread was created.",
+              }),
+          ),
+        );
+        if (
+          caller !== undefined &&
+          launchPolicy?.protectedProjectIds.has(caller.projectId) === true &&
+          !launchPolicy.allowedTargetProjectIds.has(projectId)
+        )
+          return yield* new OrchestratorMcpFailure({
+            code: "capability_denied",
+            message: "This caller can launch only policy-approved projects.",
+          });
         const readProject = Project.ProjectService.pipe(
           Effect.flatMap((projects) => projects.getById(projectId)),
           Effect.mapError(unavailable),

@@ -137,6 +137,7 @@ export function resolveUsageLimitsAfterProbe(input: {
       windows: published.windows,
       creditBalance: published.creditBalance,
       prepaidBalance: published.prepaidBalance,
+      monthlySpend: published.monthlySpend,
     };
   }
   return probed;

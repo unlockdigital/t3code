@@ -99,6 +99,22 @@ describe("resolveThreadListV2Status", () => {
     );
   });
 
+  it("hands a child's question to a run waiting on its agents", () => {
+    const raw = makeRawThreadShell({
+      status: "running",
+      activeRunId: RunId.make("run-relay"),
+      latestRunId: RunId.make("run-relay"),
+      blockedOnThreadWait: true,
+    });
+    const blocked = presentThreadShell(environmentId, decodeThreadShell(raw));
+    expect(resolveThreadListV2Status({ ...blocked, pendingSubagentRequest: "user_input" })).toBe(
+      "waiting",
+    );
+    expect(resolveThreadListV2Status({ ...blocked, pendingSubagentRequest: "approval" })).toBe(
+      "waiting",
+    );
+  });
+
   it.each([
     { roster: "dev server", task: { kind: "command" }, status: "ready" },
     { roster: "dev server watchdog", task: { kind: "monitor" }, status: "ready" },
