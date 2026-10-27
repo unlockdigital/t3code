@@ -74,9 +74,12 @@ function N2itionConnection() {
         setError(
           "The action could not finish. Refresh status to see whether access is paused, expired or requires attention in N2ITION.",
         );
-    } finally {
-      setBusy(false);
+    } catch {
+      setError(
+        "The action could not finish. Refresh status to see whether access is paused, expired or requires attention in N2ITION.",
+      );
     }
+    setBusy(false);
   };
   return (
     <SettingsSection title="Teddy · N2ITION" id="n2ition">

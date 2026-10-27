@@ -196,9 +196,8 @@ function AgentShortcutEditor({
       setError(
         "Could not revoke the previous agent’s approval authority or save the shortcut. Check the environment connection and try again.",
       );
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
   return (
@@ -374,14 +373,13 @@ function AgentAutoPermissions({ threadRef }: { threadRef: ScopedThreadRef }) {
           setError(
             `Could not change ${thread.title}. Earlier changes were saved; retry to finish.`,
           );
-          return;
+          break;
         }
       }
     } catch {
       setError("Could not finish changing permissions. Retry to finish the remaining threads.");
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
   return (
     <div className="space-y-2 text-sm">
