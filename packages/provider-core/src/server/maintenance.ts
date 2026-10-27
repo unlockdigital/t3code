@@ -1,5 +1,6 @@
 import type { ProviderDriverKind } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
+import type * as HttpClient from "effect/http/HttpClient";
 
 export interface ProviderMaintenanceCapabilities {
   readonly provider: ProviderDriverKind;
@@ -15,7 +16,9 @@ export interface ProviderMaintenanceCapabilities {
    * Deferred until update checks are enabled; `null` falls back to
    * `latestVersion`, then npm.
    */
-  readonly lookupLatestVersion?: Effect.Effect<string | null>;
+  readonly lookupLatestVersion?: Effect.Effect<string | null, never, HttpClient.HttpClient>;
+  /** Separates version lookups whose installer reads different per-instance settings. */
+  readonly lookupLatestVersionCacheScope?: string;
   readonly compareVersions?: (current: string, latest: string) => number;
   /**
    * The executable T3 Code runs, symlinks followed, when no update command is

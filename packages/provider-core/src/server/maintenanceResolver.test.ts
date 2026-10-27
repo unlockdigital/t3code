@@ -13,6 +13,7 @@ import * as Fiber from "effect/Fiber";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ProviderLatestVersions from "./ProviderLatestVersions.ts";
 import {
@@ -100,13 +101,22 @@ const noSpawn = ChildProcessSpawner.make(() =>
 );
 
 function stdoutSpawner(
-  onSpawn: (command: string, args: ReadonlyArray<string>) => string,
+  onSpawn: (
+    command: string,
+    args: ReadonlyArray<string>,
+    env: NodeJS.ProcessEnv | undefined,
+  ) => string,
   exitCodeOf: (args: ReadonlyArray<string>) => number = () => 0,
 ) {
   return ChildProcessSpawner.make((command) => {
-    const { command: executable, args } = command as unknown as {
+    const {
+      command: executable,
+      args,
+      options,
+    } = command as unknown as {
       readonly command: string;
       readonly args: ReadonlyArray<string>;
+      readonly options: { readonly env?: NodeJS.ProcessEnv };
     };
     return Effect.succeed(
       ChildProcessSpawner.makeHandle({
@@ -116,7 +126,7 @@ function stdoutSpawner(
         kill: () => Effect.void,
         unref: Effect.succeed(Effect.void),
         stdin: Sink.drain,
-        stdout: Stream.encodeText(Stream.make(onSpawn(executable, args))),
+        stdout: Stream.encodeText(Stream.make(onSpawn(executable, args, options.env))),
         stderr: Stream.empty,
         all: Stream.empty,
         getInputFd: () => Sink.drain,
@@ -127,6 +137,116 @@ function stdoutSpawner(
 }
 
 it.layer(NodeServices.layer)("providerMaintenance", (it) => {
+  it.effect.each([
+    { channel: "stable", output: "Auto-update channel: stable\n", version: "1.0.0", status: 200 },
+    { channel: "latest", output: "Auto-update channel: latest\n", version: "1.2.0", status: 200 },
+    { channel: null, output: "Unexpected doctor output\n", version: null, status: 200 },
+    { channel: "stable", output: "Auto-update channel: stable\n", version: null, status: 503 },
+    { channel: "stable", output: "Auto-update channel: stable\n", version: null, status: 200 },
+  ])("checks Claude's native $channel release channel (HTTP $status)", (fixture) =>
+    Effect.gen(function* () {
+      const capabilities = yield* resolvePackageManagedProviderMaintenance(
+        {
+          provider: driver("claudeAgent"),
+          npmPackageName: "@anthropic-ai/claude-code",
+          nativeUpdate: { args: ["update"], isCommandPath: () => true },
+        },
+        {
+          binaryPath: "claude",
+          resolvedCommandPath: "/synthetic/.local/bin/claude",
+          realCommandPath: "/synthetic/.local/share/claude/versions/1.0.0",
+          env: {
+            CLAUDE_CONFIG_DIR: "/synthetic/claude-instance",
+            ANTHROPIC_API_KEY: "instance-secret",
+          },
+          platform: "darwin",
+        },
+      ).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          stdoutSpawner((_command, args, env) => {
+            expect(args).toEqual(["doctor"]);
+            expect(env).toEqual({ CLAUDE_CONFIG_DIR: "/synthetic/claude-instance" });
+            return fixture.output;
+          }),
+        ),
+      );
+      const version = yield* resolveLatestProviderVersion(capabilities).pipe(
+        Effect.provideServiceEffect(
+          ProviderLatestVersions.ProviderLatestVersions,
+          ProviderLatestVersions.make([["@anthropic-ai/claude-code", "9.9.9"]]),
+        ),
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            expect(fixture.channel).not.toBeNull();
+            expect(request.url).toBe(
+              `https://downloads.claude.ai/claude-code-releases/${fixture.channel}`,
+            );
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(fixture.version ?? "unavailable", { status: fixture.status }),
+              ),
+            );
+          }),
+        ),
+      );
+      expect(version).toBe(fixture.version);
+      expect(capabilities.update?.args).toEqual(["update"]);
+      expect(capabilities.update?.env).toEqual({
+        CLAUDE_CONFIG_DIR: "/synthetic/claude-instance",
+      });
+      expect(makeTargetedProviderUpdateAction(capabilities, "2.0.0")).toBeNull();
+    }),
+  );
+
+  it.effect("scopes Claude native version lookups to the instance config directory", () =>
+    Effect.gen(function* () {
+      const definition = {
+        provider: driver("claudeAgent"),
+        npmPackageName: "@anthropic-ai/claude-code",
+        nativeUpdate: { args: ["update"], isCommandPath: () => true },
+      } satisfies PackageManagedProviderMaintenanceDefinition;
+      const resolve = (configDir: string) =>
+        resolvePackageManagedProviderMaintenance(definition, {
+          binaryPath: "claude",
+          resolvedCommandPath: "/synthetic/.local/bin/claude",
+          realCommandPath: "/synthetic/.local/share/claude/versions/1.0.0",
+          env: { CLAUDE_CONFIG_DIR: configDir },
+          platform: "darwin",
+        }).pipe(
+          Effect.provideService(
+            ChildProcessSpawner.ChildProcessSpawner,
+            stdoutSpawner((_command, _args, env) =>
+              env?.CLAUDE_CONFIG_DIR === "/synthetic/stable"
+                ? "Auto-update channel: stable\n"
+                : "Auto-update channel: latest\n",
+            ),
+          ),
+        );
+      const [stable, latest] = yield* Effect.all([
+        resolve("/synthetic/stable"),
+        resolve("/synthetic/latest"),
+      ]);
+      const versions = yield* ProviderLatestVersions.make();
+      const httpClient = HttpClient.make((request) => {
+        const version = request.url.endsWith("/stable") ? "2.1.308" : "2.1.311";
+        return Effect.succeed(HttpClientResponse.fromWeb(request, new Response(version)));
+      });
+      const stableVersion = yield* resolveLatestProviderVersion(stable).pipe(
+        Effect.provideService(ProviderLatestVersions.ProviderLatestVersions, versions),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      );
+      const latestVersion = yield* resolveLatestProviderVersion(latest).pipe(
+        Effect.provideService(ProviderLatestVersions.ProviderLatestVersions, versions),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      );
+      expect(stableVersion).toBe("2.1.308");
+      expect(latestVersion).toBe("2.1.311");
+    }),
+  );
+
   it.effect("prefers the installer's own latest version over the npm registry", () =>
     resolveLatestProviderVersion({ ...manualPackageTool, latestVersion: "1.2.0" }).pipe(
       Effect.provide(ProviderLatestVersions.layer),
