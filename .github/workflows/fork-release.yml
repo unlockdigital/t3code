@@ -31,6 +31,10 @@ jobs:
   preflight:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
     if: github.repository == 'unlockdigital/t3code'
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -41,7 +45,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # Eager auth cleanup traverses optional vendored gitlinks with incomplete metadata.
+          # Keep the scoped token until checkout's normal post-job cleanup.
+          persist-credentials: true
           sparse-checkout: |
             /*
             !/.repos/
@@ -329,7 +335,7 @@ jobs:
         with:
           ref: ${{ needs.preflight.outputs.ref }}
           path: release-source
-          persist-credentials: false
+          persist-credentials: true
           sparse-checkout: |
             /packaging/fork/
             /docs/unlock-digital/PORTABLE_TRIAL.md
