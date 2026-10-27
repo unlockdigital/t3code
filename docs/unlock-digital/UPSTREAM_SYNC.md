@@ -29,6 +29,25 @@ The update request authorizes this maintenance sequence. Monitoring remains obse
 
 Allow the fork a full trial week before proposing contributions. Review proven changes for upstream contribution starting October 30, 2026. Keep security maintenance moving during that trial. Preserve focused customization commits when an upstream contribution lands, and retire their duplicate implementation through an ordinary follow-up change after the next upstream integration.
 
+## Full v0.1.3 integration gates
+
+The reviewed official v0.1.3 release is `d2c440312e5f39d59827ed466838a623516454d6`. Focused backports retain the recorded v0.1.2 base until the complete release is merged and verified. Start each full candidate from the current committed fork, and preserve the active tracked and untracked work separately before reconciling it.
+
+- **Migration history:** this fork records migration 68 as `WorkflowReviews`; v0.1.3 uses 68 for `ShellStopRequestIndex` and 69 for `ThreadMessageSearch`. Existing fork databases have already applied their migration 68. Build and test an explicit history bridge against fresh databases, fork-68 snapshots, and every upstream history the candidate supports. Verify the workflow tables, stop-request index, and search schema together before opening copied application data with the full candidate. Preserve compatible source and data for rollback.
+- **Authorization and private routing:** keep authoritative lineage lookup before creating or rotating MCP credentials, retain restricted credentials on lookup failure, and preserve model/account destination checks. Verify child direct-call denial and private routing after resolving provider-session, orchestration, and MCP conflicts.
+- **Dependencies:** reconcile the workspace, patches, and frozen lockfile together. Preserve the fork's security updates to the MCP SDK, stream-json, KaTeX, and sharp. Assess and remediate the Undici and Zod advisory ranges per runtime consumer; the configured Node runtime's embedded HTTP library and npm dependency versions need separate checks. Recheck current vendor guidance during that work.
+- **Client data bounds:** a Stop-state repair must retain the ordinary thread projection's bounded command/tool payloads in transit and persisted caches. Verify that settlement repairs preserve status without automatically retaining on-demand details.
+
+Managed Codex token renewal crosses named-account and launch-profile boundaries. Review its server broker and native helper as one change against the completed account-routing work. Keep optional sharing, secret-file delivery, and managed-service network defaults under an explicit adoption decision. Validate the existing single-machine loopback behavior and custom Home, usage, and maintenance navigation with the combined source.
+
+## Recovery during focused maintenance
+
+Preserve a source recovery ref, tracked and staged patches, untracked source, the pinned toolchain identity, and current compiled server/desktop artifacts before integration. Create private SQLite snapshots through the backup API and retain the matching settings, secrets, provider state, and attachments. Treat `server-owner.sqlite` and `server-runtime.json` as transient runtime ownership/discovery files; the restarted instance establishes its own identity. Verify backup integrity and checksums without exposing their contents.
+
+Validate the combined custom source in isolation before loading new backend code. The local launcher serves web source through Vite, so a web edit can reload while the backend keeps running. Coordinate a backend restart after all active turns and background work settle, verify the owned listeners immediately before stopping, and verify the restarted build, health, saved conversation IDs, and database integrity. The source and application-state backup are separate recovery assets.
+
+If a regression appears, first preserve a new snapshot containing post-update conversations. Revert the scoped maintenance commits while retaining unrelated work, and restore the compatible compiled artifacts. Confirm compatibility with the newest database on an isolated copy before restarting the previous runtime; retain both data snapshots when a compatible data restore is necessary. Revalidate the repaired behavior before retrying the update.
+
 ## Upstream Updates panel
 
 Open **Settings → Upstream Updates**. The page selects the primary environment or an environment within the current Settings filter automatically. An explicitly selected remote stays selected. The command palette and Settings search also open this dedicated page. About and the sidebar source-update action open the desktop’s primary environment directly. Mobile exposes the same service under **Settings → Maintenance → Manage environments → [environment] → Upstream Updates**. Maintenance permission controls access on the destination server.
