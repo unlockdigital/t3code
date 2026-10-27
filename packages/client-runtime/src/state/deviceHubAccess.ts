@@ -11,7 +11,10 @@ import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
-import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
+import {
+  RemoteEnvironmentAuthUndeclaredStatusError,
+  type RemoteEnvironmentRequestError,
+} from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 import type { DeviceHubAccess } from "../device/hubAccess.ts";
 
@@ -39,10 +42,28 @@ export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDevi
       remoteAuthorization,
       group: "auth",
       method: "POST",
-      url: (urls) => urls.webSocketTicket(),
+      url: (urls) => urls.webSocketTicketFor({ params: { use: "media" } }),
       timeoutMs: TICKET_TIMEOUT_MS,
-      request: ({ client, headers }) => client.webSocketTicket({ headers }),
-    });
+      request: ({ client, headers }) =>
+        client.webSocketTicketFor({ headers, params: { use: "media" } }),
+    }).pipe(
+      Effect.catchIf(
+        (error) =>
+          error instanceof RemoteEnvironmentAuthUndeclaredStatusError && error.status === 404,
+        // Older servers expose the bare route; signing again binds the proof to that URL.
+        () =>
+          executeAuthenticatedEnvironmentHttpRequest({
+            prepared: input.prepared,
+            signer,
+            remoteAuthorization,
+            group: "auth",
+            method: "POST",
+            url: (urls) => urls.webSocketTicket(),
+            timeoutMs: TICKET_TIMEOUT_MS,
+            request: ({ client, headers }) => client.webSocketTicket({ headers }),
+          }),
+      ),
+    );
     return {
       httpBase,
       wsBase,

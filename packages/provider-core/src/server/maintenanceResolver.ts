@@ -27,6 +27,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -123,7 +124,8 @@ export function makeProviderMaintenanceCapabilities(input: {
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv;
   readonly latestVersion?: string | null;
-  readonly lookupLatestVersion?: Effect.Effect<string | null>;
+  readonly lookupLatestVersion?: Effect.Effect<string | null, never, HttpClient.HttpClient>;
+  readonly lookupLatestVersionCacheScope?: string;
 }): ProviderMaintenanceCapabilities {
   const platform = input.platform ?? HostProcess.Platform.defaultValue();
   const update =
@@ -147,6 +149,9 @@ export function makeProviderMaintenanceCapabilities(input: {
     update,
     ...("latestVersion" in input ? { latestVersion: input.latestVersion } : {}),
     ...(input.lookupLatestVersion ? { lookupLatestVersion: input.lookupLatestVersion } : {}),
+    ...(input.lookupLatestVersionCacheScope
+      ? { lookupLatestVersionCacheScope: input.lookupLatestVersionCacheScope }
+      : {}),
   };
 }
 
@@ -376,11 +381,31 @@ const runProbe = Effect.fn("runProbe")(function* (
   );
 });
 
+const resolveClaudeNativeLatestVersion = Effect.fn("resolveClaudeNativeLatestVersion")(function* (
+  command: string,
+  env: NodeJS.ProcessEnv,
+) {
+  // Doctor and update resolve the same effective settings, including managed channel policy.
+  const diagnostic = yield* runProbe(command, ["doctor"], env);
+  const channel = diagnostic?.match(/^\s*Auto-update channel:\s*(stable|latest)\s*$/m)?.[1];
+  if (!channel) return null;
+  const client = yield* HttpClient.HttpClient;
+  return yield* client.get(`https://downloads.claude.ai/claude-code-releases/${channel}`).pipe(
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap((response) => response.text),
+    Effect.map((text) => (/^\d+\.\d+\.\d+$/.test(text.trim()) ? text.trim() : null)),
+    Effect.timeoutOption(LATEST_VERSION_TIMEOUT_MS),
+    Effect.map(Option.getOrNull),
+    Effect.orElseSucceed(() => null),
+  );
+});
+
 const decodePnpmOutdated = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Record(Schema.String, Schema.Struct({ latest: Schema.optional(Schema.String) })),
   ),
 );
+
 const decodePnpmList = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Array(
@@ -454,6 +479,16 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
   }
 
   const nativeUpdate = definition.nativeUpdate;
+  const services = yield* Effect.context<ProviderMaintenanceResolverServices>();
+  const claudeConfigDir =
+    definition.provider === "claudeAgent" ? context.env.CLAUDE_CONFIG_DIR?.trim() : undefined;
+  const nativeEnv =
+    nativeUpdate && (nativeUpdate.env || claudeConfigDir)
+      ? {
+          ...nativeUpdate.env,
+          ...(claudeConfigDir ? { CLAUDE_CONFIG_DIR: claudeConfigDir } : {}),
+        }
+      : nativeUpdate?.env;
   const native = nativeUpdate
     ? makeProviderMaintenanceCapabilities({
         provider: definition.provider,
@@ -462,7 +497,18 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
         updateArgs: nativeUpdate.args,
         updateLockKey: `${definition.provider}-native`,
         platform: context.platform,
-        ...(nativeUpdate.env ? { env: nativeUpdate.env } : {}),
+        ...(nativeEnv ? { env: nativeEnv } : {}),
+        ...(definition.provider === "claudeAgent"
+          ? {
+              // A failed channel probe cannot authorize an npm-latest advisory.
+              latestVersion: null,
+              lookupLatestVersionCacheScope: claudeConfigDir ?? "",
+              lookupLatestVersion: resolveClaudeNativeLatestVersion(
+                context.resolvedCommandPath,
+                nativeEnv ?? {},
+              ).pipe(Effect.provideContext(services)),
+            }
+          : {}),
       })
     : manual;
   // A native-looking launcher can still delegate to a mise-owned install.
@@ -876,7 +922,12 @@ const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (pack
 function installerLatestVersionKey(capabilities: ProviderMaintenanceCapabilities) {
   const update = capabilities.update;
   return capabilities.lookupLatestVersion && update
-    ? [update.lockKey, update.executable, ...update.args].join("\0")
+    ? [
+        update.lockKey,
+        update.executable,
+        ...update.args,
+        capabilities.lookupLatestVersionCacheScope ?? "",
+      ].join("\0")
     : null;
 }
 

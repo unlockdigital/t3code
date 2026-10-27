@@ -36,6 +36,7 @@ import { fetchEnvironmentThreadTranscript } from "./threadTranscriptHttp.ts";
 import { fetchEnvironmentBoundedThreadSnapshot } from "./boundedThreadSnapshotHttp.ts";
 import * as BoundedThreadSnapshotHttp from "./boundedThreadSnapshotHttp.ts";
 import { fetchEnvironmentThreadHistoryPage } from "./threadHistoryHttp.ts";
+import { resolveDeviceHubAccess } from "./deviceHubAccess.ts";
 import { v2Projection } from "./orchestrationV2TestFixtures.ts";
 
 const encodeThreadSnapshot = Schema.encodeSync(OrchestrationV2ThreadDetailSnapshot);
@@ -171,6 +172,86 @@ function makeHarness(reply: (requestNumber: number) => Response | Promise<Respon
 }
 
 type HttpInput = ReturnType<typeof makeHarness>["input"];
+
+describe("device hub ticket compatibility", () => {
+  const ticketResponse = () =>
+    Response.json({ ticket: "media-ticket", expiresAt: "2026-10-27T12:05:00.000Z" });
+  const resolveAccess = (harness: ReturnType<typeof makeHarness>, prepared = PREPARED) =>
+    resolveDeviceHubAccess({ prepared, hubBasePath: "/api/devices/hub" }).pipe(
+      Effect.provide(harness.httpLayer),
+      Effect.provideService(
+        ManagedRelay.ManagedRelayDpopSigner,
+        Option.getOrThrow(harness.input.signer),
+      ),
+      Effect.provideService(
+        RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+        harness.remoteAuthorization,
+      ),
+    );
+
+  it.effect("uses the media audience when the server supports it", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness(ticketResponse);
+      const access = yield* resolveAccess(harness);
+      expect(access.query).toEqual({ wsTicket: "media-ticket" });
+      expect(access.credentials).toBe(false);
+      expect(harness.calls.map((call) => call.url)).toEqual([
+        `${CURRENT_ORIGIN}/api/auth/websocket-ticket/media`,
+      ]);
+    }),
+  );
+
+  it.effect(
+    "retries an older server's missing media route with a fresh proof for the bare route",
+    () =>
+      Effect.gen(function* () {
+        const harness = makeHarness((requestNumber) =>
+          requestNumber === 1 ? new Response(null, { status: 404 }) : ticketResponse(),
+        );
+        const access = yield* resolveAccess(harness);
+        expect(access.query).toEqual({ wsTicket: "media-ticket" });
+        const urls = [
+          `${CURRENT_ORIGIN}/api/auth/websocket-ticket/media`,
+          `${CURRENT_ORIGIN}/api/auth/websocket-ticket`,
+        ];
+        expect(harness.calls.map((call) => call.url)).toEqual(urls);
+        expect(harness.proofs).toEqual(
+          urls.map((url) => ({ method: "POST", url, accessToken: "current-token" })),
+        );
+        expect(harness.calls.map((call) => new Headers(call.init.headers).get("dpop"))).toEqual([
+          "proof-1",
+          "proof-2",
+        ]);
+      }),
+  );
+
+  it.effect.each([401, 403])("preserves rejection status %i without a legacy retry", (status) =>
+    Effect.gen(function* () {
+      const harness = makeHarness(() => new Response(null, { status }));
+      const result = yield* resolveAccess(harness).pipe(Effect.result);
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "RemoteEnvironmentAuthUndeclaredStatusError", status },
+      });
+      expect(harness.calls).toHaveLength(1);
+    }),
+  );
+
+  it.effect("keeps cookie-authenticated access local without minting a ticket", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness(ticketResponse);
+      const access = yield* resolveAccess(harness, { ...PREPARED, httpAuthorization: null });
+      expect(access).toEqual({
+        httpBase: "https://previous.example.test/api/devices/hub",
+        wsBase: "wss://previous.example.test/api/devices/hub",
+        query: {},
+        credentials: true,
+      });
+      expect(harness.calls).toHaveLength(0);
+    }),
+  );
+});
+
 const LOADERS: ReadonlyArray<{
   readonly name: string;
   readonly method: string;

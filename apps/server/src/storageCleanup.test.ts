@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import type * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { SCAN_CACHE_FILE_NAME } from "./usage/usageScanCache.ts";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -1434,6 +1435,54 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
+  it.live.each([
+    {
+      stderr: "fatal: not a git repository: /missing-git-directory\n",
+      outcome: "kept",
+      reason: "Repository or branch changed",
+    },
+    {
+      stderr: "fatal: gitfile does not point to a valid repository: /worktree/.git\n",
+      outcome: "kept",
+      reason: "Repository or branch changed",
+    },
+    {
+      stderr: "fatal: permission denied\n",
+      outcome: "failed",
+      reason: "git: fatal: permission denied",
+    },
+  ])("preserves the worktree for a Git repository probe error: $stderr", (fixture) =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        const { service, fs, worktree, fullStatusCalls } = yield* cleanupFixture().pipe(
+          Effect.provideService(GitVcsDriver.GitVcsDriver, {
+            ...git,
+            execute: (input) =>
+              input.operation === "StorageCleanup.branchChanged"
+                ? Effect.succeed({
+                    exitCode: ChildProcessSpawner.ExitCode(128),
+                    stdout: "",
+                    stderr: fixture.stderr,
+                    stdoutTruncated: false,
+                    stderrTruncated: false,
+                  })
+                : git.execute(input),
+          }),
+        );
+        const report = yield* service.runNow;
+        expect(report.entries[0]).toMatchObject({
+          outcome: fixture.outcome,
+          reason: fixture.reason,
+          bytes: null,
+        });
+        expect(report.bytesFreed).toBe(0);
+        expect(yield* fs.readFileString(`${worktree}/tracked.txt`)).toBe("original\n");
+        expect(fullStatusCalls()).toBe(0);
+      }),
+    ),
+  );
+
   it.live("compares the checked-out branch without a full status", () =>
     runCleanupTest(
       Effect.gen(function* () {

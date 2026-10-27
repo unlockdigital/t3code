@@ -19,9 +19,14 @@ it.layer(NodeServices.layer)("ClaudeHome", (it) => {
         const path = yield* Path.Path;
         const homePath = "~/.claude-work";
         const resolved = path.resolve(NodeOS.homedir(), ".claude-work");
+        const environment = yield* makeClaudeEnvironment(
+          { homePath },
+          { ANTHROPIC_API_KEY: "instance-secret" },
+        );
 
         expect(yield* resolveClaudeHomePath({ homePath })).toBe(resolved);
-        expect((yield* makeClaudeEnvironment({ homePath })).CLAUDE_CONFIG_DIR).toBe(resolved);
+        expect(environment.CLAUDE_CONFIG_DIR).toBe(resolved);
+        expect(environment.ANTHROPIC_API_KEY).toBe("instance-secret");
         expect(yield* makeClaudeContinuationGroupKey({ homePath })).toBe(`claude:home:${resolved}`);
         expect(yield* makeClaudeCapabilitiesCacheKey({ binaryPath: "claude", homePath })).toBe(
           `claude\0${resolved}\0`,
