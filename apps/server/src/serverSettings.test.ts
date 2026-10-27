@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  AccountRoutingPolicy,
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
   ProjectId,
@@ -9,6 +10,7 @@ import {
   resolveProviderInstanceEnabled,
   ServerSettings,
   UsageLimitSourceId,
+  ThreadId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
@@ -33,6 +35,7 @@ import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.t
 
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 const decodeServerSettingsJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
+const decodeAccountRoutingPolicy = Schema.decodeUnknownEffect(AccountRoutingPolicy);
 
 const layerServerSettings = () =>
   ServerSettingsModule.layer.pipe(
@@ -94,6 +97,79 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect("persists routing against implicit and atomically created accounts", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const policy = yield* decodeAccountRoutingPolicy({
+        schemaVersion: 1,
+        policyId: "subscription-order",
+        revision: 1,
+        mode: "observe",
+        modelMatch: "exact",
+        stages: [{ id: "default-included", instanceId: "codex", fundingIntent: "includedOnly" }],
+        maxEvidenceAgeSeconds: 300,
+        minimumHeadroomPercent: 5,
+        paidApiFallback: false,
+      });
+      yield* service.updateSettings({ accountRouting: policy, accountRoutingExpectedRevision: 0 });
+      const instanceId = ProviderInstanceId.make("subscription-secondary");
+      const revised = yield* decodeAccountRoutingPolicy({
+        ...policy,
+        revision: 2,
+        stages: [
+          ...policy.stages,
+          { id: "secondary-included", instanceId, fundingIntent: "includedOnly" },
+        ],
+      });
+      yield* service.updateProviderInstance(
+        { operation: "create", instanceId, instance: { driver: ProviderDriverKind.make("codex") } },
+        { accountRouting: revised, accountRoutingExpectedRevision: 1 },
+      );
+      const persisted = yield* decodeServerSettingsJson(
+        yield* fs.readFileString(config.settingsPath),
+      );
+      assert.deepEqual(persisted.accountRouting, revised);
+      assert.equal(persisted.providerInstances[instanceId]?.driver, "codex");
+      const rejected = yield* Effect.flip(
+        service.updateProviderInstance(
+          { operation: "remove", instanceId },
+          { accountRouting: { ...revised, revision: 3 }, accountRoutingExpectedRevision: 2 },
+        ),
+      );
+      assert.equal(rejected.operation, "account-routing-reference");
+      assert.deepEqual(
+        yield* decodeServerSettingsJson(yield* fs.readFileString(config.settingsPath)),
+        persisted,
+      );
+      yield* service.updateProviderInstance({ operation: "remove", instanceId });
+      assert.deepEqual((yield* service.getSettings).accountRouting, revised);
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect("removes coordinator grants idempotently while preserving concurrent settings", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const old = ThreadId.make("coordinator-old");
+      const other = ThreadId.make("coordinator-other");
+      yield* service.updateSettings({ approvalCoordinatorThreadIds: [old] });
+      yield* Effect.all(
+        [
+          service.setApprovalCoordinator(other, true),
+          service.setApprovalCoordinator(other, true),
+          service.setApprovalCoordinator(old, false),
+          service.setApprovalCoordinator(old, false),
+          service.updateSettings({ responseStreamingMode: "turn" }),
+        ],
+        { concurrency: "unbounded" },
+      );
+      const settings = yield* service.getSettings;
+      assert.deepEqual(settings.approvalCoordinatorThreadIds, [other]);
+      assert.equal(settings.responseStreamingMode, "turn");
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("serializes concurrent model preference edits without cancelling duplicate adds", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;

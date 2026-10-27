@@ -4120,6 +4120,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           readonly prompt?: string | null;
           readonly appName?: string;
           readonly options?: ReadonlyArray<ProviderApprovalOption>;
+          readonly approvalCommand?: { readonly command: string; readonly cwd: string };
         }) {
           const createdAt = yield* DateTime.now;
           const { owner, subagent } = approvalOwnerCodexTurn(input.context);
@@ -4198,6 +4199,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             type: "approval_request",
             requestId,
             requestKind: input.requestKind,
+            ...(input.approvalCommand === undefined
+              ? {}
+              : { approvalCommand: input.approvalCommand }),
             ...(input.prompt === null || input.prompt === undefined
               ? {}
               : { prompt: input.prompt }),
@@ -5202,9 +5206,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               nativeItemId: payload.itemId,
               nativeRequestId,
               requestKind: "command",
-              ...((payload.reason ?? payload.command) === undefined
+              ...(payload.command == null || payload.cwd == null
                 ? {}
-                : { prompt: payload.reason ?? payload.command }),
+                : { approvalCommand: { command: payload.command, cwd: payload.cwd } }),
+              prompt: [
+                payload.command == null ? null : `Command: ${payload.command}`,
+                payload.cwd == null ? null : `Working directory: ${payload.cwd}`,
+                payload.reason,
+              ]
+                .filter((part) => part != null)
+                .join("\n"),
             });
             const decision = yield* Deferred.make<ProviderApprovalDecision, never>();
             yield* Ref.update(pendingRuntimeRequests, (current) => {

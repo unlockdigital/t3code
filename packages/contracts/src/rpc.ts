@@ -1,8 +1,10 @@
+import { N2itionStatus, N2itionControlInput, N2itionConnectionError } from "./n2itionConnection.ts";
 import {
   ProviderConnectTinfoilBillingInput,
   ProviderConfigureClaudeBillingInput,
   ProviderBillingError,
 } from "./providerBilling.ts";
+import { AccountRoutingPreviewInput, AccountRoutingPreviewResult } from "./accountRouting.ts";
 import {
   PrivateHelperDecisionInput,
   PrivateHelperError,
@@ -44,7 +46,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, TrimmedNonEmptyString, ThreadId } from "./baseSchemas.ts";
 import {
   CodexAuthCallbackInput,
   CodexAuthCallbackState,
@@ -507,8 +509,13 @@ export const WS_METHODS = {
   serverCreateLocalThreadHandoff: "server.createLocalThreadHandoff",
   serverRemoveLocalThreadHandoff: "server.removeLocalThreadHandoff",
   serverGetDatabaseStorage: "server.getDatabaseStorage",
+  n2itionStatus: "n2ition.status",
+  n2itionControl: "n2ition.control",
+  n2itionRefresh: "n2ition.refresh",
   serverGetSettings: "server.getSettings",
+  accountRoutingPreview: "accountRouting.preview",
   serverUpdateSettings: "server.updateSettings",
+  serverSetApprovalCoordinator: "server.setApprovalCoordinator",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
   serverPrepareAcpRegistryAgent: "server.prepareAcpRegistryAgent",
@@ -820,10 +827,47 @@ const WsServerGetDatabaseStorageRpc = Rpc.make(WS_METHODS.serverGetDatabaseStora
   error: EnvironmentAuthorizationError,
 });
 
+const WsN2itionStatusRpc = Rpc.make(WS_METHODS.n2itionStatus, {
+  payload: Schema.Struct({}),
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+const WsN2itionControlRpc = Rpc.make(WS_METHODS.n2itionControl, {
+  payload: N2itionControlInput,
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+const WsN2itionRefreshRpc = Rpc.make(WS_METHODS.n2itionRefresh, {
+  payload: Schema.Struct({}),
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+
 const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+export class AccountRoutingPreviewError extends Schema.TaggedError<AccountRoutingPreviewError>()(
+  "AccountRoutingPreviewError",
+  {
+    reason: Schema.Literals([
+      "context-unavailable",
+      "settings-unavailable",
+      "evidence-unavailable",
+    ]),
+  },
+) {
+  override get message(): string {
+    return "Account routing preview is unavailable. Check the project and provider settings.";
+  }
+}
+
+const WsAccountRoutingPreviewRpc = Rpc.make(WS_METHODS.accountRoutingPreview, {
+  payload: AccountRoutingPreviewInput,
+  success: AccountRoutingPreviewResult,
+  error: Schema.Union([AccountRoutingPreviewError, EnvironmentAuthorizationError]),
 });
 
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
@@ -831,6 +875,12 @@ const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
     patch: ServerSettingsPatch,
     providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
   }),
+  success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerSetApprovalCoordinatorRpc = Rpc.make(WS_METHODS.serverSetApprovalCoordinator, {
+  payload: Schema.Struct({ threadId: ThreadId, enabled: Schema.Boolean }),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
@@ -1982,8 +2032,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerCreateLocalThreadHandoffRpc,
   WsServerRemoveLocalThreadHandoffRpc,
   WsServerGetDatabaseStorageRpc,
+  WsN2itionStatusRpc,
+  WsN2itionControlRpc,
+  WsN2itionRefreshRpc,
   WsServerGetSettingsRpc,
+  WsAccountRoutingPreviewRpc,
   WsServerUpdateSettingsRpc,
+  WsServerSetApprovalCoordinatorRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,
   WsServerPrepareAcpRegistryAgentRpc,

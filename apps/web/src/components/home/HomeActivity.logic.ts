@@ -38,6 +38,22 @@ const needsAttention = (thread: Thread, acknowledgedAt: readonly (string | null 
 const doingWork = (thread: Thread) =>
   threadRuntimeIsActive(thread.runtime) ||
   backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks);
+// While the root agent's run is active it handles delegated traffic itself and
+// will surface its own blocking question to the user; a child's pending request
+// stays a working concern until that run stops.
+const delegatedToWorkingRoot = (thread: Thread, member: Thread) => {
+  if (!threadRuntimeIsActive(thread.runtime)) return false;
+  const carriedBySubagentTraffic =
+    member.lineage.relationshipToParent === "subagent"
+      ? // The child's own request is the traffic its parent agent relays.
+        member.hasPendingUserInput || member.hasPendingApprovals
+      : member.pendingSubagentRequest != null &&
+        !member.hasPendingUserInput &&
+        !member.hasPendingApprovals;
+  if (!carriedBySubagentTraffic) return false;
+  const status = resolveSidebarThreadStatus(member);
+  return status === "input" || status === "approval";
+};
 
 export function buildHomeActivity(
   threads: readonly Thread[],
@@ -80,6 +96,7 @@ export function buildHomeActivity(
     const attention = members.find(
       (member) =>
         member.settledOverride !== "settled" &&
+        !delegatedToWorkingRoot(thread, member) &&
         needsAttention(member, [
           resolveThreadLastVisitedAt(member.lastVisitedAt, localVisits[keyOf(member)]),
           lastVisitedAt,

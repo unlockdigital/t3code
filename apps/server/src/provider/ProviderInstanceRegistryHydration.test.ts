@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  defaultInstanceIdForDriver,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -8,6 +9,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import { deriveProviderInstanceConfigMap } from "./ProviderInstanceRegistryHydration.ts";
+import { BUILT_IN_DRIVERS } from "./builtInDrivers.ts";
 
 const projectId = ProjectId.make("project-a");
 const instanceId = ProviderInstanceId.make("codex_work");
@@ -17,6 +19,15 @@ function settingsWith(overrides: Partial<ServerSettings>): ServerSettings {
 }
 
 describe("deriveProviderInstanceConfigMap", () => {
+  it("materializes exactly the built-in drivers that advertise a default instance", () => {
+    const expected = Object.fromEntries(
+      BUILT_IN_DRIVERS.filter((driver) => driver.metadata.hasDefaultInstance !== false).map(
+        (driver) => [defaultInstanceIdForDriver(driver.driverKind), { driver: driver.driverKind }],
+      ),
+    );
+    expect(deriveProviderInstanceConfigMap(settingsWith({}))).toEqual(expected);
+  });
+
   it("turns a machine-disabled instance on when a project enables it", () => {
     const settings = settingsWith({
       providerInstances: {

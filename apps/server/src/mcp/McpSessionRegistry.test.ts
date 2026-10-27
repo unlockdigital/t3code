@@ -1,3 +1,5 @@
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
+import type { N2itionGrant } from "@t3tools/contracts/n2itionConnection";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
@@ -219,4 +221,64 @@ it.effect.each(["provider-session", "thread", "all"] as const)(
       yield* registry.touch(threadId);
       expect(yield* registry.resolve(token)).toBeUndefined();
     }),
+);
+
+it.effect("requires persisted N2ITION consent even when the caller requests the capability", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("teddy"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      capabilities: new Set(["n2ition-read"]),
+    });
+    const resolved = yield* registry.resolve(
+      issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+    );
+    expect(resolved?.capabilities.has("n2ition-read")).toBe(false);
+    expect(resolved?.n2itionGrantEpoch).toBeUndefined();
+  }),
+);
+
+it.effect("mints N2ITION capability only for the consented thread and provider", () =>
+  Effect.gen(function* () {
+    const grant: N2itionGrant = {
+      version: 1,
+      environmentId,
+      threadId: ThreadId.make("teddy"),
+      providerInstanceId: ProviderInstanceId.make("hermes-dot"),
+      model: "synthetic-model",
+      source: "synthetic",
+      origin: "http://127.0.0.1",
+      mode: "active",
+      epoch: 6,
+      expiresAt: "2099-01-01T00:00:00Z",
+      cadenceHours: 1,
+      privacyVerified: false,
+      sharedProcessAccepted: false,
+      routeFiles: [],
+    };
+    const registry = yield* makeRegistry(() => 1000).pipe(
+      Effect.provideService(N2itionGrantStore.N2itionGrantStore, {
+        read: Effect.succeed(grant),
+        control: () => Effect.die("unused"),
+        checkRouteFiles: () => Effect.void,
+      }),
+    );
+    for (const [thread, provider, allowed] of [
+      ["teddy", "hermes-dot", true],
+      ["child", "hermes-dot", false],
+      ["teddy", "codex", false],
+    ] as const) {
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make(thread),
+        providerInstanceId: ProviderInstanceId.make(provider),
+        capabilities: new Set(["n2ition-read"]),
+      });
+      const scope = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(scope?.capabilities.has("n2ition-read")).toBe(allowed);
+      expect(scope?.n2itionGrantEpoch).toBe(allowed ? 6 : undefined);
+    }
+  }),
 );

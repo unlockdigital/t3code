@@ -305,7 +305,10 @@ it.effect("returns an HTML render reference that Codex and Claude tool rows both
         arguments: { html: "<p>Revenue</p>", title: "Revenue", height: 240 },
       })
       .pipe(
-        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...scope,
+          capabilities: new Set([...scope.capabilities, "preview" as const]),
+        }),
         Effect.provideService(McpSchema.McpServerClient, client),
       );
     const reference = htmlRenderFromToolItem({

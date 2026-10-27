@@ -1,5 +1,4 @@
 import {
-  defaultInstanceIdForDriver,
   providerInstanceConfigEnabledFlag,
   resolveProviderInstanceEnabled,
   type ProviderInstanceConfig,
@@ -12,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import * as Settings from "../serverSettings.ts";
+import { DEFAULT_PROVIDER_INSTANCES } from "./defaultProviderInstances.ts";
 import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "./builtInDrivers.ts";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
@@ -36,14 +36,10 @@ type ProviderInstanceRegistryHydrationEnv =
 export const deriveProviderInstanceConfigMap = (
   settings: ServerSettings,
 ): ProviderInstanceConfigMap => {
-  const merged: Record<string, ProviderInstanceConfig> = { ...settings.providerInstances };
-
-  for (const driver of BUILT_IN_DRIVERS) {
-    if (driver.metadata.hasDefaultInstance === false) continue;
-    const instanceId = defaultInstanceIdForDriver(driver.driverKind);
-    if (instanceId in merged) continue;
-    merged[instanceId] = { driver: driver.driverKind };
-  }
+  const merged: Record<string, ProviderInstanceConfig> = {
+    ...DEFAULT_PROVIDER_INSTANCES,
+    ...settings.providerInstances,
+  };
 
   // A project that turns an instance on needs it alive and probed even when the machine itself
   // has it off, or a thread in that project would route to an instance nobody ever checked in

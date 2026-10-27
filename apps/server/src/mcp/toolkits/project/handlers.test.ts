@@ -3,6 +3,7 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
+  ThreadId,
   type Project as ProjectRecord,
   type ModelSelection,
   type RuntimeMode,
@@ -26,8 +27,10 @@ import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../../vcs/VcsProcess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
 import * as ProjectHandlers from "./handlers.ts";
 import { ProjectToolkit } from "./tools.ts";
+import * as ProjectLaunchPolicy from "../../../project/ProjectLaunchPolicy.ts";
 
 const clientLaunchHarness = (input: {
   readonly runtimeModeCeiling: RuntimeMode;
@@ -297,5 +300,173 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
 
     expect((yield* launchFrom("main")).at(-1)?.result).toMatchObject({ projectId });
     expect(launched).toHaveLength(1);
+  }),
+);
+
+const protectedProject = ProjectId.make("project:protected-owner");
+const allowedTarget = ProjectId.make("project:approved-target");
+const deniedTarget = ProjectId.make("project:unapproved-target");
+const validPolicy = JSON.stringify({
+  version: 1,
+  protectedProjectIds: [protectedProject],
+  allowedTargetProjectIds: [allowedTarget],
+});
+
+const launchPolicyHarness = Effect.fn("test.launchPolicyHarness")(function* (options: {
+  readonly policyExists: boolean;
+  readonly policyContents?: string;
+  readonly policyReadable?: boolean;
+  readonly callerProjectId?: ProjectId;
+}) {
+  const callerProjectId = options.callerProjectId ?? protectedProject;
+  const caller = {
+    ...liveThreadShell(ThreadId.make("thread:launch-policy"), { runtimeMode: "auto" }),
+    projectId: callerProjectId,
+  };
+  const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+  const reads: Array<string> = [];
+  const dependencies = Layer.mergeAll(
+    NodeCrypto.layer,
+    ServerConfig.layerTest(process.cwd(), { prefix: "t3-allowlist-" }).pipe(
+      Layer.provide(NodeServices.layer),
+    ),
+    ServerSettings.layerTest(),
+    Layer.succeed(McpInvocationContext.McpInvocationContext, {
+      environmentId: EnvironmentId.make("environment:launch-policy"),
+      requestNamespace: "launch-policy-test",
+      thread: {
+        threadId: caller.id,
+        providerSessionId: "session:policy",
+        providerInstanceId: caller.providerInstanceId,
+      },
+      client: { sessionId: "client:policy", label: "Test", access: "auto" },
+      issuedAt: 0,
+      capabilities: new Set(["orchestration" as const]),
+    }),
+    Layer.mock(ThreadManagement.ThreadManagementService)({
+      getThreadShell: () => Effect.succeed(caller),
+    }),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/fixture/projects",
+      ensureScratchProject: Effect.succeed({ projectId: deniedTarget }),
+    }),
+    Layer.mock(GitVcsDriver.GitVcsDriver)({
+      listWorktreePaths: () => Effect.succeed(["/fixture/root"]),
+    }),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({
+      checkWorktreeBase: () => Effect.void,
+      launch: (launch) =>
+        Effect.sync(() => {
+          launched.push(launch);
+          return {
+            threadId: launch.threadId,
+            projection: {
+              thread: {
+                id: launch.threadId,
+                projectId: launch.projectId,
+                modelSelection: launch.modelSelection,
+              },
+              runs: [],
+            },
+            resumed: false,
+          } as unknown as ThreadLaunch.ThreadLaunchResult;
+        }),
+    }),
+    Layer.mock(Project.ProjectService)({
+      getById: (id) =>
+        Effect.succeed(
+          Option.some({
+            id,
+            workspaceRoot: "/fixture/root",
+            defaultModelSelection: caller.modelSelection,
+          } as unknown as ProjectRecord),
+        ),
+    }),
+    Layer.succeed(
+      FileSystem.FileSystem,
+      FileSystem.makeNoop({
+        exists: () => Effect.succeed(options.policyExists),
+        readFileString: (path) =>
+          Effect.suspend(() => {
+            reads.push(path);
+            if (!options.policyReadable) return FileSystem.makeNoop({}).readFileString(path);
+            return Effect.succeed(options.policyContents ?? "");
+          }),
+      }),
+    ),
+  );
+  const toolkit = yield* ProjectToolkit.pipe(
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+    ),
+  );
+  const call = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
+    toolkit.handle("t3_thread_launch", params).pipe(
+      Stream.unwrap,
+      Stream.runCollect,
+      Effect.map((items) => items.at(-1)?.result),
+      Effect.provide(dependencies),
+    );
+  return { call, launched, reads };
+});
+
+it.effect("applies configured portable launch policy to root and worktree launches", () =>
+  Effect.gen(function* () {
+    const h = yield* launchPolicyHarness({
+      policyExists: true,
+      policyContents: validPolicy,
+      policyReadable: true,
+    });
+    for (const workspaceStrategy of [
+      { type: "root" } as const,
+      { type: "worktree", baseRef: "main", startFromOrigin: false } as const,
+    ]) {
+      expect(
+        yield* h.call({ title: "Allowed", projectId: allowedTarget, workspaceStrategy }),
+      ).toMatchObject({ projectId: allowedTarget });
+      expect(
+        yield* h.call({ title: "Denied", projectId: deniedTarget, workspaceStrategy }),
+      ).toMatchObject({ code: "capability_denied" });
+    }
+    expect(h.launched).toHaveLength(2);
+    expect(h.reads.every((path) => path.endsWith(ProjectLaunchPolicy.FILE_NAME))).toBe(true);
+  }),
+);
+
+it.effect("allows fresh installs and unprotected callers without a policy file", () =>
+  Effect.gen(function* () {
+    const fresh = yield* launchPolicyHarness({ policyExists: false });
+    expect(yield* fresh.call({ title: "Fresh", projectId: deniedTarget })).toMatchObject({
+      projectId: deniedTarget,
+    });
+    const unprotected = yield* launchPolicyHarness({
+      policyExists: true,
+      policyContents: validPolicy,
+      policyReadable: true,
+      callerProjectId: deniedTarget,
+    });
+    expect(
+      yield* unprotected.call({ title: "Unprotected", projectId: deniedTarget }),
+    ).toMatchObject({ projectId: deniedTarget });
+  }),
+);
+
+it.effect("fails closed for malformed or unreadable configured policy", () =>
+  Effect.gen(function* () {
+    for (const options of [
+      { policyExists: true, policyContents: "{broken", policyReadable: true },
+      { policyExists: true, policyContents: validPolicy, policyReadable: false },
+      {
+        policyExists: true,
+        policyContents: JSON.stringify({ version: 1, protectedProjectIds: [protectedProject] }),
+        policyReadable: true,
+      },
+    ]) {
+      const h = yield* launchPolicyHarness(options);
+      expect(yield* h.call({ title: "Fail closed", projectId: allowedTarget })).toMatchObject({
+        code: "capability_denied",
+      });
+      expect(h.launched).toEqual([]);
+    }
   }),
 );

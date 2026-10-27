@@ -56,6 +56,7 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
+import { isCopilotAgent, readCopilotUsageLimits } from "./copilotUsage.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -427,6 +428,7 @@ export const checkAcpRegistryProviderReadiness = Effect.fn(
   input: SnapshotIdentity & {
     readonly settings: AcpRegistrySettings;
     readonly environment: NodeJS.ProcessEnv;
+    readonly cwd?: string;
   },
 ): Effect.fn.Return<ServerProvider, never, AcpRegistrySupport.AcpRegistryCatalog> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -445,9 +447,20 @@ export const checkAcpRegistryProviderReadiness = Effect.fn(
         }
       : inspected.success,
   });
+  const usageLimits = snapshot.installed
+    ? yield* readCopilotUsageLimits({
+        settings: input.settings,
+        environment: input.environment,
+        cwd: input.cwd ?? process.cwd(),
+      })
+    : undefined;
   return inspected._tag === "Success" && inspected.success.status === "ready"
     ? {
         ...snapshot,
+        ...(usageLimits ? { usageLimits } : {}),
+        ...(usageLimits && !usageLimits.unavailable
+          ? { auth: { ...snapshot.auth, status: "authenticated" as const } }
+          : {}),
         message: "Checking ACP authentication, models, and commands in the background...",
       }
     : snapshot;
@@ -526,6 +539,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       ...identity,
       settings: effectiveConfig,
       environment: processEnvironment,
+      cwd: host.paths.cwd,
     };
     const confirmedAuthentication =
       yield* AcpRegistryAuthenticationState.makeAcpRegistryAuthenticationState({
@@ -538,6 +552,9 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     const withLiveRuntimeState = Effect.fn("AcpRegistryDriver.withLiveRuntimeState")(function* (
       input: ServerProvider,
     ) {
+      if (isCopilotAgent(effectiveConfig) && input.usageLimits && !input.usageLimits.unavailable) {
+        yield* confirmedAuthentication.set(true);
+      }
       if (input.auth.status === "unauthenticated") yield* confirmedAuthentication.set(false);
       const provider =
         input.enabled &&

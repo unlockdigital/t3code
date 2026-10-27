@@ -8,6 +8,7 @@ import {
   type OrchestrationV2Command,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as CoordinatorApprovals from "../../../orchestration-v2/CoordinatorApprovals.ts";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -81,6 +82,22 @@ const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A,
 ) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
 
 export const layer = McpToolAccess.toLayer(ThreadToolkit, {
+  t3_approval_read: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const context = yield* readThread(input.threadId);
+      if (!context.caller) return yield* unavailable();
+      const approvals = yield* CoordinatorApprovals.CoordinatorApprovals;
+      return yield* approvals.read({ ...input, coordinatorThreadId: context.caller.id });
+    }),
+  ),
+  t3_approval_approve_once: writesThread((input) =>
+    Effect.gen(function* () {
+      const context = yield* readThread(input.threadId);
+      if (!context.caller) return yield* unavailable();
+      const approvals = yield* CoordinatorApprovals.CoordinatorApprovals;
+      return yield* approvals.approve({ ...input, coordinatorThreadId: context.caller.id });
+    }),
+  ),
   run_scheduled_task_now: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const scheduler = yield* ScheduledTasks.ScheduledTaskService;

@@ -260,6 +260,7 @@ function makeMutableServerSettingsService(
       ready: Effect.void,
       getSettings: Ref.get(settingsRef),
       getRoutingSettings: Ref.get(settingsRef),
+      setApprovalCoordinator: () => Effect.die("Unexpected coordinator update"),
       updateSettings: (patch) =>
         Effect.gen(function* () {
           const current = yield* Ref.get(settingsRef);

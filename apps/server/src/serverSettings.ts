@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
   ProjectId,
+  type ThreadId,
   ProjectScript,
   ProjectSettingsOverrides,
   type ProviderInstanceConfig,
@@ -56,6 +57,7 @@ import {
 } from "./sourceControl/sourceControlHostSecrets.ts";
 
 import { mapSettingsSecrets, SECRET_REDACTED, type SettingsSecret } from "./settingsSecrets.ts";
+import { DEFAULT_PROVIDER_INSTANCES } from "./provider/defaultProviderInstances.ts";
 
 export {
   resolveReviewGuideModelSelection,
@@ -139,6 +141,43 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
   );
 }
 
+const validateAccountRoutingPatch = Effect.fn("ServerSettings.validateAccountRoutingPatch")(
+  function* (
+    current: ServerSettings,
+    next: ServerSettings,
+    patch: ServerSettingsPatch,
+    settingsPath: string,
+  ) {
+    if (patch.accountRouting === undefined && patch.accountRoutingExpectedRevision === undefined)
+      return;
+    const previous = current.accountRouting;
+    if (
+      patch.accountRouting === undefined ||
+      patch.accountRoutingExpectedRevision !== (previous?.revision ?? 0) ||
+      (patch.accountRouting !== null &&
+        patch.accountRouting.revision !== (previous?.revision ?? 0) + 1)
+    )
+      return yield* new ServerSettingsError({
+        settingsPath,
+        operation: "account-routing-revision",
+      });
+    if (patch.accountRouting === null) return;
+    for (const stage of patch.accountRouting.stages) {
+      if (
+        !Object.hasOwn(next.providerInstances, stage.instanceId) &&
+        !Object.hasOwn(DEFAULT_PROVIDER_INSTANCES, stage.instanceId)
+      )
+        return yield* new ServerSettingsError({
+          settingsPath,
+          operation: "account-routing-reference",
+        });
+      const old = previous?.stages.find((candidate) => candidate.id === stage.id);
+      if (old && (old.instanceId !== stage.instanceId || old.fundingIntent !== stage.fundingIntent))
+        return yield* new ServerSettingsError({ settingsPath, operation: "account-routing-stage" });
+    }
+  },
+);
+
 export function applyProviderInstanceMutation(
   settings: ServerSettings,
   mutation: ProviderInstanceMutation,
@@ -172,6 +211,19 @@ function ensureProviderInstanceMutationAllowed(
   return Effect.void;
 }
 
+const applySettingsUpdate = Effect.fn("ServerSettings.applySettingsUpdate")(function* (
+  current: ServerSettings,
+  patch: ServerSettingsPatch,
+  settingsPath: string,
+  mutation?: ProviderInstanceMutation,
+) {
+  if (mutation) yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
+  const patched = applyServerSettingsPatch(current, patch);
+  const next = mutation ? applyProviderInstanceMutation(patched, mutation) : patched;
+  yield* validateAccountRoutingPatch(current, next, patch, settingsPath);
+  return next;
+});
+
 export class ServerSettingsService extends Context.Service<
   ServerSettingsService,
   {
@@ -184,6 +236,11 @@ export class ServerSettingsService extends Context.Service<
 
     readonly updateSettings: (
       patch: ServerSettingsPatch,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+
+    readonly setApprovalCoordinator: (
+      threadId: ThreadId,
+      enabled: boolean,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
     readonly updateProviderInstance: (
@@ -245,15 +302,20 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     getRoutingSettings: getSettings,
     updateSettings: (patch) =>
       updateTestSettings((currentSettings) =>
-        Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
+        applySettingsUpdate(currentSettings, patch, "<memory>"),
+      ),
+    setApprovalCoordinator: (threadId, enabled) =>
+      updateTestSettings((current) =>
+        Effect.succeed({
+          ...current,
+          approvalCoordinatorThreadIds: enabled
+            ? [...new Set([...current.approvalCoordinatorThreadIds, threadId])]
+            : current.approvalCoordinatorThreadIds.filter((id) => id !== threadId),
+        }),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
       updateTestSettings((currentSettings) =>
-        Effect.gen(function* () {
-          yield* ensureProviderInstanceMutationAllowed(currentSettings, mutation, "test settings");
-          const patched = applyServerSettingsPatch(currentSettings, patch);
-          return applyProviderInstanceMutation(patched, mutation);
-        }),
+        applySettingsUpdate(currentSettings, patch, "<memory>", mutation),
       ),
     withSettingsSnapshot: (use) =>
       writeSemaphore.withPermits(1)(getSettings.pipe(Effect.flatMap(use))),
@@ -1176,16 +1238,19 @@ const make = Effect.gen(function* () {
       Effect.map(resolveTextGenerationProvider),
     ),
     updateSettings: (patch) =>
+      updateAndPersistSettings((current) => applySettingsUpdate(current, patch, settingsPath)),
+    setApprovalCoordinator: (threadId, enabled) =>
       updateAndPersistSettings((current) =>
-        Effect.succeed(applyServerSettingsPatch(current, patch)),
+        Effect.succeed({
+          ...current,
+          approvalCoordinatorThreadIds: enabled
+            ? [...new Set([...current.approvalCoordinatorThreadIds, threadId])]
+            : current.approvalCoordinatorThreadIds.filter((id) => id !== threadId),
+        }),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
       updateAndPersistSettings((current) =>
-        Effect.gen(function* () {
-          yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
-          const patched = applyServerSettingsPatch(current, patch);
-          return applyProviderInstanceMutation(patched, mutation);
-        }),
+        applySettingsUpdate(current, patch, settingsPath, mutation),
       ),
     withSettingsSnapshot,
     get streamChanges() {

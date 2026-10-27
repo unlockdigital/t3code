@@ -892,11 +892,16 @@ type SidebarThreadStatusInput = Pick<
 >;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
+  // The agent is waiting on its agents: it is already on delegated traffic and
+  // will relay a child's question or approval itself, so propagated requests
+  // stay off the user's ledger until it stops and asks them directly.
+  const blockedOnAgents =
+    thread.runtime?.status === "running" && thread.blockedOnThreadWait === true;
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
-    return "approval";
+    return !thread.hasPendingApprovals && blockedOnAgents ? "waiting" : "approval";
   }
   if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
-    return "input";
+    return !thread.hasPendingUserInput && blockedOnAgents ? "waiting" : "input";
   }
   if (thread.runtime?.status === "running" && thread.blockedOnThreadWait === true) {
     return "waiting";
@@ -1063,22 +1068,37 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
+  // A child's pending request is on the thread's agent to relay while its run
+  // is blocked on that agent; the pill speaks for the agent until it stops.
+  const blockedOnAgents =
+    thread.runtime?.status === "running" && thread.blockedOnThreadWait === true;
+  const waitingOnAgents = {
+    label: "Waiting",
+    colorClass: "text-sidebar-muted-foreground",
+    dotClass: "bg-sidebar-muted-foreground",
+    pulse: false,
+  } as const;
+
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
-    return {
-      label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
-      pulse: false,
-    };
+    return !thread.hasPendingApprovals && blockedOnAgents
+      ? waitingOnAgents
+      : {
+          label: "Pending Approval",
+          colorClass: "text-amber-600 dark:text-amber-300/90",
+          dotClass: "bg-amber-500 dark:bg-amber-300/90",
+          pulse: false,
+        };
   }
 
   if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
-    return {
-      label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
-      pulse: false,
-    };
+    return !thread.hasPendingUserInput && blockedOnAgents
+      ? waitingOnAgents
+      : {
+          label: "Awaiting Input",
+          colorClass: "text-indigo-600 dark:text-indigo-300/90",
+          dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+          pulse: false,
+        };
   }
 
   if (

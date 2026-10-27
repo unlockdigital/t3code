@@ -54,6 +54,62 @@ describe("electron development launcher", () => {
     );
   });
 
+  // oxlint-disable-next-line t3code/no-global-process-runtime -- The generated macOS launcher requires a POSIX shell.
+  it.skipIf(NodeOS.platform() === "win32")(
+    "boots the configured development stack when opened outside its runner",
+    () => {
+      const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-dock-launcher-"));
+      try {
+        const stackPath = NodePath.join(directory, "start stack's services");
+        const electronPath = NodePath.join(directory, "Electron");
+        const environmentPath = NodePath.join(directory, "environment.sh");
+        const launcherPath = NodePath.join(directory, "launcher");
+        NodeFS.writeFileSync(stackPath, '#!/bin/sh\nprintf "%s\\n" stack "$@"\n', {
+          mode: 0o755,
+        });
+        NodeFS.writeFileSync(electronPath, '#!/bin/sh\nprintf "%s\\n" electron "$@"\n', {
+          mode: 0o755,
+        });
+        NodeFS.writeFileSync(
+          environmentPath,
+          makeDevelopmentEnvironmentScript({ T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT: stackPath }),
+        );
+        NodeFS.writeFileSync(
+          launcherPath,
+          makeDevelopmentLauncherScript({
+            electronBinaryPath: electronPath,
+            mainEntryPath: "/repo/main.cjs",
+            desktopRoot: "/repo/apps/desktop",
+            environmentFilePath: environmentPath,
+          }),
+        );
+        const environment = { ...process.env };
+        delete environment.T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT;
+        delete environment.T3CODE_DESKTOP_DEV_LAUNCH_ACTIVE;
+        const deepLink = "t3code-dev://thread/example?label=two words";
+
+        const cold = NodeChildProcess.spawnSync("/bin/sh", [launcherPath, deepLink], {
+          env: environment,
+          encoding: "utf8",
+        });
+        assert.equal(cold.status, 0, cold.stderr);
+        assert.equal(cold.stdout, `stack\n${deepLink}\n`);
+
+        const managed = NodeChildProcess.spawnSync("/bin/sh", [launcherPath, deepLink], {
+          env: { ...environment, T3CODE_DESKTOP_DEV_LAUNCH_ACTIVE: "1" },
+          encoding: "utf8",
+        });
+        assert.equal(managed.status, 0, managed.stderr);
+        assert.equal(
+          managed.stdout,
+          `electron\n--t3code-dev-root=/repo/apps/desktop\n/repo/main.cjs\n${deepLink}\n`,
+        );
+      } finally {
+        NodeFS.rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("repairs Electron before loading the package entrypoint", () => {
     const calls = [];
     const electronPath = resolveElectronBinaryPath({

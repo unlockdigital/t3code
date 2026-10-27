@@ -19,11 +19,22 @@ const toFailure = (error: { readonly _tag: string; readonly message: string }) =
     message: error.message,
   });
 
+const requireHtmlAccess = McpInvocationContext.requireThreadMcpCapability("preview").pipe(
+  Effect.mapError(
+    (error) =>
+      new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message: error.message,
+      }),
+  ),
+);
+
 const handlers = {
   // The headless browser runs on the host and can open local files, so only
   // agents T3 launched, which already work on this machine, get it.
   html_preview: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
+      yield* requireHtmlAccess;
       const htmlRender = yield* HtmlRender.HtmlRender;
       const { png, ...preview } = yield* htmlRender.preview(input).pipe(Effect.mapError(toFailure));
       return {
@@ -39,8 +50,7 @@ const handlers = {
   ),
   html_render: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const { thread } = yield* McpInvocationContext.requireThreadScope(scope, "html_render");
+      const { thread } = yield* requireHtmlAccess;
       const htmlRender = yield* HtmlRender.HtmlRender;
       const reference = yield* htmlRender
         .publish({ threadId: thread.threadId, ...input })

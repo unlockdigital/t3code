@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./accountRouting": {
+      "types": "./src/accountRouting.ts",
+      "import": "./src/accountRouting.ts"
+    },
     "./providerConfigurationHash": {
       "types": "./src/providerConfigurationHash.ts",
       "import": "./src/providerConfigurationHash.ts"
