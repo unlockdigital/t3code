@@ -71,7 +71,7 @@ catalog:
   tailwindcss: 4.3.3
   tldts: 7.4.2
   typescript: npm:@tsc-rs/typescript@0.8.0
-  undici: 8.11.2
+  undici: 8.12.2
   vite: npm:@voidzero-dev/vite-plus-core@1.3.0
   vite-plus: 1.3.0
   ws: 8.22.0
@@ -153,7 +153,12 @@ minimumReleaseAgeExclude:
   - expo-sharing@58.0.19
   - expo-sqlite@58.0.13
   - expo-symbols@58.0.4
-  - electron@44.9.3
+  - electron@44.10.0
+  - undici@8.12.2
+  - undici@7.30.1
+  - undici@6.29.1
+  - zod@4.6.6
+  - body-parser@2.4.0
   - "@anthropic-ai/claude-agent-sdk@0.3.276"
   - "@alchemy.run/cloudflare-runtime@2.0.0-beta.80"
   - "@alchemy.run/floci@2.0.0-beta.80"
@@ -308,10 +313,13 @@ overrides:
   "@electron-webauthn/macos>objc-js": "catalog:"
   lightningcss: "catalog:"
   tailwindcss: "catalog:"
-  # Ranges from @effect/platform-node, jsdom, unifont, Expo and libsql otherwise
-  # settle on two patch releases of each major. Older majors stay as they are.
+  # Collapse transport type versions and keep each Undici major on its security-fixed release.
   "@types/ws@^8": "catalog:"
   "undici@^8": "catalog:"
+  "undici@^7": 7.30.1
+  "undici@^6": 6.29.1
+  "zod@^4": 4.6.6
+  "body-parser@^2": 2.4.0
   "ws@^8": "catalog:"
   vite: "catalog:"
   vite-plus: "catalog:"

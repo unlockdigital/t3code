@@ -19,6 +19,8 @@ The package carries the fork's code, interface, and bundled application runtime.
 
 In Settings, configure the providers you want to test and follow their supported sign-in flow on this Mac. Follow the bundled [provider setup guidance](../user/install.md#providers) for provider CLIs. If this Mac already has CLI accounts, create separate connection homes when testing fresh account sign-ins. Select the intended connection explicitly before running a task.
 
+Use Codex or Claude for the initial qualification. The starter profile keeps Cursor disabled while its legacy Zod v3 input-validation path receives further advisory and transport-limit review. Existing trial settings are preserved. Enabling Cursor expands beyond this preview's qualified trial scope.
+
 Usage windows and billing links describe provider-reported evidence. Account routing supplies a preview and keeps automatic dispatch disabled. Grant coordinator approval authority explicitly to the chosen thread, and check its destination and permission limits. Replacing or resetting that shortcut requires successful revocation of the previous environment's grant.
 
 N2ition is optional and starts without a live grant on a clean installation. An owner must qualify and enroll the destination's inference route and connector separately. A grant's approved route must match the effective provider configuration; route changes require requalification. Personal project launch restrictions are environment-local policy and can be provisioned separately by the owner.
