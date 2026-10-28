@@ -111,6 +111,7 @@ export function makeDevelopmentEnvironmentScript(environment) {
     ["VITE_DEV_SERVER_URL", environment.VITE_DEV_SERVER_URL],
     ["T3CODE_PORT", environment.T3CODE_PORT],
     ["T3CODE_HOME", environment.T3CODE_HOME],
+    ["T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT", environment.T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT],
     ["T3CODE_COMMIT_HASH", environment.T3CODE_COMMIT_HASH],
     ["T3CODE_OTLP_TRACES_URL", environment.T3CODE_OTLP_TRACES_URL],
     ["T3CODE_OTLP_EXPORT_INTERVAL_MS", environment.T3CODE_OTLP_EXPORT_INTERVAL_MS],
@@ -132,10 +133,23 @@ export function makeDevelopmentLauncherScript({
   mainEntryPath,
   desktopRoot,
   environmentFilePath,
+  launchScriptPath,
 }) {
   return [
     "#!/bin/sh",
+    // Terminal supplies Documents access before the environment file is sourced.
+    ...(launchScriptPath
+      ? [
+          'if [ "${T3CODE_DESKTOP_DEV_LAUNCH_ACTIVE:-}" != "1" ]; then',
+          `  exec /usr/bin/open -a Terminal ${shellSingleQuote(launchScriptPath)}`,
+          "fi",
+        ]
+      : []),
     `if [ -f ${shellSingleQuote(environmentFilePath)} ]; then . ${shellSingleQuote(environmentFilePath)}; fi`,
+    // Dock launches need the same service supervisor as a terminal launch.
+    'if [ "${T3CODE_DESKTOP_DEV_LAUNCH_ACTIVE:-}" != "1" ] && [ -n "${T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT:-}" ]; then',
+    '  exec "$T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT" "$@"',
+    "fi",
     `exec ${shellSingleQuote(electronBinaryPath)} --t3code-dev-root=${shellSingleQuote(desktopRoot)} ${shellSingleQuote(mainEntryPath)} "$@"`,
     "",
   ].join("\n");
@@ -161,6 +175,7 @@ export function writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryP
     mainEntryPath: NodePath.join(desktopDir, "dist-electron", "main.cjs"),
     desktopRoot: desktopDir,
     environmentFilePath: developmentEnvironmentFilePath,
+    launchScriptPath: process.env.T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT,
   });
   if (
     NodeFS.existsSync(targetBinaryPath) &&

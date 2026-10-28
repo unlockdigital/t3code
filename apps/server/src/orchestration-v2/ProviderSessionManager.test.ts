@@ -39,6 +39,8 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
+import type { N2itionGrant } from "@t3tools/contracts/n2itionConnection";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -1615,6 +1617,100 @@ it.effect.each([
 
       yield* effect.pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 1_000, mcpConfigs })));
     }),
+);
+
+it.effect("ProviderSessionManagerV2 retains child restrictions across consent epoch rotation", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const threadId = ThreadId.make("thread-child-consent-rotation");
+    const parentThreadId = ThreadId.make("thread-parent-consent-rotation");
+    const grant = yield* Ref.make<N2itionGrant>({
+      version: 1,
+      environmentId: EnvironmentId.make("environment-provider-session-manager"),
+      threadId,
+      providerInstanceId: modelSelection.instanceId,
+      model: "synthetic-model",
+      source: "synthetic",
+      origin: "http://127.0.0.1",
+      mode: "active",
+      epoch: 1,
+      expiresAt: "2099-01-01T00:00:00Z",
+      cadenceHours: 1,
+      privacyVerified: false,
+      sharedProcessAccepted: false,
+      routeFiles: [],
+    });
+    const effect = Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const registry = yield* McpSessionRegistry.McpSessionRegistry;
+      const sessions = yield* McpProviderSessions.McpProviderSessions;
+      const now = yield* DateTime.now;
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+      const created = yield* makeThreadCreatedEvent({ idAllocator, threadId, now });
+      yield* eventSink.write({
+        events: [
+          {
+            ...created,
+            payload: {
+              ...created.payload,
+              lineage: {
+                parentThreadId,
+                relationshipToParent: "subagent",
+                rootThreadId: parentThreadId,
+              },
+            },
+          },
+        ],
+      });
+      const open = manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+      yield* open;
+      const original = yield* sessions.read(threadId);
+      assert.isDefined(original);
+      const originalToken = original!.authorizationHeader.replace(/^Bearer\s+/, "");
+      const originalScope = yield* registry.resolve(originalToken);
+      assert.isTrue(originalScope?.thread.subagent);
+      assert.equal(originalScope?.n2itionGrantEpoch, 1);
+
+      yield* manager.detach({ providerSessionId, threadId });
+      yield* open;
+      assert.equal(
+        (yield* sessions.read(threadId))?.providerSessionId,
+        original!.providerSessionId,
+      );
+
+      yield* manager.detach({ providerSessionId, threadId });
+      yield* Ref.update(grant, (current) => ({ ...current, epoch: 2 }));
+      yield* open;
+      const replacement = yield* sessions.read(threadId);
+      assert.isDefined(replacement);
+      assert.notEqual(replacement!.providerSessionId, original!.providerSessionId);
+      assert.isUndefined(yield* registry.resolve(originalToken));
+      const replacementScope = yield* registry.resolve(
+        replacement!.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      assert.isTrue(replacementScope?.thread.subagent);
+      assert.equal(replacementScope?.n2itionGrantEpoch, 2);
+      yield* manager.close(providerSessionId);
+    });
+    yield* effect.pipe(
+      Effect.provide(
+        layerTest({ state, idleTimeoutMs: 60_000 }).pipe(
+          Layer.provide(
+            Layer.succeed(N2itionGrantStore.N2itionGrantStore, {
+              read: Ref.get(grant),
+              control: () => Effect.die("unused"),
+              checkRouteFiles: () => Effect.void,
+            }),
+          ),
+        ),
+      ),
+    );
+  }),
 );
 
 it.effect("ProviderSessionManagerV2 preserves child credentials when lineage lookup fails", () =>

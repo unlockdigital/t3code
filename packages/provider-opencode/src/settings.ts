@@ -74,6 +74,9 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    tinfoilMonthlyBudgetUsd: Schema.optionalKey(Schema.Finite.check(Schema.isGreaterThan(0))).pipe(
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
   },
   {
     order: ["binaryPath", "serverUrl", "serverPassword"],

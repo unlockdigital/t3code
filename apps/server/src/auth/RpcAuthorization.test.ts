@@ -5,7 +5,9 @@ import {
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
+  clientRpcRequiredScopes,
   ProviderInstanceId,
+  ProjectId,
   ThreadId,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
@@ -27,8 +29,19 @@ import {
   requiredScopeForDeviceList,
 } from "./RpcAuthorization.ts";
 import * as RpcAuthorization from "./RpcAuthorization.ts";
+import { selectAccountRouting } from "@t3tools/shared/accountRouting";
 
 describe("RPC authorization scopes", () => {
+  it("guards coordinator removal with settings-write on client and server", () => {
+    expect(
+      clientRpcRequiredScopes(WS_METHODS.serverSetApprovalCoordinator, {
+        threadId: ThreadId.make("old"),
+      }),
+    ).toEqual([AuthSettingsWriteScope]);
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverSetApprovalCoordinator)).toBe(
+      AuthSettingsWriteScope,
+    );
+  });
   it("requires provider management to connect a private billing key", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.providerConnectTinfoilBilling)).toBe(
       AuthProvidersManageScope,
@@ -144,6 +157,68 @@ describe("RPC scope middleware", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+it.effect("guards account routing preview and policy updates with their respective scopes", () =>
+  Effect.gen(function* () {
+    const methods = [WS_METHODS.accountRoutingPreview, WS_METHODS.serverUpdateSettings] as const;
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof methods)[number]> =>
+          !(methods as ReadonlyArray<string>).includes(tag),
+      ),
+    );
+    const handled: string[] = [];
+    const handlers = Layer.mergeAll(
+      group.toLayerHandler(WS_METHODS.accountRoutingPreview, (request) =>
+        Effect.sync(() => {
+          handled.push("preview");
+          return selectAccountRouting({ policy: null, request, candidates: [] }, 0);
+        }),
+      ),
+      group.toLayerHandler(WS_METHODS.serverUpdateSettings, () =>
+        Effect.sync(() => {
+          handled.push("settings");
+          return DEFAULT_SERVER_SETTINGS;
+        }),
+      ),
+    );
+    const readClient = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(Layer.merge(handlers, RpcAuthorization.layer([AuthOrchestrationReadScope]))),
+    );
+    yield* readClient[WS_METHODS.accountRoutingPreview]({
+      projectId: ProjectId.make("project:routing"),
+      requestedSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+    });
+    expect(
+      yield* readClient[WS_METHODS.serverUpdateSettings]({ patch: { accountRouting: null } }).pipe(
+        Effect.flip,
+      ),
+    ).toMatchObject({ requiredPermission: AuthSettingsWriteScope });
+    expect(handled).toEqual(["preview"]);
+
+    const noScopeClient = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(Layer.merge(handlers, RpcAuthorization.layer([]))),
+    );
+    expect(
+      yield* noScopeClient[WS_METHODS.accountRoutingPreview]({
+        projectId: ProjectId.make("project:routing"),
+        requestedSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+      }).pipe(Effect.flip),
+    ).toMatchObject({ requiredPermission: AuthOrchestrationReadScope });
+    expect(handled).toEqual(["preview"]);
+
+    const writerClient = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.merge(
+          handlers,
+          RpcAuthorization.layer([AuthOrchestrationReadScope, AuthSettingsWriteScope]),
+        ),
+      ),
+    );
+    yield* writerClient[WS_METHODS.serverUpdateSettings]({ patch: { accountRouting: null } });
+    expect(handled).toEqual(["preview", "settings"]);
+  }).pipe(Effect.scoped),
+);
 
 it.effect(
   "rejects handoff creation and deletion before filesystem handlers without an operate grant",

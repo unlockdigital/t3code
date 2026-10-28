@@ -42,8 +42,19 @@ export type ServerProviderCreditBalance = typeof ServerProviderCreditBalance.Typ
 export const ServerProviderPrepaidBalance = Schema.Struct({
   remainingUsd: Schema.Finite,
   totalGrantedUsd: Schema.optional(Schema.Finite.check(Schema.isGreaterThan(0))),
+  checkedAt: Schema.optional(IsoDateTime),
 });
 export type ServerProviderPrepaidBalance = typeof ServerProviderPrepaidBalance.Type;
+
+export const ServerProviderMonthlySpend = Schema.Struct({
+  budgetUsd: Schema.Finite.check(Schema.isGreaterThan(0)),
+  spentUsd: Schema.NullOr(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** UTC calendar month; independent of prepaid funding and subscription billing cycles. */
+  periodStart: IsoDateTime,
+  periodEnd: IsoDateTime,
+  checkedAt: IsoDateTime,
+});
+export type ServerProviderMonthlySpend = typeof ServerProviderMonthlySpend.Type;
 
 /**
  * `unavailable` distinguishes an account that can never report windows (API
@@ -57,6 +68,7 @@ export const ServerProviderUsageLimits = Schema.Struct({
   resetCredits: Schema.optional(ServerProviderResetCredits),
   creditBalance: Schema.optional(ServerProviderCreditBalance),
   prepaidBalance: Schema.optional(ServerProviderPrepaidBalance),
+  monthlySpend: Schema.optional(ServerProviderMonthlySpend),
   externalUsage: Schema.optional(
     Schema.Struct({
       label: TrimmedNonEmptyString,

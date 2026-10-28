@@ -13,6 +13,7 @@ import {
   paceRemainingPercent,
   remainingPercent,
   prepaidCreditPercent,
+  monthlySpendProgress,
   type LimitAccount,
   type LimitPoolWindow,
   type UsageAccount,
@@ -325,7 +326,9 @@ function UsageAccountRow({
   const exhaustedCount = windows.filter((window) => remainingPercent(window) === 0).length;
   const external = limits?.externalUsage;
   const prepaidBalance = limits?.prepaidBalance;
+  const balanceCheckedAt = prepaidBalance?.checkedAt ?? limits?.checkedAt;
   const creditPercent = prepaidCreditPercent(prepaidBalance);
+  const monthlySpend = monthlySpendProgress(limits, now);
   return (
     <View className="gap-2 rounded-lg border border-border bg-grouped-card p-3">
       <View className="flex-row items-start gap-2">
@@ -413,7 +416,7 @@ function UsageAccountRow({
       {account.category === "API key" ? (
         <View className="gap-1">
           <Text className="text-xs text-foreground-muted">
-            Credits remaining
+            Dollars remaining
             {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
           </Text>
           <View className="flex-row flex-wrap items-baseline gap-2">
@@ -426,6 +429,11 @@ function UsageAccountRow({
               </Text>
             ) : null}
           </View>
+          {prepaidBalance && balanceCheckedAt ? (
+            <Text className="text-xs text-foreground-muted">
+              Updated {new Date(balanceCheckedAt).toLocaleString()}
+            </Text>
+          ) : null}
           {creditPercent !== null ? (
             <View
               accessible
@@ -457,13 +465,56 @@ function UsageAccountRow({
       {details ? (
         <View className="gap-3 border-t border-border pt-3">
           {prepaidBalance ? (
-            <Text className="text-xs text-foreground-muted">
-              Account balance · Updated {new Date(limits!.checkedAt).toLocaleString()}. Covers all
-              account usage.
-              {prepaidBalance.totalGrantedUsd !== undefined
-                ? ` ${formatUsd(prepaidBalance.totalGrantedUsd)} in settled credits.`
-                : " Credit total unavailable."}
-            </Text>
+            <Text className="text-xs text-foreground-muted">Balance covers all account usage.</Text>
+          ) : null}
+          {monthlySpend ? (
+            <View className="gap-1.5">
+              <View className="flex-row flex-wrap items-baseline justify-between gap-2">
+                <Text className="text-xs text-foreground-muted">
+                  Monthly API spending{monthlySpend.stale ? " · stale" : ""}
+                </Text>
+                <Text className="text-xs font-t3-medium text-foreground tabular-nums">
+                  {monthlySpend.spentUsd === null ? "—" : formatUsd(monthlySpend.spentUsd)} /{" "}
+                  {formatUsd(monthlySpend.budgetUsd)}
+                </Text>
+              </View>
+              {monthlySpend.percentUsed !== null ? (
+                <View
+                  accessible
+                  accessibilityRole="progressbar"
+                  accessibilityLabel={`Monthly spending for ${account.label}`}
+                  accessibilityValue={{
+                    min: 0,
+                    max: 100,
+                    now: monthlySpend.percentUsed,
+                    text: `${formatUsd(monthlySpend.spentUsd!)} spent of ${formatUsd(monthlySpend.budgetUsd)} monthly budget`,
+                  }}
+                  className="h-1 overflow-hidden rounded-full bg-subtle"
+                >
+                  <View
+                    className={
+                      monthlySpend.percentUsed >= 90
+                        ? "h-full rounded-full bg-red-500"
+                        : "h-full rounded-full bg-foreground"
+                    }
+                    style={{ width: `${monthlySpend.percentUsed}%` }}
+                  />
+                </View>
+              ) : null}
+              <Text className="text-xs text-foreground-muted">
+                {monthlySpend.spentUsd === null
+                  ? "Monthly usage unavailable. Refresh to check."
+                  : monthlySpend.overBudgetUsd! > 0
+                    ? `${formatUsd(monthlySpend.overBudgetUsd!)} over budget.`
+                    : `${formatUsd(monthlySpend.remainingUsd!)} left in budget.`}{" "}
+                Account-wide · Calendar month (UTC) · Tracking only.
+              </Text>
+              {monthlySpend.spentUsd !== null ? (
+                <Text className="text-xs text-foreground-muted">
+                  Updated {new Date(monthlySpend.checkedAt).toLocaleString()}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
           {account.category === "API key" && history.state !== "ready" ? (
             <Text className="text-xs text-foreground-muted">

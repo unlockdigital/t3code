@@ -85,6 +85,7 @@ The most common defect in this repo is a change that works on the path you teste
 - To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env`. The `t3.json` setup links that file into worktrees. Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
 - Stop what you started, by the PID you tracked. See rule 1.
 - Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.
+- When this checkout serves the active T3 session, develop in an adjacent isolated worktree. Validate a complete dependency set there, then integrate new target modules before their importers and check the affected module URLs alongside backend health.
 
 ## Test data
 

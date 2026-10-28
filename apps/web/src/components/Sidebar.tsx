@@ -364,6 +364,7 @@ function useSidebarThreads(input: {
   const { projectScopeKey, scopedProjectKeys, serverConfigs, optimisticDrop, routeThreadRef } =
     input;
   const threads = useQuietThreadShells();
+  const agentShortcut = useClientSettings((settings) => settings.agentShortcut ?? null);
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
@@ -414,7 +415,13 @@ function useSidebarThreads(input: {
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const partition = partitionSidebarThreads({
-    threads,
+    threads: agentShortcut
+      ? threads.filter(
+          (thread) =>
+            thread.environmentId !== agentShortcut.environmentId ||
+            thread.id !== agentShortcut.threadId,
+        )
+      : threads,
     scopedProjectKeys,
     serverConfigs,
     optimisticDrop,

@@ -4,6 +4,9 @@ Open **Usage** from the sidebar or the command palette, or press `mod+u` on web 
 desktop when the terminal is not focused. Customize `usage.open` in
 **Settings → Keybindings**.
 
+On the limits view, use **Order** to sort accounts or arrange them into your own order. Your
+custom order stays available when you switch sorting presets and is saved in this browser.
+
 ## Understand your usage
 
 **Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, and Cursor history
@@ -91,9 +94,19 @@ Codex cards show provider-reported usage credits separately from quota-reset cre
 without disclosing their balance. Google cards show each Gemini model's reported allowance and
 reset independently of the shared Claude/GPT allowance. Expand additional quotas to see every model.
 
+GitHub Copilot connections report account-wide AI credit or premium-request allowances through
+the signed-in Copilot CLI, including remaining credits and reported reset times. Chat and
+completion entitlements marked unlimited stay labeled **Unlimited**. Refresh Limits after
+signing in or switching accounts to fetch the current account's allowance. These account quotas
+are separate from the recorded token and estimated-cost history under **Cost** and **Tokens**.
+
 Tinfoil connections configured with Tinfoil-only model IDs show recorded API spend and token counts
 from their OpenCode profile. Account-wide Tinfoil billing reports require a separate admin key.
 The billing link opens the Tinfoil dashboard; local estimates cover activity recorded in this profile.
+Connected Tinfoil accounts show their dollar balance and last update time. Expand **Details** for
+account-wide spending against the monthly API budget, which defaults to $25. The meter covers the
+UTC calendar month and tracks spending independently of top-ups. It provides tracking only;
+provider-side spending limits remain separate. An unavailable monthly reading stays unknown.
 
 Account rows keep balances, key allowances, and exhausted-quota counts visible. Expand **Details**
 to see all reported allowances, reset times, billing links, and available quota resets. Selecting

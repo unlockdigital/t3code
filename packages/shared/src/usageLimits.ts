@@ -114,6 +114,7 @@ function accountDisplayLimits(limits: ServerProviderUsageLimits | undefined) {
     resetCredits: limits.resetCredits,
     creditBalance: limits.creditBalance,
     prepaidBalance: limits.prepaidBalance,
+    monthlySpend: limits.monthlySpend,
   };
 }
 
@@ -121,6 +122,21 @@ export function prepaidCreditPercent(balance: ServerProviderPrepaidBalance | und
   return balance?.totalGrantedUsd
     ? Math.max(0, Math.min(100, (balance.remainingUsd / balance.totalGrantedUsd) * 100))
     : null;
+}
+
+export function monthlySpendProgress(limits: ServerProviderUsageLimits | undefined, now: number) {
+  const spend = limits?.monthlySpend;
+  if (!spend) return null;
+  const current = now >= Date.parse(spend.periodStart) && now < Date.parse(spend.periodEnd);
+  const spentUsd = current ? spend.spentUsd : null;
+  return {
+    ...spend,
+    spentUsd,
+    percentUsed: spentUsd === null ? null : Math.min(100, (spentUsd / spend.budgetUsd) * 100),
+    remainingUsd: spentUsd === null ? null : Math.max(0, spend.budgetUsd - spentUsd),
+    overBudgetUsd: spentUsd === null ? null : Math.max(0, spentUsd - spend.budgetUsd),
+    stale: limits?.unavailable?.reason === "probeFailed" || !current,
+  };
 }
 
 /** Connection coverage is independent of quota support and recorded activity. */

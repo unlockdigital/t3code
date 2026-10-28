@@ -1,7 +1,24 @@
 import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   formatResetsIn,
   remainingPercent,
   prepaidCreditPercent,
+  monthlySpendProgress,
   usageWindowDetails,
   usageAccountWindows,
   type UsageAccount,
@@ -11,18 +28,31 @@ import {
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import {
   ChevronDownIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  GripVerticalIcon,
   KeyRoundIcon,
   LayersIcon,
   ShieldCheckIcon,
   TicketIcon,
 } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { ensureLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { providerClients } from "../settings/providerDriverMeta";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/menu";
+import { orderUsageAccounts, moveUsageAccount, usageAccountOrderId } from "./usageAccountOrder";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ResetCredits, barColor } from "./UsageLimits";
 import type { UsagePagePreferences } from "./usagePagePreferences";
@@ -66,7 +96,9 @@ function AccountRow({
   const external = limits?.externalUsage;
   const credits = limits?.creditBalance;
   const prepaidBalance = limits?.prepaidBalance;
+  const balanceCheckedAt = prepaidBalance?.checkedAt ?? limits?.checkedAt;
   const creditPercent = prepaidCreditPercent(prepaidBalance);
+  const monthlySpend = monthlySpendProgress(limits, now);
   const creditValue = credits?.unlimited
     ? "Unlimited"
     : credits?.balance !== undefined
@@ -236,7 +268,7 @@ function AccountRow({
           {isApi ? (
             <div className="min-w-0 space-y-0.5">
               <dt className="text-xs text-muted-foreground">
-                Credits remaining
+                Dollars remaining
                 {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
               </dt>
               <dd className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tabular-nums">
@@ -247,6 +279,14 @@ function AccountRow({
                   </span>
                 ) : null}
               </dd>
+              {prepaidBalance && balanceCheckedAt ? (
+                <dd className="text-xs text-muted-foreground wrap-anywhere">
+                  Updated{" "}
+                  <time dateTime={balanceCheckedAt}>
+                    {new Date(balanceCheckedAt).toLocaleString()}
+                  </time>
+                </dd>
+              ) : null}
               {creditPercent !== null ? (
                 <div
                   role="meter"
@@ -305,13 +345,56 @@ function AccountRow({
         <div className="min-w-0 space-y-3">
           {windows.length ? <div className="min-w-0">{quotaRows(windows)}</div> : null}
           {prepaidBalance ? (
-            <p className="text-xs text-muted-foreground">
-              Account balance · Updated {new Date(limits!.checkedAt).toLocaleString()}. Covers all
-              account usage.
-              {prepaidBalance.totalGrantedUsd !== undefined
-                ? ` ${formatUsd(prepaidBalance.totalGrantedUsd)} in settled credits.`
-                : " Credit total unavailable."}
-            </p>
+            <p className="text-xs text-muted-foreground">Balance covers all account usage.</p>
+          ) : null}
+          {monthlySpend ? (
+            <div className="max-w-sm space-y-1.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
+                <span className="text-muted-foreground">
+                  Monthly API spending{monthlySpend.stale ? " · stale" : ""}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {monthlySpend.spentUsd === null ? "—" : formatUsd(monthlySpend.spentUsd)} /{" "}
+                  {formatUsd(monthlySpend.budgetUsd)}
+                </span>
+              </div>
+              {monthlySpend.percentUsed !== null ? (
+                <div
+                  role="meter"
+                  aria-label={`Monthly spending for ${account.label}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={monthlySpend.percentUsed}
+                  aria-valuetext={`${formatUsd(monthlySpend.spentUsd!)} spent of ${formatUsd(monthlySpend.budgetUsd)} monthly budget`}
+                  className="h-1 overflow-hidden rounded-full bg-foreground/10"
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${monthlySpend.percentUsed}%`,
+                      backgroundColor:
+                        monthlySpend.percentUsed >= 90 ? "var(--color-destructive)" : color,
+                    }}
+                  />
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {monthlySpend.spentUsd === null
+                  ? "Monthly usage unavailable. Refresh to check."
+                  : monthlySpend.overBudgetUsd! > 0
+                    ? `${formatUsd(monthlySpend.overBudgetUsd!)} over budget.`
+                    : `${formatUsd(monthlySpend.remainingUsd!)} left in budget.`}{" "}
+                Account-wide · Calendar month (UTC) · Tracking only.
+              </p>
+              {monthlySpend.spentUsd !== null ? (
+                <p className="text-xs text-muted-foreground">
+                  Updated{" "}
+                  <time dateTime={monthlySpend.checkedAt}>
+                    {new Date(monthlySpend.checkedAt).toLocaleString()}
+                  </time>
+                </p>
+              ) : null}
+            </div>
           ) : null}
           <div
             className={cn(
@@ -382,23 +465,160 @@ function AccountRow({
   );
 }
 
+function SortableAccount({
+  account,
+  arranging,
+  index,
+  count,
+  onMove,
+  onFocus,
+  children,
+}: {
+  readonly account: UsageAccount;
+  readonly arranging: boolean;
+  readonly index: number;
+  readonly count: number;
+  readonly onMove: (target: number) => void;
+  readonly onFocus: () => void;
+  readonly children: React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: usageAccountOrderId(account.key), disabled: !arranging });
+  return (
+    <div
+      ref={setNodeRef}
+      onFocusCapture={onFocus}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "flex min-w-0 flex-col gap-1 motion-reduce:!transition-none",
+        isDragging && "relative z-10 opacity-80",
+      )}
+    >
+      {arranging ? (
+        <div className="flex shrink-0 items-center">
+          <Button
+            ref={setActivatorNodeRef}
+            variant="ghost-muted"
+            size="sm"
+            className="min-h-11 min-w-11 touch-none cursor-grab"
+            {...attributes}
+            {...listeners}
+            aria-label={`Drag ${account.label}`}
+          >
+            <GripVerticalIcon aria-hidden />
+          </Button>
+          <Button
+            variant="ghost-muted"
+            size="sm"
+            className="min-h-11 min-w-11"
+            aria-disabled={index === 0}
+            onClick={() => {
+              if (index > 0) onMove(index - 1);
+            }}
+            aria-label={`Move ${account.label} up`}
+          >
+            <ArrowUpIcon aria-hidden />
+          </Button>
+          <Button
+            variant="ghost-muted"
+            size="sm"
+            className="min-h-11 min-w-11"
+            aria-disabled={index === count - 1}
+            onClick={() => {
+              if (index < count - 1) onMove(index + 1);
+            }}
+            aria-label={`Move ${account.label} down`}
+          >
+            <ArrowDownIcon aria-hidden />
+          </Button>
+        </div>
+      ) : null}
+      <div className="w-full min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export function UsageAccounts({
   accounts,
   now,
   density,
   onDensityChange,
+  preferences,
+  onPreferencesChange,
   historyEnvironments = NO_HISTORY,
 }: {
   readonly accounts: readonly UsageAccount[];
   readonly now: number;
   readonly density: Density;
   readonly onDensityChange: (density: Density) => void;
+  readonly preferences: UsagePagePreferences;
+  readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly historyEnvironments?: readonly UsageAccountHistoryEnvironment[];
 }) {
+  const [arranging, setArranging] = useState(false);
+  const [moveAnnouncement, setMoveAnnouncement] = useState({ text: "", sequence: 0 });
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const ordered = orderUsageAccounts(
+    accounts,
+    dragOrder ? "custom" : (preferences.accountSort ?? "default"),
+    dragOrder ?? preferences.accountOrder ?? [],
+  );
+  const visibleKeys = ordered.map((account) => usageAccountOrderId(account.key));
+  const move = (from: string, to: string, announce = false) => {
+    const next = moveUsageAccount(preferences.accountOrder ?? [], visibleKeys, from, to);
+    if (next) {
+      if (announce) {
+        setMoveAnnouncement((previous) => ({
+          text: `Moved from position ${visibleKeys.indexOf(from) + 1} to position ${visibleKeys.indexOf(to) + 1} of ${visibleKeys.length}.`,
+          sequence: previous.sequence + 1,
+        }));
+      }
+      onPreferencesChange({ accountSort: "custom", accountOrder: next });
+    }
+  };
+  const position = (id: string | number) => visibleKeys.indexOf(String(id)) + 1;
   const showEnvironment = new Set(accounts.map((account) => account.environmentId)).size > 1;
   const headingId = useId();
   const grid = useRef<HTMLDivElement>(null);
   const focusedAccount = useRef<string | null>(null);
+  const orderButton = useRef<HTMLButtonElement>(null);
+  const doneButton = useRef<HTMLButtonElement>(null);
+  const restoreOrderFocus = useRef(false);
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!arranging) return;
+    // PointerSensor cancels Escape without preventing the page's back shortcut.
+    const handleArrangeEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.repeat) return;
+      if (dragOrder !== null) {
+        event.preventDefault();
+      } else if (event.target instanceof Node && section.current?.contains(event.target)) {
+        event.preventDefault();
+        restoreOrderFocus.current = true;
+        setArranging(false);
+      }
+    };
+    window.addEventListener("keydown", handleArrangeEscape, true);
+    return () => window.removeEventListener("keydown", handleArrangeEscape, true);
+  }, [arranging, dragOrder]);
+  useLayoutEffect(() => {
+    if (arranging) doneButton.current?.focus();
+    if (!arranging && restoreOrderFocus.current) {
+      orderButton.current?.focus();
+      restoreOrderFocus.current = false;
+    }
+  }, [arranging]);
   const keys = JSON.stringify(accounts.map((account) => account.key));
   useLayoutEffect(() => {
     const present: readonly string[] = JSON.parse(keys);
@@ -409,28 +629,97 @@ export function UsageAccounts({
   }, [keys]);
 
   return (
-    <section className="@container/usage-accounts space-y-3">
+    <section ref={section} className="@container/usage-accounts space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id={headingId} className="text-sm font-medium">
           Accounts <span className="text-muted-foreground">({accounts.length})</span>
         </h2>
-        <ToggleGroup
-          aria-label="Usage density"
-          className="min-w-0 max-w-full flex-wrap"
-          value={[density]}
-          onValueChange={(values) => {
-            const value = values[0];
-            if (value === "compact" || value === "comfortable") onDensityChange(value);
-          }}
-        >
-          <Toggle value="compact" className="max-sm:min-h-11">
-            Compact
-          </Toggle>
-          <Toggle value="comfortable" className="max-sm:min-h-11">
-            Comfortable
-          </Toggle>
-        </ToggleGroup>
+        <div className="flex flex-wrap items-center gap-2">
+          {arranging ? (
+            <Button
+              ref={doneButton}
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                restoreOrderFocus.current = true;
+                setArranging(false);
+              }}
+            >
+              Done
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button ref={orderButton} variant="secondary" size="sm" />}
+              >
+                Order <ChevronDownIcon aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                finalFocus={() => doneButton.current ?? orderButton.current}
+              >
+                <DropdownMenuRadioGroup
+                  value={preferences.accountSort ?? "default"}
+                  onValueChange={(value) => {
+                    if (
+                      value === "default" ||
+                      value === "name" ||
+                      value === "provider" ||
+                      value === "custom"
+                    )
+                      onPreferencesChange({ accountSort: value });
+                  }}
+                >
+                  <DropdownMenuRadioItem value="default" closeOnClick>
+                    Default
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="name" closeOnClick>
+                    Name A–Z
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="provider" closeOnClick>
+                    Provider
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem
+                    value="custom"
+                    disabled={!preferences.accountOrder?.length}
+                    closeOnClick
+                  >
+                    My order
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={accounts.length < 2} onClick={() => setArranging(true)}>
+                  Arrange accounts
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <ToggleGroup
+            aria-label="Usage density"
+            className="min-w-0 max-w-full flex-wrap"
+            value={[density]}
+            onValueChange={(values) => {
+              const value = values[0];
+              if (value === "compact" || value === "comfortable") onDensityChange(value);
+            }}
+          >
+            <Toggle value="compact" className="max-sm:min-h-11">
+              Compact
+            </Toggle>
+            <Toggle value="comfortable" className="max-sm:min-h-11">
+              Comfortable
+            </Toggle>
+          </ToggleGroup>
+        </div>
       </div>
+      {arranging ? (
+        <p className="text-xs text-muted-foreground">
+          Drag to reorder, or use the arrows. Saved on this device.
+        </p>
+      ) : null}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        <span key={moveAnnouncement.sequence}>{moveAnnouncement.text}</span>
+      </p>
       <div
         ref={grid}
         role="group"
@@ -445,19 +734,78 @@ export function UsageAccounts({
         }}
         className="space-y-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        {accounts.map((account) => (
-          <AccountRow
-            key={account.key}
-            account={account}
-            now={now}
-            density={density}
-            showEnvironment={showEnvironment}
-            historyEnvironments={historyEnvironments}
-            onFocus={() => {
-              focusedAccount.current = account.key;
-            }}
-          />
-        ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          accessibility={{
+            announcements: {
+              onDragStart: ({ active }) =>
+                `Picked up position ${position(active.id)} of ${ordered.length}.`,
+              onDragOver: ({ over }) =>
+                over && position(over.id)
+                  ? `Over position ${position(over.id)} of ${ordered.length}.`
+                  : "Outside the list.",
+              onDragEnd: ({ active, over }) =>
+                over &&
+                position(active.id) &&
+                position(over.id) &&
+                dragOrder?.every((key) => visibleKeys.includes(key))
+                  ? `Dropped at position ${position(over.id)} of ${ordered.length}.`
+                  : "Move cancelled.",
+              onDragCancel: () => "Move cancelled.",
+            },
+          }}
+          onDragStart={() => setDragOrder(visibleKeys)}
+          onDragCancel={() => setDragOrder(null)}
+          onDragEnd={({ active, over }) => {
+            if (
+              over &&
+              typeof active.id === "string" &&
+              typeof over.id === "string" &&
+              visibleKeys.includes(active.id) &&
+              visibleKeys.includes(over.id) &&
+              dragOrder?.every((key) => visibleKeys.includes(key))
+            )
+              move(active.id, over.id);
+            setDragOrder(null);
+          }}
+        >
+          <SortableContext items={visibleKeys} strategy={verticalListSortingStrategy}>
+            {ordered.map((account, index) => (
+              <SortableAccount
+                key={account.key}
+                account={account}
+                arranging={arranging}
+                onFocus={() => {
+                  focusedAccount.current = account.key;
+                }}
+                index={index}
+                count={ordered.length}
+                onMove={(target) => {
+                  const destination = ordered[target];
+                  if (destination)
+                    move(
+                      usageAccountOrderId(account.key),
+                      usageAccountOrderId(destination.key),
+                      true,
+                    );
+                }}
+              >
+                <AccountRow
+                  account={account}
+                  now={now}
+                  density={density}
+                  showEnvironment={showEnvironment}
+                  historyEnvironments={historyEnvironments}
+                  onFocus={() => {
+                    focusedAccount.current = account.key;
+                  }}
+                />
+              </SortableAccount>
+            ))}
+          </SortableContext>
+        </DndContext>
       </div>
     </section>
   );

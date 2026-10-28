@@ -27,11 +27,12 @@ export function privateInferenceConfigurationHash(configuration: unknown): strin
     configuration.config !== null &&
     typeof configuration.config === "object"
   ) {
-    // Billing authorization never changes where inference is sent.
-    const { tinfoilAdminKey: _billing, ...inference } = configuration.config as Record<
-      string,
-      unknown
-    >;
+    // Billing authorization and tracking budgets never change where inference is sent.
+    const {
+      tinfoilAdminKey: _billing,
+      tinfoilMonthlyBudgetUsd: _budget,
+      ...inference
+    } = configuration.config as Record<string, unknown>;
     return providerConfigurationHash({ ...configuration, config: inference });
   }
   return providerConfigurationHash(configuration);

@@ -10,6 +10,14 @@ on:
         description: "Existing fork preview tag on the default branch (vX.Y.Z-unlock.N-preview.YYYYMMDD.N)"
         required: true
         type: string
+      platform:
+        description: "Build Apple-silicon macOS, or every supported desktop target"
+        required: true
+        default: mac-arm64
+        type: choice
+        options:
+          - mac-arm64
+          - all
 
 permissions:
   actions: read
@@ -23,16 +31,23 @@ jobs:
   preflight:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
     if: github.repository == 'unlockdigital/t3code'
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
       ref: ${{ steps.meta.outputs.ref }}
+      platform: ${{ steps.meta.outputs.platform }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # Eager auth cleanup traverses optional vendored gitlinks with incomplete metadata.
+          # Keep the scoped token until checkout's normal post-job cleanup.
+          persist-credentials: true
           sparse-checkout: |
             /*
             !/.repos/
@@ -41,6 +56,7 @@ jobs:
         id: meta
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          PLATFORM: ${{ inputs.platform || 'mac-arm64' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -48,6 +64,7 @@ jobs:
           set -euo pipefail
           # Preview versions deliberately carry no automatic update feed.
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-unlock\.[0-9]+-preview\.[0-9]{8}\.[0-9]+$ ]]
+          [[ "$PLATFORM" == "mac-arm64" || "$PLATFORM" == "all" ]]
           sha="$(git rev-parse "refs/tags/$TAG^{commit}")"
           git merge-base --is-ancestor "$sha" "origin/$DEFAULT_BRANCH"
           gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" \
@@ -56,6 +73,7 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "ref=$sha" >> "$GITHUB_OUTPUT"
+          echo "platform=$PLATFORM" >> "$GITHUB_OUTPUT"
 
   build_bundle:
     name: Build JS bundle
@@ -149,6 +167,7 @@ jobs:
       cli_archive: true
 
   desktop_mac_x64:
+    if: needs.preflight.outputs.platform == 'all'
     name: Desktop macOS x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
@@ -175,6 +194,7 @@ jobs:
       cli_archive: false
 
   desktop_linux_x64:
+    if: needs.preflight.outputs.platform == 'all'
     name: Desktop Linux x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
@@ -200,6 +220,7 @@ jobs:
   # node-pty has no Linux prebuild and compiles from source, so the arm64 app
   # and archive are built on arm64 hardware rather than cross-built.
   desktop_linux_arm64:
+    if: needs.preflight.outputs.platform == 'all'
     name: Desktop Linux arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
@@ -228,6 +249,7 @@ jobs:
   # Windows targets build and sign on Linux and only the native checks run on
   # Windows.
   desktop_win_x64:
+    if: needs.preflight.outputs.platform == 'all'
     name: Desktop Windows x64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
@@ -252,6 +274,7 @@ jobs:
       cli_archive: true
 
   desktop_win_arm64:
+    if: needs.preflight.outputs.platform == 'all'
     name: Desktop Windows arm64
     needs: [preflight, build_bundle]
     uses: ./.github/workflows/release-desktop.yml
@@ -276,6 +299,10 @@ jobs:
       cli_archive: true
 
   publish:
+    if: >-
+      ${{ !cancelled() && needs.preflight.result == 'success' &&
+          needs.desktop_mac_arm64.result == 'success' &&
+          !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     name: Create draft with verified checksums
     needs:
       [
@@ -303,12 +330,34 @@ jobs:
           pattern: cli-*
           merge-multiple: true
           path: assets
+      - name: Checkout tagged trial companions
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
+          path: release-source
+          persist-credentials: true
+          sparse-checkout: |
+            /packaging/fork/
+            /docs/unlock-digital/PORTABLE_TRIAL.md
+          sparse-checkout-cone-mode: false
+      - name: Add independent Mac trial companions
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.ref }}
+        run: |
+          cp "release-source/packaging/fork/Launch Unlock Digital Trial.command" assets/
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import os
+          source = Path("release-source/docs/unlock-digital/PORTABLE_TRIAL.md").read_text()
+          provider_guide = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/blob/{os.environ['RELEASE_SHA']}/docs/user/install.md#providers"
+          Path("assets/INSTALL-MAC.md").write_text(source.replace("../user/install.md#providers", provider_guide))
+          PYCODE
       - name: Generate and verify checksums
         working-directory: assets
         shell: bash
         run: |
           set -euo pipefail
-          find . -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort | xargs -r sha256sum > SHA256SUMS
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum > SHA256SUMS
           test -s SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Create draft release
@@ -325,10 +374,11 @@ jobs:
           fi
           cat > "$RUNNER_TEMP/notes.txt" <<'NOTES'
           Desktop preview of the maintained fork, packaged with upstream's build tools.
+          Tag pushes build Apple-silicon macOS. Manual dispatch can select all desktop targets.
 
           These artifacts are unsigned and require manual installation. They carry no automatic update feed. T3 Connect relay services and signing credentials are configured separately.
 
-          Verify downloads against SHA256SUMS. Complete platform smoke checks before publishing this draft. Preview packages retain upstream desktop profile identity. Use a disposable OS account or VM for side-by-side testing and a separate T3CODE_HOME for server state.
+          Verify downloads against SHA256SUMS. Follow INSTALL-MAC.md and use the included trial launcher for separate desktop and server profiles with fresh provider sign-ins. Complete the native platform smoke checks before publishing this draft. The preview carries the fork's code; credentials, conversations and live connector grants stay on their source machine.
           NOTES
           gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
             --verify-tag --target "$SHA" --draft --prerelease \

@@ -390,6 +390,8 @@ export function applyServerSettingsPatch(
   const patch = translateLegacyProjectOverridePatch(current, rawPatch);
   const selectionPatch = patch.textGenerationModelSelection;
   const {
+    accountRouting: accountRoutingPatch,
+    accountRoutingExpectedRevision: _accountRoutingExpectedRevision,
     migrateModelPreferences,
     setModelFavorites,
     setModelsHidden,
@@ -538,6 +540,7 @@ export function applyServerSettingsPatch(
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
       : {}),
+    ...(accountRoutingPatch === undefined ? {} : { accountRouting: accountRoutingPatch }),
     ...(patch.worktreesDirectory !== undefined &&
     patch.worktreesDirectory !== current.worktreesDirectory
       ? {

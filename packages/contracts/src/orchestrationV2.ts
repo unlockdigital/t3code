@@ -1438,6 +1438,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("approval_request"),
+    approvalCommand: Schema.optional(Schema.Struct({ command: Schema.String, cwd: Schema.String })),
     requestId: RuntimeRequestId,
     requestKind: ProviderRequestKind,
     prompt: Schema.optional(Schema.String),
@@ -2203,6 +2204,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("approval_request"),
+    approvalCommand: Schema.optional(Schema.Struct({ command: Schema.String, cwd: Schema.String })),
     requestId: RuntimeRequestId,
     requestKind: ProviderRequestKind,
     prompt: Schema.optional(Schema.String),

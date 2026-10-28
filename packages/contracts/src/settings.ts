@@ -1,4 +1,5 @@
 import { EasDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
+import { AccountRoutingPolicy } from "./accountRouting.ts";
 import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
@@ -13,8 +14,10 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
+  NonNegativeInt,
   OmittedWhenNull,
   ProjectId,
+  EnvironmentId,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
@@ -55,6 +58,12 @@ const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 export const DiffLayout = Schema.Literals(["stacked", "split"]);
 export type DiffLayout = typeof DiffLayout.Type;
 const DEFAULT_DIFF_LAYOUT: DiffLayout = "stacked";
+
+const AgentShortcut = Schema.Struct({
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(80)),
+});
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
@@ -445,6 +454,9 @@ export const ClientSettingsSchema = Schema.Struct({
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  agentShortcut: Schema.NullOr(AgentShortcut).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   sidebarWorkingShelfEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1136,6 +1148,12 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  approvalCoordinatorThreadIds: Schema.Array(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  accountRouting: Schema.NullOr(AccountRoutingPolicy).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   modelPrivacy: ModelPrivacy.pipe(Schema.withDecodingDefault(Effect.succeed("standard"))),
   privateModelRoute: Schema.NullOr(PrivateModelRoute).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1436,6 +1454,9 @@ export const resolveIdleCompaction = (
 };
 
 export const ServerSettingsOperation = Schema.Literals([
+  "account-routing-revision",
+  "account-routing-reference",
+  "account-routing-stage",
   "normalize",
   "check-exists",
   "create-provider-instance",
@@ -1485,6 +1506,9 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  approvalCoordinatorThreadIds: Schema.optionalKey(Schema.Array(ThreadId)),
+  accountRouting: Schema.optionalKey(Schema.NullOr(AccountRoutingPolicy)),
+  accountRoutingExpectedRevision: Schema.optionalKey(NonNegativeInt),
   modelPrivacy: Schema.optionalKey(ModelPrivacy),
   privateModelRoute: Schema.optionalKey(Schema.NullOr(PrivateModelRoute)),
   setModelFavorites: Schema.optionalKey(
@@ -1744,6 +1768,7 @@ export const ClientSettingsPatch = Schema.Struct({
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  agentShortcut: Schema.optionalKey(Schema.NullOr(AgentShortcut)),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(

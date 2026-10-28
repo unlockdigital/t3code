@@ -1,4 +1,5 @@
 import * as NodeZlib from "node:zlib";
+import * as NodeURL from "node:url";
 
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
@@ -17,6 +18,7 @@ import {
 
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
+import { watchWorkspaceContractsPlugin } from "../../scripts/lib/watch-workspace-contracts.ts";
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
 
@@ -199,6 +201,9 @@ export default defineConfig(() => {
     },
     assetsInclude: ["**/*.wasm"],
     plugins: [
+      watchWorkspaceContractsPlugin(
+        NodeURL.fileURLToPath(new URL("../../packages/contracts/src", import.meta.url)),
+      ),
       devCompressionPlugin(),
       builtDev
         ? undefined

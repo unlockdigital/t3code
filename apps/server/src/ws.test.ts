@@ -1,4 +1,6 @@
+import * as N2itionContext from "./n2ition/N2itionContext.ts";
 import * as ProviderBilling from "./provider/ProviderBilling.ts";
+import * as AccountRouting from "./provider/AccountRoutingService.ts";
 import * as PrivateHelpers from "./privacy/PrivateHelpers.ts";
 import * as UpstreamUpdates from "./upstream/UpstreamUpdates.ts";
 import * as LocalThreadHandoff from "./orchestration-v2/LocalThreadHandoff.ts";
@@ -294,6 +296,7 @@ it.live.each(["thread", "shell"] as const)(
 
 // Build the production RPC layer; unrelated capabilities fail if this test calls them.
 const layerUnusedConfigRpcServices = Layer.mergeAll(
+  Layer.mock(N2itionContext.N2itionContext)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(WorkspacePaths.WorkspacePaths)({}),
   Layer.mock(TraceDiagnostics.TraceDiagnostics)({}),
@@ -342,6 +345,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProviderBilling.ProviderBilling)({}),
+  Layer.mock(AccountRouting.AccountRoutingService)({}),
   Layer.mock(PrivateHelpers.PrivateHelpers)({}),
   Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({}),
   Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({}),

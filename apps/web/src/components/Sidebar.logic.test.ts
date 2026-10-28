@@ -272,6 +272,32 @@ describe("resolveSidebarThreadStatus", () => {
     ).toBe("approval");
   });
 
+  it("relays a child's question through a run waiting on its agents", () => {
+    expect(
+      resolveSidebarThreadStatus({
+        ...idle,
+        pendingSubagentRequest: "user_input",
+        runtime,
+        blockedOnThreadWait: true,
+      }),
+    ).toBe("waiting");
+    expect(
+      resolveSidebarThreadStatus({
+        ...idle,
+        pendingSubagentRequest: "approval",
+        runtime,
+        blockedOnThreadWait: true,
+      }),
+    ).toBe("waiting");
+    expect(
+      resolveSidebarThreadStatus({
+        ...idle,
+        pendingSubagentRequest: "user_input",
+        runtime: { ...runtime, status: "idle", activeRunId: null },
+      }),
+    ).toBe("input");
+  });
+
   it("keeps usage-limit stops Limited and visible until the thread recovers", () => {
     const limited = {
       ...runtime,
@@ -431,6 +457,23 @@ describe("resolveThreadStatusPill", () => {
       label: "Working",
       pulse: true,
     });
+  });
+
+  it("hands a child's question to the working pill and back after the run stops", () => {
+    const blocked = {
+      ...baseThread,
+      blockedOnThreadWait: true,
+      pendingSubagentRequest: "user_input" as const,
+    };
+    expect(resolveThreadStatusPill({ thread: blocked })).toMatchObject({
+      label: "Waiting",
+      pulse: false,
+    });
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...blocked, blockedOnThreadWait: false, pendingSubagentRequest: null },
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
   });
 
   it("shows waiting for an idle thread with pending background tasks", () => {

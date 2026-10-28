@@ -163,10 +163,35 @@ describe("resolveUsageLimitsAfterProbe", () => {
 });
 
 describe("prepaid balance probe freshness", () => {
+  it("keeps billing observation timestamps when a quota update advances the snapshot", () => {
+    const prepaidBalance = { remainingUsd: 67.2, checkedAt };
+    const monthlySpend = {
+      spentUsd: 12.8,
+      budgetUsd: 25,
+      periodStart: "2026-09-01T00:00:00.000Z",
+      periodEnd: "2026-10-01T00:00:00.000Z",
+      checkedAt,
+    };
+    const next = applyUsageLimitsUpdate({
+      previous: { ...published, prepaidBalance, monthlySpend },
+      checkedAt: "2026-09-03T12:10:00.000Z",
+      update: { windows: [{ ...session, usedPercent: 80 }] },
+    });
+    expect(next?.checkedAt).toBe("2026-09-03T12:10:00.000Z");
+    expect(next?.prepaidBalance?.checkedAt).toBe(checkedAt);
+    expect(next?.monthlySpend?.checkedAt).toBe(checkedAt);
+  });
   const balance = {
     ...published,
     windows: [],
     prepaidBalance: { remainingUsd: 67.2, totalGrantedUsd: 96 },
+    monthlySpend: {
+      spentUsd: 12.8,
+      budgetUsd: 25,
+      periodStart: "2026-09-01T00:00:00.000Z",
+      periodEnd: "2026-10-01T00:00:00.000Z",
+      checkedAt,
+    },
   };
   it("keeps the original balance timestamp and exposes repeated refresh failures", () => {
     const probed = {
@@ -176,6 +201,7 @@ describe("prepaid balance probe freshness", () => {
     };
     const first = resolveUsageLimitsAfterProbe({ published: balance, probed });
     expect(first?.prepaidBalance).toEqual(balance.prepaidBalance);
+    expect(first?.monthlySpend).toEqual(balance.monthlySpend);
     expect(first?.checkedAt).toBe(balance.checkedAt);
     expect(first?.unavailable).toEqual(probed.unavailable);
     const repeated = resolveUsageLimitsAfterProbe({
@@ -198,9 +224,11 @@ describe("prepaid balance probe freshness", () => {
         ...balance,
         checkedAt: "2026-09-03T11:00:00Z",
         prepaidBalance: { remainingUsd: 96, totalGrantedUsd: 96 },
+        monthlySpend: { ...balance.monthlySpend, spentUsd: 9.6 },
       },
     });
     expect(next?.prepaidBalance?.remainingUsd).toBe(67.2);
+    expect(next?.monthlySpend?.spentUsd).toBe(12.8);
     expect(next?.checkedAt).toBe(balance.checkedAt);
   });
 });

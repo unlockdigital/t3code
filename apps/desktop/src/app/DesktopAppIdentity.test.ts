@@ -112,6 +112,7 @@ const withIdentity = <A, E, R>(
     readonly environment?: TestEnvironmentInput;
     readonly legacyPathExists?: boolean;
     readonly legacyPathProbeError?: PlatformError.PlatformError;
+    readonly probedPaths?: string[];
     readonly packageJson?: string;
     readonly pngIconPath?: Option.Option<string>;
   } = {},
@@ -129,11 +130,15 @@ const withIdentity = <A, E, R>(
         Layer.provideMerge(
           FileSystem.layerNoop({
             exists: (path) =>
-              input.legacyPathProbeError
-                ? Effect.fail(input.legacyPathProbeError)
-                : Effect.succeed(
-                    input.legacyPathExists === true && /T3 Code \((Alpha|Dev)\)/.test(path),
-                  ),
+              Effect.sync(() => input.probedPaths?.push(path)).pipe(
+                Effect.flatMap(() =>
+                  input.legacyPathProbeError
+                    ? Effect.fail(input.legacyPathProbeError)
+                    : Effect.succeed(
+                        input.legacyPathExists === true && /T3 Code \((Alpha|Dev)\)/.test(path),
+                      ),
+                ),
+              ),
             readFileString: () =>
               Effect.succeed(input.packageJson ?? '{"t3codeCommitHash":"abcdef1234567890"}'),
           }),
@@ -157,6 +162,34 @@ describe("DesktopAppIdentity", () => {
       }),
       { legacyPathExists: true },
     ),
+  );
+
+  it.effect(
+    "does not probe the ordinary legacy profile under an isolated app data directory",
+    () => {
+      const probedPaths: string[] = [];
+      return withIdentity(
+        Effect.gen(function* () {
+          const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+          assert.equal(
+            yield* identity.resolveUserDataPath,
+            "/tmp/t3-first-trial/app-data/t3code-v2",
+          );
+          assert.deepEqual(probedPaths, [
+            "/tmp/t3-first-trial/app-data/t3code-v2/Local State",
+            "/tmp/t3-first-trial/app-data/T3 Code (Alpha)/Local State",
+            "/tmp/t3-first-trial/app-data/t3code/Local State",
+          ]);
+        }),
+        {
+          probedPaths,
+          environment: {
+            platform: "win32",
+            env: { T3CODE_DESKTOP_APP_DATA_DIR: "/tmp/t3-first-trial/app-data" },
+          },
+        },
+      );
+    },
   );
 
   it.effect("keeps using the legacy development profile", () =>

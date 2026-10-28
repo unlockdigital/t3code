@@ -6,6 +6,7 @@ import { it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -23,6 +24,7 @@ import {
   type OpenCode2Workspace,
 } from "./status.ts";
 import { readOpenCodeUsageLimits } from "./usageLimits.ts";
+import { readTinfoilUsageLimits } from "./tinfoilUsageLimits.ts";
 import { probeOpenCodeRuntime } from "./versionProbe.ts";
 import {
   OPENCODE_1_RESPONSES,
@@ -32,6 +34,146 @@ import {
 const decodeOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
 
 const DEFAULT_VERSION_STDOUT = "opencode 1.14.19\n";
+
+it.effect("retains a verified balance when the auxiliary spending request times out", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const pending = yield* readTinfoilUsageLimits({
+      checkedAt: "2032-02-20T12:00:00.000Z",
+      adminKey: "admin_synthetic_billing_key",
+    }).pipe(
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          if (new URL(request.url).pathname === "/api/billing/usage")
+            return Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never));
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json(
+                request.url.endsWith("/credits")
+                  ? { balance_dollars: 67.2 }
+                  : { context_type: "personal", user_id: "synthetic-owner", organization: null },
+              ),
+            ),
+          );
+        }),
+      ),
+      Effect.provide(NodeServices.layer),
+      Effect.forkChild,
+    );
+    yield* Deferred.await(started);
+    yield* TestClock.adjust("5 seconds");
+    const limits = yield* Fiber.join(pending);
+    NodeAssert.deepEqual(limits.prepaidBalance, {
+      remainingUsd: 67.2,
+      checkedAt: limits.checkedAt,
+    });
+    NodeAssert.equal(limits.monthlySpend?.spentUsd, null);
+    NodeAssert.equal(limits.unavailable, undefined);
+  }),
+);
+
+it.effect("keeps monthly spending independent of top-ups and requests the exact UTC month", () =>
+  Effect.gen(function* () {
+    for (const balance of [67.2, 103.2]) {
+      const limits = yield* readTinfoilUsageLimits({
+        checkedAt: "2032-02-29T23:50:00.000Z",
+        adminKey: "admin_synthetic_billing_key",
+        monthlyBudgetUsd: 25,
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            const url = new URL(request.url);
+            NodeAssert.equal(request.method, "GET");
+            NodeAssert.equal(url.origin, "https://api.tinfoil.sh");
+            if (url.pathname === "/api/billing/usage") {
+              NodeAssert.equal(url.searchParams.get("start"), "2032-02-01T00:00:00.000Z");
+              NodeAssert.equal(url.searchParams.get("end"), "2032-02-29T23:50:00.000Z");
+            }
+            NodeAssert.notEqual(url.pathname, "/api/billing/credits/history");
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json(
+                  url.pathname === "/api/billing/credits"
+                    ? { balance_dollars: balance }
+                    : url.pathname === "/api/billing/usage"
+                      ? { cost: 9.6 }
+                      : {
+                          context_type: "personal",
+                          user_id: "synthetic-owner",
+                          organization: null,
+                        },
+                ),
+              ),
+            );
+          }),
+        ),
+        Effect.provide(NodeServices.layer),
+      );
+      NodeAssert.deepEqual(limits.prepaidBalance, {
+        remainingUsd: balance,
+        checkedAt: limits.checkedAt,
+      });
+      NodeAssert.deepEqual(limits.monthlySpend, {
+        budgetUsd: 25,
+        spentUsd: 9.6,
+        periodStart: "2032-02-01T00:00:00.000Z",
+        periodEnd: "2032-03-01T00:00:00.000Z",
+        checkedAt: "2032-02-29T23:50:00.000Z",
+      });
+    }
+  }),
+);
+
+it.effect(
+  "keeps balance readable when monthly spending is unavailable and preserves overspending",
+  () =>
+    Effect.gen(function* () {
+      for (const body of [{ cost: 31.2 }, { cost: -1 }, {}, null]) {
+        const limits = yield* readTinfoilUsageLimits({
+          checkedAt: "2031-12-31T23:50:00.000Z",
+          adminKey: "admin_synthetic_billing_key",
+          monthlyBudgetUsd: 25,
+        }).pipe(
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) => {
+              const path = new URL(request.url).pathname;
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json(
+                    path === "/api/billing/credits"
+                      ? { balance_dollars: -2.4 }
+                      : path === "/api/billing/usage"
+                        ? body
+                        : {
+                            context_type: "personal",
+                            user_id: "synthetic-owner",
+                            organization: null,
+                          },
+                  ),
+                ),
+              );
+            }),
+          ),
+          Effect.provide(NodeServices.layer),
+        );
+        NodeAssert.deepEqual(limits.prepaidBalance, {
+          remainingUsd: -2.4,
+          checkedAt: limits.checkedAt,
+        });
+        NodeAssert.equal(
+          limits.monthlySpend?.spentUsd,
+          body !== null && "cost" in body && body.cost === 31.2 ? 31.2 : null,
+        );
+        NodeAssert.equal(limits.monthlySpend?.periodEnd, "2032-01-01T00:00:00.000Z");
+      }
+    }),
+);
 
 it.effect("reports a Tinfoil-only connection as API usage without reading Go credentials", () =>
   Effect.gen(function* () {
@@ -78,85 +220,46 @@ it.effect("reports a Tinfoil-only connection as API usage without reading Go cre
   }),
 );
 
-it.effect(
-  "reads live Tinfoil credits and settled funding without using inference credentials",
-  () =>
-    Effect.gen(function* () {
-      const requests: string[] = [];
-      const limits = yield* readOpenCodeUsageLimits({
-        enabled: true,
-        serverUrl: "",
-        environment: {},
-        usageProvider: "tinfoil",
-        tinfoilAdminKey: "admin_synthetic_billing_key",
-      }).pipe(
-        Effect.provideService(
-          HttpClient.HttpClient,
-          HttpClient.make((request) => {
-            requests.push(request.url);
-            NodeAssert.equal(request.method, "GET");
-            NodeAssert.equal(request.headers.authorization, "Bearer admin_synthetic_billing_key");
-            const body = request.url.endsWith("/credits/history")
-              ? {
-                  history: [
-                    { id: "sample-purchase", amount_dollars: 80, status: "paid" },
-                    { id: "sample-promo", amount_dollars: 16, status: "granted" },
-                    { id: "sample-pending", amount_dollars: 140, status: "pending" },
-                    { id: "sample-failed", amount_dollars: 55, status: "failed" },
-                  ],
-                }
+it.effect("reads live Tinfoil balances and monthly spend without using inference credentials", () =>
+  Effect.gen(function* () {
+    const requests: string[] = [];
+    const limits = yield* readOpenCodeUsageLimits({
+      enabled: true,
+      serverUrl: "",
+      environment: {},
+      usageProvider: "tinfoil",
+      tinfoilAdminKey: "admin_synthetic_billing_key",
+      tinfoilMonthlyBudgetUsd: 40,
+    }).pipe(
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          requests.push(request.url);
+          NodeAssert.equal(request.method, "GET");
+          NodeAssert.equal(request.headers.authorization, "Bearer admin_synthetic_billing_key");
+          const body =
+            new URL(request.url).pathname === "/api/billing/usage"
+              ? { cost: 12.8 }
               : request.url.endsWith("/credits")
                 ? { balance_dollars: 67.2 }
                 : { context_type: "personal", user_id: "synthetic-owner", organization: null };
-            return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
-          }),
-        ),
-        Effect.provide(NodeServices.layer),
-      );
-      NodeAssert.deepEqual(limits.prepaidBalance, { remainingUsd: 67.2, totalGrantedUsd: 96 });
-      NodeAssert.equal(limits.unavailable, undefined);
-      NodeAssert.equal(requests.length, 3);
-      NodeAssert.ok(requests.every((url) => url.startsWith("https://api.tinfoil.sh/api/")));
-      NodeAssert.ok(limits.credentialFingerprint);
-      NodeAssert.ok(!JSON.stringify(limits).includes("admin_synthetic_billing_key"));
-      NodeAssert.ok(!JSON.stringify(limits).includes("synthetic-owner"));
-    }),
-);
-
-it.effect("keeps a live balance when funding history is incomplete or unavailable", () =>
-  Effect.gen(function* () {
-    for (const history of [
-      { history: [], has_more: true },
-      { history: [{ id: "sample-partial", amount_dollars: 40, status: "paid" }] },
-    ]) {
-      const limits = yield* readOpenCodeUsageLimits({
-        enabled: true,
-        serverUrl: "",
-        environment: {},
-        usageProvider: "tinfoil",
-        tinfoilAdminKey: "admin_synthetic_billing_key",
-      }).pipe(
-        Effect.provideService(
-          HttpClient.HttpClient,
-          HttpClient.make((request) =>
-            Effect.succeed(
-              HttpClientResponse.fromWeb(
-                request,
-                Response.json(
-                  request.url.endsWith("/credits/history")
-                    ? history
-                    : request.url.endsWith("/credits")
-                      ? { balance_dollars: 67.2 }
-                      : { context_type: "personal", user_id: "synthetic", organization: null },
-                ),
-              ),
-            ),
-          ),
-        ),
-        Effect.provide(NodeServices.layer),
-      );
-      NodeAssert.deepEqual(limits.prepaidBalance, { remainingUsd: 67.2 });
-    }
+          return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
+        }),
+      ),
+      Effect.provide(NodeServices.layer),
+    );
+    NodeAssert.deepEqual(limits.prepaidBalance, {
+      remainingUsd: 67.2,
+      checkedAt: limits.checkedAt,
+    });
+    NodeAssert.equal(limits.monthlySpend?.spentUsd, 12.8);
+    NodeAssert.equal(limits.monthlySpend?.budgetUsd, 40);
+    NodeAssert.equal(limits.unavailable, undefined);
+    NodeAssert.equal(requests.length, 3);
+    NodeAssert.ok(requests.every((url) => url.startsWith("https://api.tinfoil.sh/api/")));
+    NodeAssert.ok(limits.credentialFingerprint);
+    NodeAssert.ok(!JSON.stringify(limits).includes("admin_synthetic_billing_key"));
+    NodeAssert.ok(!JSON.stringify(limits).includes("synthetic-owner"));
   }),
 );
 

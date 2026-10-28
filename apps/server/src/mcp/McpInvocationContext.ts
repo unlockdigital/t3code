@@ -18,6 +18,7 @@ const ALL_MCP_CAPABILITIES = [
   "worktree",
   "device",
   "pull-requests",
+  "n2ition-read",
 ] as const;
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
 
@@ -51,6 +52,7 @@ export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
   readonly capabilities: ReadonlySet<McpCapability>;
   readonly issuedAt: number;
+  readonly n2itionGrantEpoch?: number;
   readonly requestNamespace: string;
   readonly thread: McpThreadCaller | undefined;
   readonly client: McpClientCaller | undefined;

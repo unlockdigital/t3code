@@ -19,6 +19,7 @@ import {
   usageAccountHistory,
   usageAccountWindows,
   prepaidCreditPercent,
+  monthlySpendProgress,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
@@ -1606,6 +1607,34 @@ describe("ChatGPT sharing presentation", () => {
 });
 
 describe("live prepaid credits", () => {
+  it("keeps monthly budget progress independent of balance and exposes overspending", () => {
+    const monthlySpend = {
+      budgetUsd: 25,
+      spentUsd: 31.2,
+      periodStart: "2032-02-01T00:00:00.000Z",
+      periodEnd: "2032-03-01T00:00:00.000Z",
+      checkedAt: "2032-02-20T12:00:00.000Z",
+    };
+    const limits = { checkedAt: monthlySpend.checkedAt, windows: [], monthlySpend };
+    const now = Date.parse(monthlySpend.checkedAt);
+    for (const remainingUsd of [-2.4, 67.2]) {
+      const progress = monthlySpendProgress({ ...limits, prepaidBalance: { remainingUsd } }, now);
+      expect(progress).toMatchObject({ spentUsd: 31.2, percentUsed: 100, remainingUsd: 0 });
+      expect(progress?.overBudgetUsd).toBeCloseTo(6.2, 6);
+    }
+    expect(monthlySpendProgress(limits, Date.parse(monthlySpend.periodEnd))).toMatchObject({
+      spentUsd: null,
+      percentUsed: null,
+      stale: true,
+    });
+    expect(
+      monthlySpendProgress({ ...limits, monthlySpend: { ...monthlySpend, spentUsd: null } }, now),
+    ).toMatchObject({ spentUsd: null, percentUsed: null, remainingUsd: null });
+    expect(
+      monthlySpendProgress({ ...limits, monthlySpend: { ...monthlySpend, spentUsd: 0 } }, now),
+    ).toMatchObject({ spentUsd: 0, percentUsed: 0, remainingUsd: 25 });
+    expect(monthlySpendProgress(undefined, now)).toBeNull();
+  });
   it("shows unknown funding separately from exhausted, funded, and overdrawn balances", () => {
     expect(prepaidCreditPercent({ remainingUsd: 67.2, totalGrantedUsd: 96 })).toBeCloseTo(70, 4);
     expect(prepaidCreditPercent({ remainingUsd: 0, totalGrantedUsd: 96 })).toBe(0);

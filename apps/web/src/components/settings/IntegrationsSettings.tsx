@@ -1,3 +1,4 @@
+import { N2itionSettings } from "./N2itionSettings";
 import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -1641,6 +1642,7 @@ export function IntegrationsSettingsPanel() {
         <BrowserSearchEngineSetting />
         <PullRequestLinksOpenInAppSetting />
       </SettingsSection>
+      <N2itionSettings />
       <DeviceIntegrationSettings />
     </SettingsPageContainer>
   );

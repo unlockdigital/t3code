@@ -83,6 +83,40 @@ describe("Home activity", () => {
       buildHomeActivity([{ ...parent, lastVisitedAt: null }, oldFailure, reviewer], now)[0]?.kind,
     ).toBe("working");
   });
+  it("hands a child's question to its working agent until the run stops", () => {
+    const parent = { ...running(), id: ThreadId.make("parent"), blockedOnThreadWait: true };
+    const child = {
+      ...running(),
+      id: ThreadId.make("child"),
+      lastVisitedAt: now,
+      hasPendingUserInput: true,
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "subagent" as const,
+      },
+    };
+    // The agent is on it: the run waits on the child, so the row is a working
+    // row, not "Reply needed", until the agent stops and asks the user itself.
+    expect(buildHomeActivity([parent, child], now)[0]).toMatchObject({
+      kind: "working",
+      label: "Waiting for agents",
+    });
+    expect(
+      buildHomeActivity([{ ...parent, hasPendingUserInput: true }, child], now)[0],
+    ).toMatchObject({ kind: "attention", label: "Reply needed" });
+    const settledParent = {
+      ...parent,
+      runtime: null,
+      latestRun: { ...parent.latestRun, status: "completed" as const, completedAt: now },
+      blockedOnThreadWait: false,
+    };
+    expect(buildHomeActivity([settledParent, child], now)[0]).toMatchObject({
+      kind: "attention",
+      label: "Reply needed",
+    });
+  });
+
   it("acknowledges child failures when either the child or its parent has been read", () => {
     const parent = completed();
     const child = {
@@ -397,7 +431,7 @@ describe("Home activity", () => {
     );
   });
   it("prioritizes a child approval and keeps completed durations fixed", () => {
-    const parent = running();
+    const parent = completed();
     const done = {
       ...parent,
       id: ThreadId.make("done"),
@@ -421,6 +455,13 @@ describe("Home activity", () => {
       label: "Unread",
       startedAt: start,
       completedAt: now,
+    });
+
+    // The agent is on it: an active parent run carries the child's approval to
+    // the user itself, so the row is a working row until that run stops.
+    expect(buildHomeActivity([{ ...parent, ...running() }, child], now)[0]).toMatchObject({
+      kind: "working",
+      label: "Working",
     });
   });
   it("hides explicitly settled failures and leaves untimed drafts ready", () => {

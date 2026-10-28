@@ -1,3 +1,4 @@
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -321,6 +322,7 @@ export const layerWithOptions = (
       const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
       const fileSystem = yield* FileSystem.FileSystem;
       const mcpSessionRegistry = yield* McpSessionRegistry.McpSessionRegistry;
+      const n2itionGrants = yield* Effect.serviceOption(N2itionGrantStore.N2itionGrantStore);
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       /**
        * When present, an unreadable settings file withholds browser access
@@ -498,6 +500,15 @@ export const layerWithOptions = (
                       }),
                   ),
                 );
+                const grant = Option.isSome(n2itionGrants)
+                  ? yield* n2itionGrants.value.read.pipe(Effect.catch(() => Effect.succeed(null)))
+                  : null;
+                const expectedN2itionEpoch =
+                  grant?.mode === "active" &&
+                  grant.threadId === threadId &&
+                  grant.providerInstanceId === providerInstanceId
+                    ? grant.epoch
+                    : undefined;
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before the async resolve so a release cannot
@@ -522,7 +533,8 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     // Refresh credentials when the thread's delegation ownership changes.
-                    (resolved.thread.subagent === true) === subagent
+                    (resolved.thread.subagent === true) === subagent &&
+                    resolved.n2itionGrantEpoch === expectedN2itionEpoch
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
