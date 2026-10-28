@@ -536,6 +536,8 @@ export function UsagePage() {
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
                 historyEnvironments={selectedEnvironments}
+                preferences={preferences}
+                onPreferencesChange={updatePreferences}
                 density={preferences.density ?? "compact"}
                 onDensityChange={(density) => updatePreferences({ density })}
                 cursorPrompt={

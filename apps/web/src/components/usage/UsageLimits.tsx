@@ -1,3 +1,4 @@
+import type { UsagePagePreferences } from "./usagePagePreferences";
 import {
   AuthProvidersManageScope,
   type EnvironmentId,
@@ -370,6 +371,8 @@ export function UsageLimitsSection({
   cursorPrompt,
   density,
   onDensityChange,
+  preferences,
+  onPreferencesChange,
   historyEnvironments,
 }: {
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
@@ -378,6 +381,8 @@ export function UsageLimitsSection({
   readonly cursorPrompt?: ReactNode;
   readonly density: "compact" | "comfortable";
   readonly onDensityChange: (density: "compact" | "comfortable") => void;
+  readonly preferences: UsagePagePreferences;
+  readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly historyEnvironments: readonly import("@t3tools/shared/usageLimits").UsageAccountHistoryEnvironment[];
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
@@ -417,6 +422,8 @@ export function UsageLimitsSection({
       cursorPrompt={cursorPrompt}
       density={density}
       onDensityChange={onDensityChange}
+      preferences={preferences}
+      onPreferencesChange={onPreferencesChange}
       historyEnvironments={historyEnvironments}
     />
   );
