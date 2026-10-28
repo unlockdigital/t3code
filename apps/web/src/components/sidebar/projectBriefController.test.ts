@@ -118,6 +118,24 @@ describe("explicit project brief actions", () => {
     expect(controller.snapshot().value?.saved).toEqual(savedState().saved);
   });
 
+  it("clears an initial in-flight generation and allows a later explicit view to generate", async () => {
+    const { api, controller } = setup();
+    const generation = deferred<ProjectBriefState>();
+    api.generate.mockReturnValue(generation.promise);
+    const pending = controller.generate();
+    await controller.clear();
+    generation.resolve(savedState("late-initial"));
+    await pending;
+    expect(controller.snapshot().value).toEqual(emptyState("cleared"));
+    controller.syncCached(emptyState("cleared"));
+    expect(api.generate).toHaveBeenCalledTimes(1);
+    api.get.mockResolvedValue(emptyState("cleared"));
+    api.generate.mockResolvedValue(savedState("explicit-view"));
+    await controller.open(true);
+    expect(api.generate).toHaveBeenCalledTimes(2);
+    expect(controller.snapshot().value?.revision).toBe("explicit-view");
+  });
+
   it("accepts saved completion with the generation-start revision while the request is pending", async () => {
     const { api, controller } = setup(emptyState("before"));
     const generation = deferred<ProjectBriefState>();

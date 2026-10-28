@@ -33,6 +33,7 @@ export function SidebarProjectBriefButton({ children }: { readonly children: Rea
     <button
       type="button"
       ref={navigation?.projectButton}
+      aria-label={`View project brief for ${typeof children === "string" ? children : "this project"}`}
       onClick={navigation?.open}
       className="group/brief-link flex min-w-0 flex-1 flex-col items-start rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
@@ -276,7 +277,7 @@ export function SidebarThreadPopover({
                     Retry
                   </Button>
                 )}
-                {saved ? (
+                {saved || state.pending === "generate" ? (
                   <Button
                     size="xs"
                     variant="ghost-muted"
