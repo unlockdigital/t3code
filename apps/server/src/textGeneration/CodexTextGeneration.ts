@@ -20,7 +20,6 @@ import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { codexExecLaunchArgs, resolveCodexLaunchArgs } from "../provider/codexLaunchArgs.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
-import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import {
   normalizeCliError,
   toJsonSchemaObject,
@@ -85,38 +84,88 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       ),
     );
 
-  const removeTempFileDir = (filePath: string): Effect.Effect<void, never> =>
-    fileSystem
-      .remove(path.dirname(filePath), { recursive: true })
-      .pipe(Effect.catch(() => Effect.void));
-
-  // Deliberately unscoped: text generation runs from background fibers whose
-  // ambient scope may already be closed (a closed scope reaps the temp
-  // directory the moment it is created).
-  const writeTempFile = (
+  const writeTempFile = Effect.fn("CodexTextGeneration.writeTempFile")(function* (
     operation: string,
     prefix: string,
     content: string,
-  ): Effect.Effect<string, TextGenerationError> =>
-    fileSystem
-      .makeTempFile({
-        prefix: `t3code-${prefix}-${process.pid}-`,
-      })
-      .pipe(
-        Effect.tap((filePath) =>
-          fileSystem
-            .writeFileString(filePath, content)
-            .pipe(Effect.onError(() => removeTempFileDir(filePath))),
-        ),
-        Effect.mapError(
-          (cause) =>
-            new TextGenerationError({
-              operation,
-              detail: `Failed to write temp file`,
-              cause,
-            }),
-        ),
+  ) {
+    return yield* Effect.gen(function* () {
+      const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: `t3code-${prefix}-` });
+      const filePath = path.join(directory, "data");
+      yield* fileSystem.writeFileString(filePath, content);
+      return filePath;
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: "Failed to write Codex temp file.",
+            cause,
+          }),
+      ),
+    );
+  });
+
+  // Enumeration and inference share the effective runtime, environment and cwd.
+  // Global CLI config still applies; enumeration and inference are separate processes.
+  const inspectBriefConfig = Effect.fn("inspectBriefConfig")(
+    function* (input: {
+      binary: string;
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      launchArgs: ReadonlyArray<string>;
+      args: ReadonlyArray<string>;
+    }) {
+      const spawn = yield* resolveSpawnCommand(input.binary, [...input.launchArgs, ...input.args], {
+        env: input.env,
+      });
+      const child = yield* commandSpawner.spawn(
+        ChildProcess.make(spawn.command, spawn.args, {
+          cwd: input.cwd,
+          env: input.env,
+          shell: spawn.shell,
+          forceKillAfter: "1 second",
+        }),
       );
+      const [stdout, , code] = yield* Effect.all(
+        [
+          readStreamAsString("generateProjectBrief", child.stdout),
+          child.stderr.pipe(Stream.runDrain),
+          child.exitCode,
+        ],
+        { concurrency: "unbounded" },
+      );
+      if (code !== 0)
+        return yield* new TextGenerationError({
+          operation: "generateProjectBrief",
+          detail: `Codex configuration inspection failed (${code}).`,
+        });
+      return stdout;
+    },
+    Effect.scoped,
+    Effect.timeoutOption(CODEX_MCP_LIST_TIMEOUT_MS),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new TextGenerationError({
+              operation: "generateProjectBrief",
+              detail: "Codex configuration inspection timed out.",
+            }),
+          ),
+        onSome: Effect.succeed,
+      }),
+    ),
+    Effect.mapError(
+      (cause) =>
+        new TextGenerationError({
+          operation: "generateProjectBrief",
+          detail:
+            "Codex project brief compatibility check failed. Update the configured Codex CLI and check its features list and mcp list --json commands. Generation stopped before inference.",
+          cause,
+        }),
+    ),
+  );
 
   const encodeJsonForOperation = (
     operation: TextGenerationOperations.Operation,
@@ -233,15 +282,14 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     TextGenerationError,
     S["DecodingServices"]
   > {
-    const imagePaths = yield* materializeImageAttachments(attachments);
+    const isBrief = operation === "generateProjectBrief";
+    const imagePaths = isBrief ? [] : yield* materializeImageAttachments(attachments);
     const schemaJson = yield* encodeJsonForOperation(
       operation,
       toJsonSchemaObject(outputSchemaJson),
     );
     const schemaPath = yield* writeTempFile(operation, "codex-schema", schemaJson);
-    const outputPath = yield* writeTempFile(operation, "codex-output", "").pipe(
-      Effect.onError(() => removeTempFileDir(schemaPath)),
-    );
+    const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const resolved = resolveRuntime
@@ -279,13 +327,86 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           : {}),
       };
       const execLaunchArgs = codexExecLaunchArgs(launchArgs);
-      const mcpServersOff = yield* listEnabledMcpServers({
+      const executionCwd = isBrief
+        ? yield* fileSystem
+            .makeTempDirectoryScoped({ prefix: "t3code-codex-brief-" })
+            .pipe(
+              Effect.mapError((cause) =>
+                normalizeCliError(
+                  "codex",
+                  operation,
+                  cause,
+                  "Failed to create brief working directory",
+                ),
+              ),
+            )
+        : cwd;
+      const inspection = {
         binary,
-        cwd,
+        cwd: executionCwd,
         env,
-        // `codex mcp` rejects --strict-config; the overrides still apply.
+        // `codex mcp` and `features` reject --strict-config.
         launchArgs: execLaunchArgs.filter((arg) => arg !== "--strict-config"),
-      }).pipe(Effect.map(codexMcpServersOff));
+      };
+      let briefArgs: ReadonlyArray<string> = [];
+      let mcpNames: ReadonlyArray<string>;
+      if (isBrief) {
+        const listing = yield* inspectBriefConfig({ ...inspection, args: ["features", "list"] });
+        const features = listing
+          .trim()
+          .split(/\r?\n/)
+          .map((line) => /^(\S+)\s+(.+?)\s+(true|false)$/.exec(line.trim()));
+        const supported = new Set(
+          features.flatMap((entry) => (entry && entry[2] !== "removed" ? [entry[1]!] : [])),
+        );
+        const required = [
+          "shell_tool",
+          "unified_exec",
+          "view_image",
+          "multi_agent",
+          "multi_agent_v2",
+          "plugins",
+          "apps",
+          "hooks",
+          "image_generation",
+          "browser_use",
+          "computer_use",
+        ];
+        const missing = required.filter((feature) => !supported.has(feature));
+        if (features.some((entry) => !entry) || missing.length > 0) {
+          return yield* new TextGenerationError({
+            operation,
+            detail: `Codex project briefs require supported feature controls: ${missing.join(", ") || "a valid features list"}. Update the configured Codex CLI. Generation stopped before inference.`,
+          });
+        }
+        briefArgs = [...supported].flatMap((feature) =>
+          /^(shell_|unified_exec|view_image$|multi_agent|image_generation$|plugins$|apps$|browser_|computer_use$|in_app_browser$|in_app_local_automation$|hooks$|code_mode|.*mcp.*|.*plugin.*|memories$|external_agent_memory_import$|standalone_web_search$|web_search_)/.test(
+            feature,
+          )
+            ? ["--config", `features.${feature}=false`]
+            : [],
+        );
+        briefArgs = [...briefArgs, "--config", 'web_search="disabled"'];
+        const stdout = yield* inspectBriefConfig({
+          ...inspection,
+          args: [...briefArgs, "mcp", "list", "--json"],
+        });
+        mcpNames = yield* decodeCodexMcpServers(stdout).pipe(
+          Effect.map((servers) => servers.map((server) => server.name)),
+          Effect.mapError(
+            (cause) =>
+              new TextGenerationError({
+                operation,
+                detail:
+                  "Codex mcp list returned malformed configuration. Check the configured CLI's mcp list --json command. Generation stopped before inference.",
+                cause,
+              }),
+          ),
+        );
+      } else {
+        mcpNames = yield* listEnabledMcpServers(inspection);
+      }
+      const mcpServersOff = codexMcpServersOff(mcpNames);
       const spawnCommand = yield* resolveSpawnCommand(
         binary,
         [
@@ -294,7 +415,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           // Text generation needs only the prompt. A user's MCP server would
           // otherwise start and could act on it, as Claude's --strict-mcp-config
           // prevents for Claude.
-          ...CODEX_NO_PLUGIN_ARGS,
+          ...(isBrief ? briefArgs : CODEX_NO_PLUGIN_ARGS),
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),
           "--ephemeral",
           "--skip-git-repo-check",
@@ -312,11 +433,11 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           ...imagePaths.flatMap((imagePath) => ["--image", imagePath]),
           "-",
         ],
-        { env: effectiveEnvironment },
+        { env },
       );
       const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env,
-        cwd,
+        cwd: executionCwd,
         shell: spawnCommand.shell,
         stdin: {
           stream: Stream.encodeText(Stream.make(prompt)),
@@ -359,10 +480,6 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       }
     });
 
-    const cleanup = Effect.all([removeTempFileDir(schemaPath), removeTempFileDir(outputPath)], {
-      concurrency: "unbounded",
-    }).pipe(Effect.asVoid);
-
     return yield* Effect.gen(function* () {
       yield* runCodexCommand().pipe(
         Effect.scoped,
@@ -401,23 +518,11 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
             ),
         }),
       );
-    }).pipe(Effect.ensuring(cleanup));
-  });
+    });
+    // Background title generation may inherit a closed scope; own all temporary resources here.
+  }, Effect.scoped);
 
-  return {
-    ...TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson),
-    // ThreadStartParams/TurnStartParams expose agent turns with native tools.
-    // Read-only sandboxing still permits reads, and dynamicTools only adds
-    // client tools. Keep brief source text out of that execution path.
-    generateProjectBrief: Effect.fn("CodexTextGeneration.generateProjectBrief")(
-      (_input: Parameters<ProviderTextGeneration["generateProjectBrief"]>[0]) =>
-        Effect.fail(
-          new TextGenerationError({
-            operation: "generateProjectBrief",
-            detail:
-              "Isolated project briefs are unavailable for Codex: this integration's app-server protocol provides no supported empty-tool-set control. Generation stopped before starting Codex. Ordinary Codex subscription authentication remains supported for thread titles.",
-          }),
-        ),
-    ),
-  };
+  return TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson, {
+    boundedProjectBrief: true,
+  });
 });

@@ -78,16 +78,16 @@ export const decodeJsonReply = <S extends Schema.Top>(
 export function fromRunner(
   name: string,
   run: Runner,
-  options: { readonly isolatedProjectBrief?: boolean } = {},
+  options: { readonly boundedProjectBrief?: boolean } = {},
 ): ProviderTextGeneration {
   // Other runners can inspect workspaces or expose tools even during background operations.
   const generateProjectBrief: ProviderTextGeneration["generateProjectBrief"] = Effect.fn(
     `${name}.generateProjectBrief`,
   )(function* (input) {
-    if (!options.isolatedProjectBrief) {
+    if (!options.boundedProjectBrief) {
       return yield* new TextGenerationError({
         operation: "generateProjectBrief",
-        detail: `${name} does not support isolated project briefs. Select a Claude provider configured with API or cloud-provider credentials as the project text-generation model.`,
+        detail: `${name} does not support bounded project briefs. Select Codex or a Claude provider configured with API or cloud-provider credentials as the project text-generation model.`,
       });
     }
     const generated = yield* run({

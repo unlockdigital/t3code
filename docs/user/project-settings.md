@@ -57,12 +57,12 @@ Saved text remains available from the client's project cache while its environme
 Briefs use the project's canonical workspace README and safe package manifest fields. The
 expanded view shows the source names and generation time. The text becomes visible to readers
 of that project on that environment. Select a supported text-generation model in Source Control
-settings; isolated brief generation currently supports Claude. Claude uses bare
-mode, which requires credentials available to that mode, such as an API key in its environment;
-subscription credentials from the keychain are unavailable there. Other providers
-return an explanation so you can choose a supported model. Codex subscription accounts support
-thread title generation; project briefs remain unavailable while Codex lacks a supported
-tool-free generation interface in this integration.
+settings; bounded brief generation supports Codex, including subscription accounts, and Claude.
+Claude uses bare mode, which requires credentials such as an API key in its environment;
+subscription credentials from the keychain are unavailable there. Codex uses a temporary working
+directory with read-only execution and supported execution and integration features disabled.
+Its global CLI configuration still applies. Other providers return an explanation so you can
+choose a supported model.
 
 Use **Optional context source** in the brief view to select a project-relative Markdown file
 that documents mission or current emphasis when the README leaves those unclear. Changing the

@@ -18,7 +18,7 @@ it.effect("fails unsupported project briefs before executing a provider runner",
       })
       .pipe(Effect.flip);
     expect(failure.operation).toBe("generateProjectBrief");
-    expect(failure.message).toContain("does not support isolated project briefs");
+    expect(failure.message).toContain("does not support bounded project briefs");
     expect(run).not.toHaveBeenCalled();
   }),
 );
