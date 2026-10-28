@@ -60,7 +60,9 @@ of that project on that environment. Select a supported text-generation model in
 settings; isolated brief generation currently supports Claude. Claude uses bare
 mode, which requires credentials available to that mode, such as an API key in its environment;
 subscription credentials from the keychain are unavailable there. Other providers
-return an explanation so you can choose a supported model.
+return an explanation so you can choose a supported model. Codex subscription accounts support
+thread title generation; project briefs remain unavailable while Codex lacks a supported
+tool-free generation interface in this integration.
 
 Use **Optional context source** in the brief view to select a project-relative Markdown file
 that documents mission or current emphasis when the README leaves those unclear. Changing the

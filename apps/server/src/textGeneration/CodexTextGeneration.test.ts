@@ -10,9 +10,10 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { createModelSelection } from "@t3tools/shared/model";
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
+import { ChildProcessSpawner } from "effect/process";
 
-import { CodexSettings, ProviderInstanceId } from "@t3tools/contracts";
+import { CodexSettings, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import { makeProcessProbe, processProbeSource } from "../testUtils/processProbe.ts";
@@ -186,6 +187,36 @@ function withFakeCodexEnv<A, E, R>(
 }
 
 it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
+  it.effect.each([false, true])(
+    "explains the Codex brief isolation limitation before launching any process (managed=%s)",
+    (managedRuntime) =>
+      withFakeCodexEnv({ output: "", managedRuntime }, (textGeneration) =>
+        Effect.gen(function* () {
+          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+          using spawn = vi.spyOn(spawner, "spawn");
+          const failure = yield* textGeneration
+            .generateProjectBrief({
+              projectId: ProjectId.make("brief-project"),
+              cwd: "/canonical/private-project",
+              sourceText: "Project context with https://example.com/untrusted-link",
+              modelSelection: createModelSelection(
+                ProviderInstanceId.make("codex"),
+                "gpt-6.1-sol",
+                [
+                  { id: "reasoningEffort", value: "max" },
+                  { id: "serviceTier", value: "priority" },
+                ],
+              ),
+            })
+            .pipe(Effect.flip);
+          expect(failure.operation).toBe("generateProjectBrief");
+          expect(failure.detail).toContain("empty-tool-set control");
+          expect(failure.detail).toContain("subscription authentication");
+          expect(spawn).not.toHaveBeenCalled();
+        }),
+      ),
+  );
+
   it.effect.each(["exec", "mcp list"] as const)(
     "kills a stalled %s CLI when its request is interrupted",
     (command) =>

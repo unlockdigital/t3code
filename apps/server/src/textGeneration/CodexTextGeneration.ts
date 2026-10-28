@@ -20,6 +20,7 @@ import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { codexExecLaunchArgs, resolveCodexLaunchArgs } from "../provider/codexLaunchArgs.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
+import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import {
   normalizeCliError,
   toJsonSchemaObject,
@@ -403,5 +404,20 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     }).pipe(Effect.ensuring(cleanup));
   });
 
-  return TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson);
+  return {
+    ...TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson),
+    // ThreadStartParams/TurnStartParams expose agent turns with native tools.
+    // Read-only sandboxing still permits reads, and dynamicTools only adds
+    // client tools. Keep brief source text out of that execution path.
+    generateProjectBrief: Effect.fn("CodexTextGeneration.generateProjectBrief")(
+      (_input: Parameters<ProviderTextGeneration["generateProjectBrief"]>[0]) =>
+        Effect.fail(
+          new TextGenerationError({
+            operation: "generateProjectBrief",
+            detail:
+              "Isolated project briefs are unavailable for Codex: this integration's app-server protocol provides no supported empty-tool-set control. Generation stopped before starting Codex. Ordinary Codex subscription authentication remains supported for thread titles.",
+          }),
+        ),
+    ),
+  };
 });
