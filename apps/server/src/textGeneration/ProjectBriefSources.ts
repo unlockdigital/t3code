@@ -4,18 +4,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
-
-const decodeManifest = Schema.decodeEffect(
-  Schema.fromJsonString(
-    Schema.Struct({
-      name: Schema.optional(Schema.String),
-      description: Schema.optional(Schema.String),
-      language: Schema.optional(Schema.String),
-      runtime: Schema.optional(Schema.String),
-    }),
-  ),
-);
 
 const README_NAMES = ["README.md", "README.markdown", "README.txt", "README"];
 const CREDENTIAL_NAME = /(?:secret|credential|password|token|private[-_]?key|^auth(?:\.|$))/i;
@@ -30,6 +18,32 @@ function safeSegments(relative: string) {
 /** V1 context selection accepts a visible project-relative Markdown file. */
 export function isProjectBriefContextPath(value: string): boolean {
   return safeSegments(value) && !/^[a-z]:/i.test(value) && /\.(?:md|markdown)$/i.test(value);
+}
+
+// This is a narrow credential tripwire, not a classifier for confidential prose.
+function containsProjectBriefCredential(text: string): boolean {
+  if (/-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----/.test(text)) return true;
+  if (
+    /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|AKIA[A-Z0-9]{12,}|ASIA[A-Z0-9]{12,})/.test(
+      text,
+    )
+  )
+    return true;
+  if (/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s:/]+:[^\s@]+@/i.test(text))
+    return true;
+  const assignments = text.matchAll(
+    /(?:["']?\b(?:[A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|SECRET[_-]?KEY|CLIENT[_-]?SECRET|PASSWORD)[A-Z0-9_]*|TOKEN|SECRET)["']?)\s*[:=]\s*["']?([^\s"'`,;]{8,})/gi,
+  );
+  for (const match of assignments) {
+    const value = match[1]!;
+    if (
+      !/^(?:\$\{[^}]+\}|<[^>]+>|\{\{[^}]+\}\}|[*x]+|(?:your|replace|example|placeholder|changeme|redacted)(?:[-_].*)?)$/i.test(
+        value,
+      )
+    )
+      return true;
+  }
+  return false;
 }
 
 export const collectProjectBriefSources = Effect.fn("ProjectBriefSources.collect")(function* (
@@ -101,47 +115,25 @@ export const collectProjectBriefSources = Effect.fn("ProjectBriefSources.collect
   );
   const sections: string[] = [];
   const sources: string[] = [];
-  for (const name of README_NAMES) {
-    // The first existing root README owns the budget; an unsafe/binary file never selects another.
+  // An explicitly reviewed document replaces the README, so sensitive README
+  // contents cannot hitchhike on a deliberately selected safe source.
+  const candidates = contextFile ? [contextFile] : README_NAMES;
+  for (const name of candidates) {
     if (!(yield* fs.exists(path.join(root, name)).pipe(Effect.orElseSucceed(() => false))))
       continue;
-    const text = yield* read(name, 6 * 1024);
+    const text = yield* read(name, 4 * 1024);
     if (text) {
       sections.push(text);
       sources.push(name);
     }
     break;
   }
-  const manifest = yield* read("package.json", 2 * 1024);
-  if (manifest) {
-    const parsed = yield* decodeManifest(manifest).pipe(Effect.orElseSucceed(() => null));
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      const fields: Record<string, string> = {};
-      for (const key of ["name", "description", "language", "runtime"] as const) {
-        const value = Reflect.get(parsed, key);
-        if (typeof value === "string") fields[key] = value.slice(0, 512);
-      }
-      if (Object.keys(fields).length > 0) {
-        sections.push(
-          Object.entries(fields)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join("\n"),
-        );
-        sources.push("package.json");
-      }
-    }
-  }
-  if (contextFile) {
-    const text = yield* read(contextFile, 8 * 1024);
-    if (!text)
-      return yield* new TextGenerationError({
-        operation: "generateProjectBrief",
-        detail:
-          "The selected context file is unavailable, unsafe, or empty. Choose a readable Markdown file within this project.",
-      });
-    sections.push(text);
-    sources.push(contextFile);
-  }
+  if (contextFile && sections.length === 0)
+    return yield* new TextGenerationError({
+      operation: "generateProjectBrief",
+      detail:
+        "The selected context file is unavailable, unsafe, or empty. Choose a readable Markdown file within this project.",
+    });
   if (sections.join("").length < 20)
     return yield* new TextGenerationError({
       operation: "generateProjectBrief",
@@ -150,6 +142,12 @@ export const collectProjectBriefSources = Effect.fn("ProjectBriefSources.collect
     });
   // Source names travel separately; untrusted contents have no authority in the generation prompt.
   const encoded = new TextEncoder().encode(sections.join("\n\n"));
-  const text = new TextDecoder().decode(encoded.subarray(0, 16 * 1024), { stream: true });
+  const text = new TextDecoder().decode(encoded.subarray(0, 4 * 1024), { stream: true });
+  if (containsProjectBriefCredential(text))
+    return yield* new TextGenerationError({
+      operation: "generateProjectBrief",
+      detail:
+        "Project brief generation stopped locally because the selected documentation may contain credentials. Choose a reviewed Markdown file without secrets. No brief model request was made.",
+    });
   return { text, sources, canonicalRoot: root };
 });

@@ -54,7 +54,9 @@ Hovering over a thread shows metadata without reading project files or starting 
 Refresh updates the saved text; Clear leaves an empty view until you choose Generate again.
 Saved text remains available from the client's project cache while its environment is offline.
 
-Briefs use the project's canonical workspace README and safe package manifest fields. The
+Briefs read at most 4 KB from one documentation file. The default is a root README. An
+explicitly selected Markdown file replaces it. Source code, manifests, credentials files,
+financial records and conversations are outside the automatic source list. The
 expanded view shows the source names and generation time. The text becomes visible to readers
 of that project on that environment. Select a supported text-generation model in Source Control
 settings; bounded brief generation supports Codex, including subscription accounts, and Claude.
@@ -65,8 +67,19 @@ Its global CLI configuration still applies. Other providers return an explanatio
 choose a supported model.
 
 Use **Optional context source** in the brief view to select a project-relative Markdown file
-that documents mission or current emphasis when the README leaves those unclear. Changing the
-selected file clears the saved brief. Mobile controls and MCP brief tools are follow-ups.
+that contains a reviewed description of mission or current emphasis. Changing the
+selected file clears the saved brief. Recognizable private keys, access tokens and credential
+assignments stop generation locally before a model request. This screening catches selected
+credential formats; confidential prose and personal or financial information may still pass.
+Keep sensitive content out of source documentation. Private project routing uses the approved
+hosted Tinfoil route and pauses when that route is unavailable; it provides no on-device-only
+guarantee. Codex read-only execution and temporary working directories reduce incidental access
+but provide no hermetic filesystem isolation.
+
+A saved brief is a snapshot. Hovering and reopening saved text consume no inference quota.
+Refresh requires an explicit action; requests coalesce while in flight, and generation has no
+service-level retries or automatic fallback to another provider. Use a lightweight supported
+text-generation model to keep quota use low. Mobile controls and MCP brief tools are follow-ups.
 
 ## Worktree branch names
 

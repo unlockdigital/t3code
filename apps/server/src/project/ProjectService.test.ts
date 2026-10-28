@@ -681,6 +681,47 @@ it.effect("rejects an update that waited on the lock while its project was delet
 );
 
 it.layer(layerTestFor(layerMetadata))("ProjectBriefService", (it) => {
+  it.effect("blocks documentation credentials before invoking any brief model", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        yield* fs.writeFileString(
+          `${root}/README.md`,
+          'Synthetic project. PASSWORD="synthetic-private-value"',
+        );
+        const projects = yield* ProjectService.ProjectService;
+        const projectId = ProjectId.make("brief-credential-block");
+        yield* projects.create({
+          commandId: CommandId.make("create-credential-block"),
+          projectId,
+          title: "Synthetic",
+          workspaceRoot: root,
+        });
+        const calls = yield* Ref.make(0);
+        const failure = yield* Effect.gen(function* () {
+          const briefs = yield* ProjectBriefService.ProjectBriefService;
+          return yield* briefs.generate(projectId).pipe(Effect.flip);
+        }).pipe(
+          Effect.provide(ProjectBriefService.layer),
+          Effect.provideService(TextGeneration.TextGeneration, {
+            generateCommitMessage: () => Effect.die("unexpected"),
+            generatePrContent: () => Effect.die("unexpected"),
+            generateBranchName: () => Effect.die("unexpected"),
+            generateThreadTitle: () => Effect.die("unexpected"),
+            generateReviewGuide: () => Effect.die("unexpected"),
+            generateProjectBrief: () =>
+              Ref.update(calls, (n) => n + 1).pipe(
+                Effect.andThen(Effect.die("must not reach model")),
+              ),
+          }),
+        );
+        assert.equal(yield* Ref.get(calls), 0);
+        assert.include(failure.message, "stopped locally");
+        assert.notInclude(failure.message, "synthetic-private-value");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
   it.effect("coalesces explicit brief requests and keeps clear empty after late completion", () =>
     Effect.scoped(
       Effect.gen(function* () {

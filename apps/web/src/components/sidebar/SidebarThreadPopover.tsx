@@ -294,13 +294,14 @@ export function SidebarThreadPopover({
                 </p>
               ) : null}
               <p className="text-muted-foreground">
-                Generated text and selected sources are shared with authorized project readers.
+                Uses one documentation excerpt (up to 4 KB), sent to your project’s text-generation
+                provider. Saved briefs are visible to authorized project readers.
               </p>
               <details className="text-muted-foreground">
                 <summary className="cursor-pointer">Optional context source</summary>
                 <div className="mt-2 grid gap-2">
                   <label htmlFor={contextId}>
-                    Project-relative Markdown file for mission or documented emphasis
+                    Reviewed Markdown file to use instead of the README
                   </label>
                   <Input
                     id={contextId}
@@ -324,7 +325,9 @@ export function SidebarThreadPopover({
                     </Button>
                   </div>
                   <p>
-                    Saving a source clears the saved brief. Generate again to use the new source.
+                    This file replaces the README. Keep confidential details out of it. Recognizable
+                    credentials block generation; financial or personal prose may still be sent.
+                    Saving clears the brief until you generate again.
                   </p>
                 </div>
               </details>
