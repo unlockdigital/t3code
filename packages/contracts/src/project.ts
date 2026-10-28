@@ -187,7 +187,7 @@ export class ProjectBriefError extends Schema.TaggedError<ProjectBriefError>()(
       case "stale":
         return "The project changed while generating its brief. Retry to use its current sources.";
       case "invalid-context":
-        return "Choose a project-relative Markdown file outside hidden directories and credential files.";
+        return "Choose a canonical README in the project root, docs, or documentation directory.";
     }
   }
 }

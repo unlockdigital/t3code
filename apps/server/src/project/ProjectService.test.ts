@@ -838,9 +838,9 @@ it.layer(layerTestFor(layerMetadata))("ProjectBriefService", (it) => {
           yield* Effect.gen(function* () {
             const briefs = yield* ProjectBriefService.ProjectBriefService;
             assert.equal((yield* briefs.get(projectId)).saved?.text, "A research workspace.");
-            const cleared = yield* briefs.configure(projectId, "mission.md");
+            const cleared = yield* briefs.configure(projectId, "README.md");
             assert.isNull(cleared.saved);
-            assert.equal(cleared.contextFile, "mission.md");
+            assert.equal(cleared.contextFile, "README.md");
             assert.equal(yield* Ref.get(calls), 2);
           }).pipe(
             Effect.provide(ProjectBriefService.layer),
