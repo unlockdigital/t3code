@@ -156,12 +156,12 @@ describe("explicit project brief actions", () => {
     const generation = deferred<ProjectBriefState>();
     api.generate.mockReturnValue(generation.promise);
     const pending = controller.generate();
-    await controller.configure("docs/mission.md");
+    await controller.configure("docs/README.md");
     generation.resolve(savedState("late"));
     await pending;
     expect(controller.snapshot().value).toEqual({
       ...emptyState("configured"),
-      contextFile: "docs/mission.md",
+      contextFile: "docs/README.md",
     });
     expect(api.generate).toHaveBeenCalledTimes(1);
   });

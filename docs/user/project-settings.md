@@ -55,7 +55,7 @@ Refresh updates the saved text; Clear leaves an empty view until you choose Gene
 Saved text remains available from the client's project cache while its environment is offline.
 
 Briefs read at most 4 KB from one documentation file. The default is a root README. An
-explicitly selected Markdown file replaces it. Source code, manifests, credentials files,
+explicitly selected canonical README replaces it. Source code, manifests, credentials files,
 financial records and conversations are outside the automatic source list. The
 expanded view shows the source names and generation time. The text becomes visible to readers
 of that project on that environment. Select a supported text-generation model in Source Control
@@ -66,7 +66,7 @@ directory with read-only execution and supported execution and integration featu
 Its global CLI configuration still applies. Other providers return an explanation so you can
 choose a supported model.
 
-Use **Optional context source** in the brief view to select a project-relative Markdown file
+Use **README source** in the brief view to select a README in the project root, docs, or documentation directory
 that contains a reviewed description of mission or current emphasis. Changing the
 selected file clears the saved brief. Recognizable private keys, access tokens and credential
 assignments stop generation locally before a model request. This screening catches selected

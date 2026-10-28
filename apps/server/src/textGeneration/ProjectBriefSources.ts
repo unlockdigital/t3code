@@ -15,9 +15,12 @@ function safeSegments(relative: string) {
   );
 }
 
-/** V1 context selection accepts a visible project-relative Markdown file. */
+/** Selection stays within canonical README locations rather than arbitrary documents. */
 export function isProjectBriefContextPath(value: string): boolean {
-  return safeSegments(value) && !/^[a-z]:/i.test(value) && /\.(?:md|markdown)$/i.test(value);
+  return (
+    safeSegments(value) &&
+    /^(?:(?:docs|documentation)\/)?README(?:\.(?:md|markdown|txt))?$/.test(value)
+  );
 }
 
 // This is a narrow credential tripwire, not a classifier for confidential prose.
@@ -66,12 +69,13 @@ export const collectProjectBriefSources = Effect.fn("ProjectBriefSources.collect
   if (contextFile && (!isProjectBriefContextPath(contextFile) || path.isAbsolute(contextFile))) {
     return yield* new TextGenerationError({
       operation: "generateProjectBrief",
-      detail: "Choose a visible project-relative Markdown context file without credential names.",
+      detail: "Choose a canonical README in the project root, docs, or documentation directory.",
     });
   }
   const read = Effect.fn("ProjectBriefSources.read")(
     function* (name: string, limit: number) {
       const resolved = yield* fs.realPath(path.join(root, name));
+      if (resolved !== path.join(root, name)) return null;
       const relative = path.relative(root, resolved);
       if (path.isAbsolute(relative) || !safeSegments(relative)) return null;
       const info = yield* fs.stat(resolved);
@@ -132,13 +136,13 @@ export const collectProjectBriefSources = Effect.fn("ProjectBriefSources.collect
     return yield* new TextGenerationError({
       operation: "generateProjectBrief",
       detail:
-        "The selected context file is unavailable, unsafe, or empty. Choose a readable Markdown file within this project.",
+        "The selected context file is unavailable, unsafe, or empty. Choose a regular README file in the project root, docs, or documentation directory.",
     });
   if (sections.join("").length < 20)
     return yield* new TextGenerationError({
       operation: "generateProjectBrief",
       detail:
-        "Project context is insufficient. Add a root README or select a Markdown file describing its mission and current emphasis.",
+        "Project context is insufficient. Add a root README or select docs/README.md describing its mission and current emphasis.",
     });
   // Source names travel separately; untrusted contents have no authority in the generation prompt.
   const encoded = new TextEncoder().encode(sections.join("\n\n"));
@@ -147,7 +151,7 @@ export const collectProjectBriefSources = Effect.fn("ProjectBriefSources.collect
     return yield* new TextGenerationError({
       operation: "generateProjectBrief",
       detail:
-        "Project brief generation stopped locally because the selected documentation may contain credentials. Choose a reviewed Markdown file without secrets. No brief model request was made.",
+        "Project brief generation stopped locally because the selected documentation may contain credentials. Choose a reviewed README file without secrets. No brief model request was made.",
     });
   return { text, sources, canonicalRoot: root };
 });

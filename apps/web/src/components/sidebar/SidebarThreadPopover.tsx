@@ -298,15 +298,15 @@ export function SidebarThreadPopover({
                 provider. Saved briefs are visible to authorized project readers.
               </p>
               <details className="text-muted-foreground">
-                <summary className="cursor-pointer">Optional context source</summary>
+                <summary className="cursor-pointer">README source</summary>
                 <div className="mt-2 grid gap-2">
                   <label htmlFor={contextId}>
-                    Reviewed Markdown file to use instead of the README
+                    Canonical README to use instead of the root README
                   </label>
                   <Input
                     id={contextId}
                     size="compact"
-                    placeholder="docs/project-context.md"
+                    placeholder="docs/README.md"
                     value={contextFile ?? state.value?.contextFile ?? ""}
                     onChange={(event) => setContextFile(event.target.value)}
                   />
@@ -325,9 +325,10 @@ export function SidebarThreadPopover({
                     </Button>
                   </div>
                   <p>
-                    This file replaces the README. Keep confidential details out of it. Recognizable
-                    credentials block generation; financial or personal prose may still be sent.
-                    Saving clears the brief until you generate again.
+                    This file replaces the README. Use a README in the root, docs, or documentation
+                    folder. Keep confidential details out of it. Recognizable credentials block
+                    generation; financial or personal prose may still be sent. Saving clears the
+                    brief until you generate again.
                   </p>
                 </div>
               </details>

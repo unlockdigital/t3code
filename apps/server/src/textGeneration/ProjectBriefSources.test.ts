@@ -20,7 +20,7 @@ it.layer(NodeServices.layer)("ProjectBriefSources", (it) => {
         '{"name":"study","description":"Study archive","scripts":{"start":"PRIVATE_SCRIPT"},"homepage":"PRIVATE_URL","dependencies":{"PRIVATE_DEP":"1"}}',
       );
       yield* fs.writeFileString(
-        path.join(cwd, "CONTEXT.md"),
+        path.join(cwd, "README.markdown"),
         "Documented research emphasis. ".repeat(1000),
       );
       let bytesRead = 0;
@@ -48,15 +48,15 @@ it.layer(NodeServices.layer)("ProjectBriefSources", (it) => {
             })),
           ),
       };
-      const result = yield* collectProjectBriefSources(cwd, "CONTEXT.md").pipe(
+      const result = yield* collectProjectBriefSources(cwd, "README.markdown").pipe(
         Effect.provideService(FileSystem.FileSystem, measuredFileSystem),
       );
       expect(bytesRead).toBeLessThanOrEqual(4 * 1024);
-      expect(result.sources).toEqual(["CONTEXT.md"]);
+      expect(result.sources).toEqual(["README.markdown"]);
       expect(result.canonicalRoot).toBe(yield* fs.realPath(cwd));
       expect(new TextEncoder().encode(result.text).length).toBeLessThanOrEqual(4 * 1024);
       expect(result.text).toContain("Documented research emphasis");
-      expect(opened).toEqual([yield* fs.realPath(path.join(cwd, "CONTEXT.md"))]);
+      expect(opened).toEqual([yield* fs.realPath(path.join(cwd, "README.markdown"))]);
       expect(result.text).not.toMatch(/PRIVATE_|ignored alternate/);
     }),
   );
@@ -92,6 +92,22 @@ it.layer(NodeServices.layer)("ProjectBriefSources", (it) => {
       }),
   );
 
+  it.effect("rejects README aliases to sensitive files inside the project", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const cwd = yield* fs.makeTempDirectoryScoped();
+      yield* fs.writeFileString(
+        path.join(cwd, "finance.csv"),
+        "Synthetic confidential financial records.",
+      );
+      yield* fs.symlink(path.join(cwd, "finance.csv"), path.join(cwd, "README.md"));
+      expect((yield* collectProjectBriefSources(cwd).pipe(Effect.flip)).message).toContain(
+        "insufficient",
+      );
+    }),
+  );
+
   it.effect("ignores manifests and suggests documentation for insufficient evidence", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -102,7 +118,7 @@ it.layer(NodeServices.layer)("ProjectBriefSources", (it) => {
         '{"description":"' + "a".repeat(10_000),
       );
       expect((yield* collectProjectBriefSources(cwd).pipe(Effect.flip)).message).toContain(
-        "Markdown file",
+        "README",
       );
     }),
   );
@@ -172,24 +188,26 @@ it.layer(NodeServices.layer)("ProjectBriefSources", (it) => {
           'Private mission. PASSWORD="synthetic-sensitive-value"',
         );
         yield* fs.writeFileString(
-          path.join(cwd, "BRIEF.md"),
+          path.join(cwd, "README.txt"),
           'A public project description. API_KEY="your-api-key"',
         );
-        const result = yield* collectProjectBriefSources(cwd, "BRIEF.md");
-        expect(result.sources).toEqual(["BRIEF.md"]);
+        const result = yield* collectProjectBriefSources(cwd, "README.txt");
+        expect(result.sources).toEqual(["README.txt"]);
         expect(result.text).not.toContain("synthetic-sensitive-value");
       }),
   );
 });
 
-it("accepts visible Markdown context paths and excludes traversal, hidden and credential paths", () => {
-  expect(isProjectBriefContextPath("research/project-mission.md")).toBe(true);
+it("accepts canonical README selections and excludes all other document paths", () => {
+  expect(isProjectBriefContextPath("docs/README.md")).toBe(true);
   for (const value of [
     "../outside.md",
     "/absolute.md",
     ".private/context.md",
     "keys/secret.md",
     "context.txt",
+    "docs/financial-report.md",
+    "src/README.md",
     "C:\\private.md",
   ]) {
     expect(isProjectBriefContextPath(value)).toBe(false);
