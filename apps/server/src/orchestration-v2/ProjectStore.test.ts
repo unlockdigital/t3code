@@ -39,6 +39,38 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
           },
         });
 
+        const briefState = {
+          revision: "request-brief",
+          contextFile: "mission.md",
+          saved: {
+            text: "Project mission and documented emphasis.",
+            generatedAt: "2026-03-24T00:00:00.000Z",
+            sources: ["README.md", "mission.md"],
+            modelSelection,
+          },
+        };
+        yield* projects.apply({
+          sequence: 2,
+          eventId: EventId.make("event-brief"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: "2026-03-24T00:00:00.000Z",
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          type: "project.meta-updated",
+          payload: { projectId, briefState, updatedAt: "2026-03-24T00:00:00.000Z" },
+        });
+        assert.deepStrictEqual(
+          Option.getOrNull(yield* projects.get(projectId))?.briefState,
+          briefState,
+        );
+        assert.deepStrictEqual(
+          Option.getOrNull(yield* projects.getShell(projectId))?.briefState,
+          briefState,
+        );
+
         const rows = yield* sql<{ readonly defaultModelSelection: string | null }>`
           SELECT default_model_selection_json AS "defaultModelSelection"
           FROM projection_projects

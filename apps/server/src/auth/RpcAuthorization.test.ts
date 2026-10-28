@@ -32,6 +32,17 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 import { selectAccountRouting } from "@t3tools/shared/accountRouting";
 
 describe("RPC authorization scopes", () => {
+  it("separates saved project briefs from source-reading generation and edits", () => {
+    expect(clientRpcRequiredScopes(WS_METHODS.projectsGetBrief, {})).toEqual([
+      AuthOrchestrationReadScope,
+    ]);
+    expect(new Set(clientRpcRequiredScopes(WS_METHODS.projectsGenerateBrief, {}))).toEqual(
+      new Set([AuthFilesystemReadScope, AuthOrchestrationOperateScope]),
+    );
+    for (const method of [WS_METHODS.projectsClearBrief, WS_METHODS.projectsConfigureBrief]) {
+      expect(clientRpcRequiredScopes(method, {})).toEqual([AuthOrchestrationOperateScope]);
+    }
+  });
   it("guards coordinator removal with settings-write on client and server", () => {
     expect(
       clientRpcRequiredScopes(WS_METHODS.serverSetApprovalCoordinator, {
@@ -157,6 +168,46 @@ describe("RPC scope middleware", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+it.effect.each([
+  { scopes: [AuthOrchestrationReadScope], missing: AuthOrchestrationOperateScope },
+  { scopes: [AuthFilesystemReadScope], missing: AuthOrchestrationOperateScope },
+  { scopes: [AuthOrchestrationOperateScope], missing: AuthFilesystemReadScope },
+])(
+  "blocks brief generation before source collection with missing $missing",
+  ({ scopes, missing }) =>
+    Effect.gen(function* () {
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (
+            tag,
+          ): tag is Exclude<
+            keyof typeof RPC_REQUIRED_SCOPES,
+            typeof WS_METHODS.projectsGenerateBrief
+          > => tag !== WS_METHODS.projectsGenerateBrief,
+        ),
+      );
+      let handled = false;
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.projectsGenerateBrief, () =>
+              Effect.sync(() => {
+                handled = true;
+              }).pipe(Effect.andThen(Effect.never)),
+            ),
+            RpcAuthorization.layer(scopes),
+          ),
+        ),
+      );
+      expect(
+        yield* client[WS_METHODS.projectsGenerateBrief]({
+          projectId: ProjectId.make("brief-project"),
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: missing });
+      expect(handled).toBe(false);
+    }).pipe(Effect.scoped),
+);
 
 it.effect("guards account routing preview and policy updates with their respective scopes", () =>
   Effect.gen(function* () {

@@ -341,6 +341,7 @@ function createTextGeneration(
   overrides: Partial<FakeGitTextGeneration> = {},
 ): TextGeneration.TextGeneration["Service"] {
   const implementation: FakeGitTextGeneration = {
+    generateProjectBrief: () => Effect.succeed({ text: "Project brief." }),
     generateCommitMessage: (input) =>
       Effect.succeed({
         subject: "Implement stacked git actions",
@@ -365,6 +366,7 @@ function createTextGeneration(
   };
 
   return {
+    generateProjectBrief: (input) => implementation.generateProjectBrief(input),
     generateCommitMessage: (input) =>
       implementation.generateCommitMessage(input).pipe(
         Effect.mapError(

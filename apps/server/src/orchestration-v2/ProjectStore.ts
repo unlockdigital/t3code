@@ -5,6 +5,7 @@ import {
   type OrchestrationProjectShell,
   StoredProjectIcon,
   ProjectId,
+  ProjectBriefState,
   ProjectScript,
   ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -29,6 +30,7 @@ export class ProjectStoreV2Error extends Schema.TaggedError<ProjectStoreV2Error>
 }
 
 export const ProjectRow = Schema.Struct({
+  briefState: Schema.optional(Schema.NullOr(ProjectBriefState)),
   projectId: ProjectId,
   title: Schema.String,
   workspaceRoot: Schema.String,
@@ -46,6 +48,7 @@ export type ProjectRow = typeof ProjectRow.Type;
 
 const ProjectDbRow = Schema.Struct({
   ...ProjectRow.fields,
+  briefState: Schema.NullOr(Schema.fromJsonString(ProjectBriefState)),
   defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   autoPull: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
@@ -55,6 +58,7 @@ const ProjectDbRow = Schema.Struct({
 function toShell(row: ProjectRow): OrchestrationProjectShell {
   return {
     id: row.projectId,
+    ...(row.briefState == null ? {} : { briefState: row.briefState }),
     title: row.title,
     workspaceRoot: row.workspaceRoot,
     repositoryIdentity: null,
@@ -110,6 +114,7 @@ export const make = Effect.gen(function* () {
     Result: ProjectDbRow,
     execute: (request) => sql`
       SELECT
+        brief_state_json AS "briefState",
         project_id AS "projectId",
         title,
         workspace_root AS "workspaceRoot",
@@ -136,10 +141,11 @@ export const make = Effect.gen(function* () {
   });
 
   const upsertRow = (row: ProjectRow) =>
-    encodeRow(row).pipe(
+    encodeRow({ ...row, briefState: row.briefState ?? null }).pipe(
       Effect.flatMap(
         (encoded) => sql`
           INSERT INTO projection_projects (
+            brief_state_json,
             project_id,
             title,
             workspace_root,
@@ -154,6 +160,7 @@ export const make = Effect.gen(function* () {
             deleted_at
           )
           VALUES (
+            ${encoded.briefState},
             ${encoded.projectId},
             ${encoded.title},
             ${encoded.workspaceRoot},
@@ -169,6 +176,7 @@ export const make = Effect.gen(function* () {
           )
           ON CONFLICT (project_id)
           DO UPDATE SET
+            brief_state_json = excluded.brief_state_json,
             title = excluded.title,
             workspace_root = excluded.workspace_root,
             default_model_selection_json = excluded.default_model_selection_json,
@@ -241,6 +249,7 @@ export const make = Effect.gen(function* () {
       const payload = event.payload;
       yield* upsertRow({
         ...row,
+        ...(payload.briefState === undefined ? {} : { briefState: payload.briefState }),
         ...(payload.title === undefined ? {} : { title: payload.title }),
         ...(payload.workspaceRoot === undefined ? {} : { workspaceRoot: payload.workspaceRoot }),
         ...(payload.defaultModelSelection === undefined

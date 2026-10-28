@@ -3,13 +3,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
-import { TextGenerationError } from "@t3tools/contracts";
+import { resolveProjectProviderInstanceEnabled, TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ThreadTitleLinks from "./ThreadTitleLinks.ts";
 import * as ModelRouting from "../privacy/ModelRouting.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 export type {
   BranchNameGenerationInput,
@@ -18,6 +19,8 @@ export type {
   CommitMessageGenerationResult,
   PrContentGenerationInput,
   PrContentGenerationResult,
+  ProjectBriefGenerationInput,
+  ProjectBriefGenerationResult,
   ReviewGuideGenerationInput,
   ReviewGuideGenerationResult,
   ThreadTitleGenerationInput,
@@ -29,6 +32,7 @@ export class TextGeneration extends Context.Service<TextGeneration, ProviderText
 ) {}
 
 type TextGenerationOp =
+  | "generateProjectBrief"
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
@@ -57,6 +61,7 @@ const resolveInstance = (
 export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const routing = yield* ModelRouting.ModelRouting;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const routed = Effect.fn("TextGeneration.route")(function* <
     I extends ModelRouting.ModelRequestContext & { modelSelection: ModelSelection },
@@ -77,6 +82,30 @@ export const make = Effect.gen(function* () {
           (cause) => new TextGenerationError({ operation, detail: cause.message, cause }),
         ),
       );
+    if (
+      operation === "generateProjectBrief" &&
+      !resolveProjectProviderInstanceEnabled(
+        yield* settings.getSettings.pipe(
+          Effect.mapError(
+            (cause) =>
+              new TextGenerationError({
+                operation,
+                detail:
+                  "Project brief provider settings are unavailable. Retry after reconnecting the environment.",
+                cause,
+              }),
+          ),
+        ),
+        input.projectId ?? null,
+        route.modelSelection.instanceId,
+      )
+    ) {
+      return yield* new TextGenerationError({
+        operation,
+        detail:
+          "The effective project brief provider is disabled for this project. Enable it or select another text-generation model.",
+      });
+    }
     const generation = yield* resolveInstance(registry, operation, route.modelSelection.instanceId);
     const result = yield* use(
       generation,
@@ -86,6 +115,17 @@ export const make = Effect.gen(function* () {
     return { ...result, modelSelection: route.modelSelection };
   });
   return TextGeneration.of({
+    generateProjectBrief: (input) =>
+      routed(
+        "generateProjectBrief",
+        {
+          projectId: input.projectId,
+          cwd: input.cwd,
+          sourceText: input.sourceText,
+          modelSelection: input.modelSelection,
+        },
+        (generation, value) => generation.generateProjectBrief(value),
+      ),
     generateCommitMessage: (input) =>
       routed("generateCommitMessage", input, (generation, value) =>
         generation.generateCommitMessage(value),

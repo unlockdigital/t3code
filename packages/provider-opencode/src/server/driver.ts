@@ -136,6 +136,11 @@ function selectOpenCodeRuntimeTextGeneration(
   v2: ProviderTextGeneration,
 ): ProviderTextGeneration {
   return {
+    generateProjectBrief: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1: v1.generateProjectBrief(input),
+        v2: v2.generateProjectBrief(input),
+      }),
     generateCommitMessage: (input) =>
       byOpenCodeRuntime(probe.get, {
         v1: v1.generateCommitMessage(input),

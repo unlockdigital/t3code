@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput, GitRunStackedActionInput } from "./git.ts";
 import {
   AuthEnvironmentMaintainScope,
+  AuthFilesystemReadScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
@@ -15,6 +16,10 @@ import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
+  [WS_METHODS.projectsGetBrief]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectsGenerateBrief]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectsClearBrief]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectsConfigureBrief]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverSetApprovalCoordinator]: AuthSettingsWriteScope,
   [WS_METHODS.n2itionStatus]: AuthSettingsWriteScope,
   [WS_METHODS.n2itionControl]: AuthSettingsWriteScope,
@@ -73,6 +78,8 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  if (method === WS_METHODS.projectsGenerateBrief)
+    return [AuthOrchestrationOperateScope, AuthFilesystemReadScope];
   if (method === WS_METHODS.serverCreateLocalThreadHandoff)
     return [AuthOrchestrationReadScope, AuthOrchestrationOperateScope];
   if (method === WS_METHODS.gitPreparePullRequestThread && input !== undefined) {

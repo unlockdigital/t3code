@@ -3,6 +3,7 @@ import {
   type OrchestrationProjectShell,
   ProjectId,
   type Project,
+  type ProjectBriefState,
   type ProjectCreatePayload,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
@@ -120,6 +121,12 @@ export class ProjectService extends Context.Service<
       { readonly project: Project; readonly created: boolean },
       ProjectServiceError
     >;
+    readonly updateBrief: (input: {
+      readonly projectId: ProjectId;
+      readonly commandId: CommandId;
+      readonly expectedRevision: string;
+      readonly state: ProjectBriefState;
+    }) => Effect.Effect<void, ProjectServiceError>;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
@@ -158,6 +165,7 @@ export const make = Effect.gen(function* () {
     enrichment: ProjectEnrichmentService.ProjectEnrichment | null,
   ): Project => ({
     id: row.projectId,
+    ...(row.briefState == null ? {} : { briefState: row.briefState }),
     title: row.title,
     workspaceRoot: row.workspaceRoot,
     repositoryIdentity: enrichment?.repositoryIdentity ?? null,
@@ -564,6 +572,14 @@ export const make = Effect.gen(function* () {
 
   return ProjectService.of({
     create,
+    updateBrief: (input) =>
+      commit({
+        type: "project.meta.update",
+        commandId: input.commandId,
+        projectId: input.projectId,
+        briefState: input.state,
+        expectedBriefRevision: input.expectedRevision,
+      }),
     bootstrap,
     update,
     delete: deleteProject,

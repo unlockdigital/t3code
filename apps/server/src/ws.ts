@@ -211,6 +211,7 @@ import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
+import * as ProjectBriefService from "./project/ProjectBriefService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
@@ -557,6 +558,10 @@ const CoreWsRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.n2itionStatus,
   WS_METHODS.n2itionControl,
   WS_METHODS.n2itionRefresh,
+  WS_METHODS.projectsGetBrief,
+  WS_METHODS.projectsGenerateBrief,
+  WS_METHODS.projectsClearBrief,
+  WS_METHODS.projectsConfigureBrief,
 );
 type WsRpcHandlerServices =
   | Crypto.Crypto
@@ -567,6 +572,7 @@ type WsRpcHandlerServices =
   | ProjectEnrichmentService.ProjectEnrichmentService
   | ProjectFaviconResolver.ProjectFaviconResolver
   | ProjectService.ProjectService
+  | ProjectBriefService.ProjectBriefService
   | ProjectStore.ProjectStoreV2
   | ServerConfig.ServerConfig
   | ServerSecretStore.ServerSecretStore
@@ -3188,6 +3194,42 @@ export const layerWsRpc = (
   ).pipe(
     Layer.merge(
       Layer.mergeAll(
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsGetBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId }) =>
+                service.get(projectId),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsGenerateBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId }) =>
+                service.generate(projectId),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsClearBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId }) =>
+                service.clear(projectId),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsConfigureBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId, contextFile }) =>
+                service.configure(projectId, contextFile),
+          ),
+        ),
         ServerWsRpcGroup.toLayerHandler(
           WS_METHODS.n2itionStatus,
           Effect.map(N2itionContext.N2itionContext, (service) => () => service.status),

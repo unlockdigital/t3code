@@ -189,7 +189,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
       const workingDirectory =
-        operation === "generateThreadTitle"
+        operation === "generateThreadTitle" || operation === "generateProjectBrief"
           ? yield* fileSystem
               .makeTempDirectoryScoped({ prefix: "t3code-claude-title-" })
               .pipe(
@@ -203,6 +203,17 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         claudeSettings.binaryPath || "claude",
         [
           "-p",
+          // Bare mode suppresses user/global instructions and memory as well as tool discovery.
+          ...(operation === "generateProjectBrief"
+            ? [
+                "--bare",
+                "--setting-sources",
+                "",
+                "--disallowedTools",
+                "*",
+                "--no-session-persistence",
+              ]
+            : []),
           "--output-format",
           "json",
           "--json-schema",
@@ -271,9 +282,11 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         return yield* new TextGenerationError({
           operation,
           detail:
-            detail.length > 0
-              ? `Claude CLI command failed: ${detail}`
-              : `Claude CLI command failed with code ${exitCode}.`,
+            operation === "generateProjectBrief"
+              ? "Claude project briefs require a CLI supporting --bare and explicit API or cloud-provider credentials in this provider environment. Subscription-only login is unavailable in isolated mode. Check the provider configuration and try again."
+              : detail.length > 0
+                ? `Claude CLI command failed: ${detail}`
+                : `Claude CLI command failed with code ${exitCode}.`,
         });
       }
 
@@ -325,5 +338,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     );
   });
 
-  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson);
+  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson, {
+    isolatedProjectBrief: true,
+  });
 });

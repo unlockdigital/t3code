@@ -80,6 +80,17 @@ export interface ThreadTitleGenerationResult extends ModelRequestResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface ProjectBriefGenerationInput {
+  readonly projectId: ProjectId;
+  readonly cwd: string;
+  readonly sourceText: string;
+  readonly modelSelection: ModelSelection;
+}
+
+export interface ProjectBriefGenerationResult extends ModelRequestResult {
+  readonly text: string;
+}
+
 export interface ReviewGuideStackLayer {
   readonly number: number;
   readonly title: string | null;
@@ -107,6 +118,10 @@ export type ReviewGuideGenerationResult = Omit<
   ModelRequestResult;
 
 export interface ProviderTextGeneration {
+  readonly generateProjectBrief: (
+    input: ProjectBriefGenerationInput,
+  ) => Effect.Effect<ProjectBriefGenerationResult, TextGenerationError>;
+
   readonly generateCommitMessage: (
     input: CommitMessageGenerationInput,
   ) => Effect.Effect<CommitMessageGenerationResult, TextGenerationError>;

@@ -80,6 +80,7 @@ const makeUnsupportedTextGeneration = (): ProviderTextGeneration => {
       }),
     );
   return {
+    generateProjectBrief: () => unsupported("generateProjectBrief"),
     generateCommitMessage: () => unsupported("generateCommitMessage"),
     generatePrContent: () => unsupported("generatePrContent"),
     generateBranchName: () => unsupported("generateBranchName"),

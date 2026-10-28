@@ -259,6 +259,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
       getDescriptor: unused(),
     }),
     Effect.provideService(ProjectService.ProjectService, {
+      updateBrief: unused,
       create: unused,
       bootstrap: unused,
       update: unused,

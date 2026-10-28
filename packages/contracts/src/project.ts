@@ -148,7 +148,52 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+export const ProjectBrief = Schema.Struct({
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(1000)),
+  generatedAt: IsoDateTime,
+  sources: Schema.Array(TrimmedNonEmptyString),
+  modelSelection: ModelSelection,
+});
+export type ProjectBrief = typeof ProjectBrief.Type;
+
+export const ProjectBriefState = Schema.Struct({
+  revision: Schema.String,
+  contextFile: Schema.NullOr(Schema.String),
+  saved: Schema.NullOr(ProjectBrief),
+});
+export type ProjectBriefState = typeof ProjectBriefState.Type;
+
+export class ProjectBriefError extends Schema.TaggedError<ProjectBriefError>()(
+  "ProjectBriefError",
+  {
+    reason: Schema.Literals([
+      "missing-project",
+      "generation-failed",
+      "storage-failed",
+      "stale",
+      "invalid-context",
+    ]),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "missing-project":
+        return "This project is unavailable.";
+      case "generation-failed":
+        return "Project brief generation failed. Check the selected title model and project sources, then retry.";
+      case "storage-failed":
+        return "The project brief could not be saved. Retry the action.";
+      case "stale":
+        return "The project changed while generating its brief. Retry to use its current sources.";
+      case "invalid-context":
+        return "Choose a project-relative Markdown file outside hidden directories and credential files.";
+    }
+  }
+}
+
 export const Project = Schema.Struct({
+  briefState: Schema.optional(ProjectBriefState),
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,

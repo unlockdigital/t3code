@@ -1,8 +1,15 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, type Project, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  CommandId,
+  type Project,
+  ProjectId,
+  ProviderInstanceId,
+  TextGenerationError,
+} from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -24,6 +31,8 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
+import * as ProjectBriefService from "./ProjectBriefService.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 
 const layerWorkspacePaths = Layer.succeed(WorkspacePaths.WorkspacePaths, {
@@ -61,6 +70,7 @@ const layerTestFor = (
     Layer.provideMerge(ProjectEnrichmentService.layer),
     Layer.provideMerge(layerWorkspacePaths),
     Layer.provideMerge(projectMetadataLayer),
+    Layer.provideMerge(ProjectStore.layer),
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(ServerSettings.layerTest()),
     Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "project-service-test-" })),
@@ -669,3 +679,133 @@ it.effect("rejects an update that waited on the lock while its project was delet
     );
   }).pipe(Effect.provide(layerProjectServiceDependencies)),
 );
+
+it.layer(layerTestFor(layerMetadata))("ProjectBriefService", (it) => {
+  it.effect("coalesces explicit brief requests and keeps clear empty after late completion", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        yield* fs.writeFileString(
+          `${root}/README.md`,
+          "A workspace for archaeological research. Its mission is accessible scholarship.",
+        );
+        const projects = yield* ProjectService.ProjectService;
+        const projectId = ProjectId.make("brief-coalesce");
+        yield* projects.create({
+          commandId: CommandId.make("create-brief-coalesce"),
+          projectId,
+          title: "Research",
+          workspaceRoot: root,
+        });
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const calls = yield* Ref.make(0);
+        yield* Effect.gen(function* () {
+          const briefs = yield* ProjectBriefService.ProjectBriefService;
+          assert.isNull((yield* briefs.get(projectId)).saved);
+          assert.equal(yield* Ref.get(calls), 0);
+          const first = yield* briefs.generate(projectId).pipe(Effect.result, Effect.forkChild);
+          yield* Deferred.await(entered);
+          const second = yield* briefs
+            .generate(projectId)
+            .pipe(Effect.result, Effect.forkChild({ startImmediately: true }));
+          const cleared = yield* briefs.clear(projectId);
+          assert.isNull(cleared.saved);
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(first);
+          yield* Fiber.join(second);
+          assert.isNull((yield* briefs.get(projectId)).saved);
+          assert.isNull(Option.getOrThrow(yield* projects.getById(projectId)).briefState?.saved);
+          assert.equal(yield* Ref.get(calls), 1);
+        }).pipe(
+          Effect.provide(ProjectBriefService.layer),
+          Effect.provideService(TextGeneration.TextGeneration, {
+            generateCommitMessage: () => Effect.die("unexpected"),
+            generatePrContent: () => Effect.die("unexpected"),
+            generateBranchName: () => Effect.die("unexpected"),
+            generateThreadTitle: () => Effect.die("unexpected"),
+            generateReviewGuide: () => Effect.die("unexpected"),
+            generateProjectBrief: (input) =>
+              Effect.gen(function* () {
+                yield* Ref.update(calls, (count) => count + 1);
+                assert.equal(input.cwd, yield* fs.realPath(root).pipe(Effect.orDie));
+                assert.equal(input.projectId, projectId);
+                assert.isFalse("threadId" in input);
+                yield* Deferred.succeed(entered, undefined);
+                yield* Deferred.await(release);
+                return {
+                  text: "A workspace for archaeological research.",
+                  modelSelection: input.modelSelection,
+                };
+              }),
+          }),
+        );
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "retains a successful brief on refresh failure and survives service reconstruction",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const root = yield* fs.makeTempDirectoryScoped();
+          yield* fs.writeFileString(
+            `${root}/README.md`,
+            "A research workspace. Its mission is accessible scholarship.",
+          );
+          const projects = yield* ProjectService.ProjectService;
+          const projectId = ProjectId.make("brief-refresh");
+          yield* projects.create({
+            commandId: CommandId.make("create-brief-refresh"),
+            projectId,
+            title: "Research",
+            workspaceRoot: root,
+          });
+          const calls = yield* Ref.make(0);
+          const program = Effect.gen(function* () {
+            const briefs = yield* ProjectBriefService.ProjectBriefService;
+            const saved = (yield* briefs.generate(projectId)).saved;
+            assert.equal(saved?.text, "A research workspace.");
+            const failed = yield* briefs.generate(projectId).pipe(Effect.result);
+            assert.isTrue(failed._tag === "Failure");
+            assert.deepEqual((yield* briefs.get(projectId)).saved, saved);
+          });
+          const generation = TextGeneration.TextGeneration.of({
+            generateCommitMessage: () => Effect.die("unexpected"),
+            generatePrContent: () => Effect.die("unexpected"),
+            generateBranchName: () => Effect.die("unexpected"),
+            generateThreadTitle: () => Effect.die("unexpected"),
+            generateReviewGuide: () => Effect.die("unexpected"),
+            generateProjectBrief: (input) =>
+              Effect.gen(function* () {
+                const call = yield* Ref.updateAndGet(calls, (count) => count + 1);
+                if (call > 1)
+                  return yield* new TextGenerationError({
+                    operation: "generateProjectBrief",
+                    detail: "fixture failure",
+                  });
+                return { text: "A research workspace.", modelSelection: input.modelSelection };
+              }),
+          });
+          yield* program.pipe(
+            Effect.provide(ProjectBriefService.layer),
+            Effect.provideService(TextGeneration.TextGeneration, generation),
+          );
+          yield* Effect.gen(function* () {
+            const briefs = yield* ProjectBriefService.ProjectBriefService;
+            assert.equal((yield* briefs.get(projectId)).saved?.text, "A research workspace.");
+            const cleared = yield* briefs.configure(projectId, "mission.md");
+            assert.isNull(cleared.saved);
+            assert.equal(cleared.contextFile, "mission.md");
+            assert.equal(yield* Ref.get(calls), 2);
+          }).pipe(
+            Effect.provide(ProjectBriefService.layer),
+            Effect.provideService(TextGeneration.TextGeneration, generation),
+          );
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+  );
+});

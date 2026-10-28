@@ -111,6 +111,7 @@ import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ProjectEnrichment from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
+import * as ProjectBriefService from "./project/ProjectBriefService.ts";
 import {
   layerWsRpc,
   subscribeOrchestrationV2Shell,
@@ -328,6 +329,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ProcessResourceMonitor.ProcessResourceMonitor)({}),
   Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
   Layer.mock(ProjectService.ProjectService)({}),
+  Layer.mock(ProjectBriefService.ProjectBriefService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(ProjectStore.ProjectStoreV2)({}),
   Layer.mock(ProviderAuthService.ProviderAuthService)({}),

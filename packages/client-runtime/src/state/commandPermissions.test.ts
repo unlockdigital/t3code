@@ -8,6 +8,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthEnvironmentMaintainScope,
+  AuthFilesystemReadScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
@@ -62,6 +63,47 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect("requires both destination grants for briefs while allowing saved reads", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const generate = createCommandPermissions(runtime, WS_METHODS.projectsGenerateBrief);
+        const read = createCommandPermissions(runtime, WS_METHODS.projectsGetBrief);
+        for (const scopes of [
+          [AuthOrchestrationReadScope],
+          [AuthOrchestrationOperateScope],
+          [AuthFilesystemReadScope],
+        ]) {
+          registry.set(
+            sessions(env),
+            AsyncResult.success({ ...grant(false), scopes, permissions: scopes }),
+          );
+          expect(registry.get(generate.permissionAtom(env))).toBe(false);
+          expect(yield* generate.authorize(registry, env).pipe(Effect.flip)).toMatchObject({
+            _tag: "EnvironmentAuthorizationError",
+          });
+        }
+        const scopes = [AuthFilesystemReadScope, AuthOrchestrationOperateScope];
+        registry.set(
+          sessions(env),
+          AsyncResult.success({ ...grant(false), scopes, permissions: scopes }),
+        );
+        expect(registry.get(generate.permissionAtom(env))).toBe(true);
+        yield* generate.authorize(registry, env);
+        registry.set(
+          sessions(other),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthOrchestrationReadScope],
+            permissions: [AuthOrchestrationReadScope],
+          }),
+        );
+        expect(registry.get(generate.permissionAtom(other))).toBe(false);
+        expect(registry.get(read.permissionAtom(other))).toBe(true);
+        yield* read.authorize(registry, other);
+      }),
+    ),
+  );
   it.effect("requires the selected environment's provider-management grant for billing keys", () =>
     Effect.scoped(
       Effect.gen(function* () {

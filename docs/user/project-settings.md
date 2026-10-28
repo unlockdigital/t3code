@@ -46,6 +46,26 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## Project briefs
+
+On web and desktop, open a sidebar thread's details and select its project name to read a
+shared project brief. The first explicit request generates a brief when the project has none.
+Hovering over a thread shows metadata without reading project files or starting generation.
+Refresh updates the saved text; Clear leaves an empty view until you choose Generate again.
+Saved text remains available from the client's project cache while its environment is offline.
+
+Briefs use the project's canonical workspace README and safe package manifest fields. The
+expanded view shows the source names and generation time. The text becomes visible to readers
+of that project on that environment. Select a supported text-generation model in Source Control
+settings; isolated brief generation currently supports Claude. Claude uses bare
+mode, which requires credentials available to that mode, such as an API key in its environment;
+subscription credentials from the keychain are unavailable there. Other providers
+return an explanation so you can choose a supported model.
+
+Use **Optional context source** in the brief view to select a project-relative Markdown file
+that documents mission or current emphasis when the README leaves those unclear. Changing the
+selected file clears the saved brief. Mobile controls and MCP brief tools are follow-ups.
+
 ## Worktree branch names
 
 In **Settings → Source Control → Worktree branch naming**, choose a static prefix,

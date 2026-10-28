@@ -1,3 +1,6 @@
+import { TextGenerationError } from "./git.ts";
+import { ProjectId } from "./baseSchemas.ts";
+import { ProjectBriefState, ProjectBriefError } from "./project.ts";
 import { N2itionStatus, N2itionControlInput, N2itionConnectionError } from "./n2itionConnection.ts";
 import {
   ProviderConnectTinfoilBillingInput,
@@ -410,6 +413,10 @@ export const WS_METHODS = {
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
+  projectsGetBrief: "projects.getBrief",
+  projectsGenerateBrief: "projects.generateBrief",
+  projectsClearBrief: "projects.clearBrief",
+  projectsConfigureBrief: "projects.configureBrief",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
 
@@ -1355,6 +1362,27 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsGetBriefRpc = Rpc.make(WS_METHODS.projectsGetBrief, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: ProjectBriefState,
+  error: Schema.Union([ProjectBriefError, EnvironmentAuthorizationError]),
+});
+const WsProjectsGenerateBriefRpc = Rpc.make(WS_METHODS.projectsGenerateBrief, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: ProjectBriefState,
+  error: Schema.Union([ProjectBriefError, TextGenerationError, EnvironmentAuthorizationError]),
+});
+const WsProjectsClearBriefRpc = Rpc.make(WS_METHODS.projectsClearBrief, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: ProjectBriefState,
+  error: Schema.Union([ProjectBriefError, EnvironmentAuthorizationError]),
+});
+const WsProjectsConfigureBriefRpc = Rpc.make(WS_METHODS.projectsConfigureBrief, {
+  payload: Schema.Struct({ projectId: ProjectId, contextFile: Schema.NullOr(Schema.String) }),
+  success: ProjectBriefState,
+  error: Schema.Union([ProjectBriefError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -2125,6 +2153,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateNewRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
+  WsProjectsGetBriefRpc,
+  WsProjectsGenerateBriefRpc,
+  WsProjectsClearBriefRpc,
+  WsProjectsConfigureBriefRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,

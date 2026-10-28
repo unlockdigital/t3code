@@ -3,9 +3,10 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { ProjectBriefState, ProjectScript, ReceivedProjectIcon } from "./project.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
+  briefState: Schema.optional(ProjectBriefState),
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,

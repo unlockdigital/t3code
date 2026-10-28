@@ -1,4 +1,6 @@
-import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
+import { ThreadHoverCard } from "../ThreadHoverCard";
+import { SidebarThreadPopover, SidebarProjectBriefButton } from "./SidebarThreadPopover";
+import { PopoverTrigger } from "../ui/popover";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -225,7 +227,7 @@ function SidebarProviderStack(props: {
   );
 }
 
-function SidebarThreadTooltip({
+function SidebarThreadMetadata({
   thread,
   project,
   projectDisplayName,
@@ -263,105 +265,100 @@ function SidebarThreadTooltip({
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   return (
-    <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
-      <ThreadHoverCard
-        title={thread.title}
-        footer={
-          supportsMultiplePullRequests && thread.pullRequests.length > 0 ? (
-            <div className="border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
-              <ThreadPullRequestsMiniList pullRequests={thread.pullRequests} />
-            </div>
-          ) : null
-        }
-      >
-        {projectDisplayName ? (
-          <div className="flex min-w-0 items-center gap-2">
-            {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
-            <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+    <ThreadHoverCard
+      title={thread.title}
+      footer={
+        supportsMultiplePullRequests && thread.pullRequests.length > 0 ? (
+          <div className="border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
+            <ThreadPullRequestsMiniList pullRequests={thread.pullRequests} />
           </div>
-        ) : null}
-        {environmentLabel ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <EnvironmentMachineIcon
-              kind={environmentMachine}
-              className="size-3 shrink-0 stroke-muted-foreground"
-            />
-            <div className="min-w-0 truncate text-foreground/75">{environmentLabel}</div>
+        ) : null
+      }
+    >
+      {projectDisplayName ? (
+        <div className="flex min-w-0 items-center gap-2">
+          {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
+          <SidebarProjectBriefButton>{projectDisplayName}</SidebarProjectBriefButton>
+        </div>
+      ) : null}
+      {environmentLabel ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <EnvironmentMachineIcon
+            kind={environmentMachine}
+            className="size-3 shrink-0 stroke-muted-foreground"
+          />
+          <div className="min-w-0 truncate text-foreground/75">{environmentLabel}</div>
+        </div>
+      ) : null}
+      {thread.branch ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <GitBranchIcon className="size-3 shrink-0 stroke-muted-foreground" />
+          <MiddleTruncate value={thread.branch} className="flex" />
+        </div>
+      ) : null}
+      {branchMismatch ? (
+        <div className="flex min-w-0 items-start gap-2 text-warning">
+          <CircleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
+          <div className="min-w-0 flex-1 wrap-break-word">
+            You're currently checked out on another branch.
           </div>
-        ) : null}
-        {thread.branch ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <GitBranchIcon className="size-3 shrink-0 stroke-muted-foreground" />
-            <MiddleTruncate value={thread.branch} className="flex" />
+        </div>
+      ) : null}
+      {driverKind ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <ProviderInstanceIcon
+            driverKind={driverKind}
+            instanceId={modelInstanceId}
+            displayName={
+              providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
+            }
+            accentColor={providerEntry?.accentColor}
+            acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
+            acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
+            showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
+            badgeContent="none"
+            badgeClassName="h-2 min-w-2 px-0"
+            iconClassName="size-3 shrink-0 grayscale opacity-60"
+          />
+          <div className="min-w-0 truncate text-foreground/75">
+            {showInstanceBadge && providerEntry
+              ? `${modelLabel} · ${providerEntry.displayName}`
+              : modelLabel}
           </div>
-        ) : null}
-        {branchMismatch ? (
-          <div className="flex min-w-0 items-start gap-2 text-warning">
-            <CircleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
-            <div className="min-w-0 flex-1 wrap-break-word">
-              You're currently checked out on another branch.
-            </div>
+        </div>
+      ) : null}
+      {previousProviderNames.length > 0 ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <ArrowRightLeftIcon className="size-3 shrink-0 stroke-muted-foreground" />
+          <div className="min-w-0 truncate text-foreground/75">
+            Handed off from {previousProviderNames.join(", ")}
           </div>
-        ) : null}
-        {driverKind ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <ProviderInstanceIcon
-              driverKind={driverKind}
-              instanceId={modelInstanceId}
-              displayName={
-                providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
-              }
-              accentColor={providerEntry?.accentColor}
-              acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
-              acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
-              showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
-              badgeContent="none"
-              badgeClassName="h-2 min-w-2 px-0"
-              iconClassName="size-3 shrink-0 grayscale opacity-60"
-            />
-            <div className="min-w-0 truncate text-foreground/75">
-              {showInstanceBadge && providerEntry
-                ? `${modelLabel} · ${providerEntry.displayName}`
-                : modelLabel}
-            </div>
+        </div>
+      ) : null}
+      {terminalStatus ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <TerminalIcon aria-hidden className={cn("size-3 shrink-0", terminalStatus.colorClass)} />
+          <div className="min-w-0 truncate text-foreground/75">
+            {terminalProcessLabel(terminalProcessCount)}
           </div>
-        ) : null}
-        {previousProviderNames.length > 0 ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <ArrowRightLeftIcon className="size-3 shrink-0 stroke-muted-foreground" />
-            <div className="min-w-0 truncate text-foreground/75">
-              Handed off from {previousProviderNames.join(", ")}
-            </div>
+        </div>
+      ) : null}
+      {thread.runtime?.lastError ? (
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-2",
+            thread.runtime.lastErrorClass === "usage_limit" ? "text-warning" : "text-error",
+          )}
+        >
+          <CircleAlertIcon className="size-3 shrink-0 stroke-current" />
+          <div className="min-w-0 truncate">
+            {thread.runtime.lastErrorClass === "usage_limit"
+              ? "Usage limit reached"
+              : "Error occurred"}
           </div>
-        ) : null}
-        {terminalStatus ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <TerminalIcon
-              aria-hidden
-              className={cn("size-3 shrink-0", terminalStatus.colorClass)}
-            />
-            <div className="min-w-0 truncate text-foreground/75">
-              {terminalProcessLabel(terminalProcessCount)}
-            </div>
-          </div>
-        ) : null}
-        {thread.runtime?.lastError ? (
-          <div
-            className={cn(
-              "flex min-w-0 items-center gap-2",
-              thread.runtime.lastErrorClass === "usage_limit" ? "text-warning" : "text-error",
-            )}
-          >
-            <CircleAlertIcon className="size-3 shrink-0 stroke-current" />
-            <div className="min-w-0 truncate">
-              {thread.runtime.lastErrorClass === "usage_limit"
-                ? "Usage limit reached"
-                : "Error occurred"}
-            </div>
-          </div>
-        ) : null}
-      </ThreadHoverCard>
-    </ThreadHoverCardPopup>
+        </div>
+      ) : null}
+    </ThreadHoverCard>
   );
 }
 
@@ -726,8 +723,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const isRemote = thread.environmentId !== props.currentEnvironmentId;
   const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
 
-  const detailsTooltip = (
-    <SidebarThreadTooltip
+  const detailsMetadata = (
+    <SidebarThreadMetadata
       thread={thread}
       project={props.project}
       projectDisplayName={props.projectDisplayName}
@@ -1086,8 +1083,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           sortable?.isDragging && "relative z-20",
         )}
       >
-        <Tooltip disabled={sortable?.isDragging}>
-          <TooltipTrigger
+        <SidebarThreadPopover
+          key={`${thread.environmentId}:${thread.projectId}`}
+          environmentId={thread.environmentId}
+          projectId={thread.projectId}
+          project={props.project}
+          metadata={detailsMetadata}
+          disabled={sortable?.isDragging}
+        >
+          <PopoverTrigger
+            openOnHover
+            delay={300}
+            closeDelay={120}
+            nativeButton={false}
             render={
               <div
                 ref={rowRef}
@@ -1226,9 +1234,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
             {props.sweepAction !== null ? dragDestination : null}
             {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
-          </TooltipTrigger>
-          {detailsTooltip}
-        </Tooltip>
+          </PopoverTrigger>
+        </SidebarThreadPopover>
       </li>
     );
   }
@@ -1245,8 +1252,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         sortable?.isDragging && "relative z-20",
       )}
     >
-      <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
-        <TooltipTrigger
+      <SidebarThreadPopover
+        key={`${thread.environmentId}:${thread.projectId}`}
+        environmentId={thread.environmentId}
+        projectId={thread.projectId}
+        project={props.project}
+        metadata={detailsMetadata}
+        disabled={snoozeMenuOpen || sortable?.isDragging}
+      >
+        <PopoverTrigger
+          openOnHover
+          delay={300}
+          closeDelay={120}
+          nativeButton={false}
           render={
             <div
               ref={rowRef}
@@ -1489,9 +1507,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
-        </TooltipTrigger>
-        {detailsTooltip}
-      </Tooltip>
+        </PopoverTrigger>
+      </SidebarThreadPopover>
     </li>
   );
 });
@@ -1584,8 +1601,33 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
   }, [isFileDragOver]);
   return (
     <li role="presentation" className="list-none" {...fileDropHandlers}>
-      <Tooltip>
-        <TooltipTrigger
+      <SidebarThreadPopover
+        key={`${thread.environmentId}:${thread.projectId}`}
+        environmentId={thread.environmentId}
+        projectId={thread.projectId}
+        project={props.project}
+        metadata={
+          <SidebarThreadMetadata
+            thread={thread}
+            project={props.project}
+            projectDisplayName={props.projectDisplayName}
+            environmentLabel={props.environmentLabel}
+            environmentMachine={props.environmentMachine}
+            providerEntry={providerEntry}
+            providerEntryByInstanceId={props.providerEntryByInstanceId}
+            showInstanceBadge={showInstanceBadge}
+            modelInstanceId={modelInstanceId}
+            modelLabel={modelLabel}
+            branchMismatch={branchMismatch}
+            terminalStatus={terminalStatus}
+            terminalProcessCount={runningTerminalIds.length}
+          />
+        }
+      >
+        <PopoverTrigger
+          openOnHover
+          delay={300}
+          closeDelay={120}
           render={
             <button
               ref={rowRef}
@@ -1659,23 +1701,8 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
               />
             ) : null}
           </span>
-        </TooltipTrigger>
-        <SidebarThreadTooltip
-          thread={thread}
-          project={props.project}
-          projectDisplayName={props.projectDisplayName}
-          environmentLabel={props.environmentLabel}
-          environmentMachine={props.environmentMachine}
-          providerEntry={providerEntry}
-          providerEntryByInstanceId={props.providerEntryByInstanceId}
-          showInstanceBadge={showInstanceBadge}
-          modelInstanceId={modelInstanceId}
-          modelLabel={modelLabel}
-          branchMismatch={branchMismatch}
-          terminalStatus={terminalStatus}
-          terminalProcessCount={runningTerminalIds.length}
-        />
-      </Tooltip>
+        </PopoverTrigger>
+      </SidebarThreadPopover>
     </li>
   );
 });

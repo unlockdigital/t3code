@@ -35,6 +35,56 @@ const cloudSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "synthetic-cloud-model",
 };
+
+it.effect("denies a disabled effective project brief provider before invoking its adapter", () =>
+  Effect.gen(function* () {
+    const text = yield* TextGeneration.TextGeneration;
+    expect(
+      yield* text
+        .generateProjectBrief({
+          projectId,
+          cwd: "/canonical/project",
+          sourceText: "Bounded documented project context.",
+          modelSelection: cloudSelection,
+        })
+        .pipe(Effect.flip),
+    ).toMatchObject({ _tag: "TextGenerationError", detail: expect.stringContaining("disabled") });
+  }).pipe(
+    Effect.provide(
+      Layer.effect(TextGeneration.TextGeneration, TextGeneration.make).pipe(
+        Layer.provide(
+          Layer.mock(ModelRouting.ModelRouting)({
+            backgroundModel: () =>
+              Effect.succeed({ modelSelection: cloudSelection, private: false }),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            getInstance: () => Effect.die("Disabled providers must never be invoked"),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
+            resolveLink: () => Effect.die("Briefs must never resolve source links"),
+          }),
+        ),
+        Layer.provide(
+          ServerSettingsService.layerTest({
+            ...DEFAULT_SERVER_SETTINGS,
+            providerInstances: {
+              [cloudSelection.instanceId]: {
+                driver: ProviderDriverKind.make("codex"),
+                displayName: "Disabled",
+                enabled: false,
+                config: {},
+              },
+            },
+          }),
+        ),
+      ),
+    ),
+  ),
+);
 const instance = {
   driver: ProviderDriverKind.make("opencode"),
   displayName: "Synthetic private connector",
@@ -241,6 +291,11 @@ it.effect(
             calls.push({ operation, instanceId });
           });
         return {
+          generateProjectBrief: (input) => {
+            expect(input).toMatchObject({ projectId, cwd: f.cwd, sourceText: "Bounded sources" });
+            expect("threadId" in input).toBe(false);
+            return record("brief").pipe(Effect.as({ text: "A saved project brief." }));
+          },
           generateThreadTitle: () => record("title").pipe(Effect.as({ title: "Synthetic title" })),
           generateCommitMessage: () =>
             record("commit").pipe(Effect.as({ subject: "Synthetic", body: "" })),
@@ -286,6 +341,12 @@ it.effect(
           diffPatch: "Synthetic",
         });
         yield* text.generateBranchName({ ...common, message: "Synthetic branch" });
+        const brief = yield* text.generateProjectBrief({
+          ...common,
+          projectId,
+          sourceText: "Bounded sources",
+        });
+        expect(brief.modelSelection).toEqual(privateSelection);
         const guide = yield* text.generateReviewGuide({
           ...common,
           number: 1,
@@ -301,6 +362,7 @@ it.effect(
           "commit",
           "pr",
           "branch",
+          "brief",
           "review",
         ]);
         expect(calls.every(({ instanceId }) => instanceId === privateSelection.instanceId)).toBe(
@@ -317,7 +379,7 @@ it.effect(
             text.generateThreadTitle({ ...common, message: "Synthetic blocked title" }),
           ),
         ).toMatchObject({ _tag: "TextGenerationError" });
-        expect(calls).toHaveLength(5);
+        expect(calls).toHaveLength(6);
       }).pipe(Effect.provide(layerGeneration));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
