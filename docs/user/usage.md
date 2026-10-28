@@ -4,6 +4,9 @@ Open **Usage** from the sidebar or the command palette, or press `mod+u` on web 
 desktop when the terminal is not focused. Customize `usage.open` in
 **Settings → Keybindings**.
 
+On the limits view, use **Order** to sort accounts or arrange them into your own order. Your
+custom order stays available when you switch sorting presets and is saved in this browser.
+
 ## Understand your usage
 
 **Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, and Cursor history
