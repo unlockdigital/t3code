@@ -148,4 +148,38 @@ describe("GitHubCredentials", () => {
       );
     }).pipe(Effect.provide(layer));
   });
+
+  it.effect("never hands a token to a host that can redirect an API request", () => {
+    vi.stubEnv("GH_TOKEN", "env-token");
+    const { layer, calls } = harness();
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      for (const host of [
+        "evil.com#.ghe.com",
+        "evil.com/.ghe.com",
+        "user@x.ghe.com",
+        "[::1]@evil.com",
+        "[::1].ghe.com",
+        "[not-ipv6]:8443",
+        "[::1]:65536",
+      ]) {
+        expect(GitHubCredentials.environmentToken(host, { GH_TOKEN: "env-token" })).toBeNull();
+        expect((yield* Effect.flip(credentials.get(host)))._tag).toBe("GitHubNotSignedInError");
+      }
+      expect(calls).toEqual([]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("retains enterprise credentials for a configured IPv6 host", () => {
+    vi.stubEnv("GH_HOST", "[::1]:8443");
+    vi.stubEnv("GH_ENTERPRISE_TOKEN", "enterprise-token");
+    const { layer, calls } = harness();
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      const credential = yield* credentials.get("[::1]:8443");
+      expect(Redacted.value(credential.token)).toBe("enterprise-token");
+      expect(credential.source).toBe("env");
+      expect(calls).toEqual([]);
+    }).pipe(Effect.provide(layer));
+  });
 });

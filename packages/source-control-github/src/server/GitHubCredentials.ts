@@ -1,3 +1,5 @@
+import * as NodeNet from "node:net";
+
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -90,6 +92,20 @@ function normalizeHost(host: string): string {
   return host.trim().toLowerCase();
 }
 
+const HOSTNAME =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/;
+
+/** API URLs are built from the host text, so reject anything that can redirect a token. */
+export function isGitHubHost(host: string): boolean {
+  if (HOSTNAME.test(host)) return true;
+  const ipv6 = /^\[([^\]]+)\](?::(\d{1,5}))?$/.exec(host);
+  return (
+    ipv6 !== null &&
+    NodeNet.isIP(ipv6[1]!) === 6 &&
+    (ipv6[2] === undefined || Number(ipv6[2]) <= 65535)
+  );
+}
+
 /** Hosts gh treats as GitHub.com-like for `GH_TOKEN`: github.com and GHE.com data residency. */
 function isGitHubDotCom(host: string): boolean {
   return host === "github.com" || host.endsWith(".ghe.com");
@@ -104,6 +120,7 @@ export function environmentToken(
   host: string,
   env: Readonly<Record<string, string | undefined>>,
 ): string | null {
+  if (!isGitHubHost(host)) return null;
   const names = isGitHubDotCom(host)
     ? ["GH_TOKEN", "GITHUB_TOKEN"]
     : env.GH_HOST?.trim().toLowerCase() === host
@@ -220,6 +237,7 @@ export const make = Effect.gen(function* () {
   return GitHubCredentials.of({
     get: Effect.fn("GitHubCredentials.get")(function* (rawHost) {
       const host = normalizeHost(rawHost);
+      if (!isGitHubHost(host)) return yield* new GitHubNotSignedInError({ host });
       const choice = yield* hostChoice(host);
       if (choice?.enabled === false) {
         return yield* new GitHubHostDisabledError({ host });
