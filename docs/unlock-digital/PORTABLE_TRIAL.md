@@ -1,6 +1,8 @@
 # Unlock Digital: independent Mac trial
 
-Use the Apple-silicon fork preview on an M-series Mac with fresh application state and provider sign-ins. Each preview identifies its source commit and includes a checksum manifest. The upstream release base remains v0.1.2 while selected maintenance fixes and the fork's own features are integrated.
+This is an **Unlock Digital fork** preview, not an upstream T3 release. The fork's upstream base remains `pingdotgg/t3code` `v0.1.2` at `044f07257c9684ae4543bd1e1ebf9c394e9e3830`, with selected backports and fork changes layered on it. The fork's plain numeric `v0.1.3` is distinct from upstream `v0.1.3` at `d2c440312e5f39d59827ed466838a623516454d6`. Identify each actual build by its fork repository, full source SHA, and package version. See [release identity and safe comparisons](UPSTREAM_SYNC.md#fork-and-upstream-release-identity).
+
+The preview workflow only accepts tags shaped like `vX.Y.Z-unlock.N-preview.YYYYMMDD.N` and derives the package version from the full tag suffix. Keep that preview tag and package version distinct from the requested human-facing fork version `v0.1.3`. Each completed preview should identify its exact source commit in `unlockdigital/t3code` and include a checksum manifest.
 
 ## Download and install
 
@@ -33,7 +35,7 @@ N2ition is optional and starts without a live grant on a clean installation. An 
 - Quit normally, reopen through the trial launcher, and confirm that the trial conversation and project remain available.
 - Check permission-denied and revoked-coordinator cases before using delegated approval on important work. Qualify optional connectors before sharing private context.
 
-Keep the test outcome, macOS version, architecture, release tag, and any reproducible failure with your trial notes. Installer integrity and source-machine checks establish the delivered build; this destination workflow establishes its usability on the work Mac.
+These steps describe checksum verification and destination-side smoke checks; they do not record completed installer validation. Keep the observed test outcome, macOS version, architecture, release tag, full source SHA, and any reproducible failure with your trial notes.
 
 ## Recovery
 
