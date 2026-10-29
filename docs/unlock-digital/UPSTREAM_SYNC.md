@@ -11,6 +11,21 @@
 - Upstream development is available through `upstream/main`; the fork keeps one maintained public branch.
 - `remote.pushDefault` is `origin`.
 
+## Fork and upstream release identity
+
+The plain numeric version `v0.1.3` identifies an **Unlock Digital fork** release in `unlockdigital/t3code`. Identify a completed fork release by its repository, tag, and full commit SHA from `unlockdigital/t3code`; do not infer its source from this worktree's current `HEAD`. A draft may record a target commit before its tag exists; verify the target, tag, and artifacts together before publishing.
+
+The fork's recorded upstream base remains `pingdotgg/t3code` `v0.1.2` at `044f07257c9684ae4543bd1e1ebf9c394e9e3830`. Selected backports and fork changes do not make the fork an upstream `v0.1.3` release. The official upstream `v0.1.3` tag resolves to commit `d2c440312e5f39d59827ed466838a623516454d6`. In the reviewed checkout, the unqualified local `refs/tags/v0.1.3` resolves to that upstream commit; it is not a tag for the Unlock Digital release.
+
+Keep upstream tag inspection in a separate upstream checkout or fetch it into a distinct namespace, then compare full commit SHAs and repository-qualified commit links. For example, in the fork checkout:
+
+```sh
+git fetch --no-tags upstream refs/tags/v0.1.3:refs/remotes/upstream/tags/v0.1.3
+git rev-parse 'refs/remotes/upstream/tags/v0.1.3^{commit}'
+```
+
+Inspect the existing unqualified tag before using it; do not overwrite it to resolve a collision.
+
 ## Update procedure
 
 Use stable upstream releases for routine maintenance. Prioritize applicable security fixes; assess a published upstream fix separately when it precedes a stable release. Keep each customization in a focused commit and use existing settings and skills where they provide the requested behavior. Accepted upstream contributions can reduce the custom changes maintained here.
@@ -29,11 +44,11 @@ The update request authorizes this maintenance sequence. Monitoring remains obse
 
 Allow the fork a full trial week before proposing contributions. Review proven changes for upstream contribution starting October 30, 2026. Keep security maintenance moving during that trial. Preserve focused customization commits when an upstream contribution lands, and retire their duplicate implementation through an ordinary follow-up change after the next upstream integration.
 
-## Full v0.1.3 integration gates
+## Upstream v0.1.3 integration gates
 
-The reviewed official v0.1.3 release is `d2c440312e5f39d59827ed466838a623516454d6`. Focused backports retain the recorded v0.1.2 base until the complete release is merged and verified. Start each full candidate from the current committed fork, and preserve the active tracked and untracked work separately before reconciling it.
+The reviewed official upstream `pingdotgg/t3code` `v0.1.3` release is `d2c440312e5f39d59827ed466838a623516454d6`. Focused backports retain the fork's recorded upstream `v0.1.2` base until the complete upstream release is merged and verified. Start each full candidate from the current committed fork, and preserve the active tracked and untracked work separately before reconciling it.
 
-- **Migration history:** this fork records migration 68 as `WorkflowReviews`; v0.1.3 uses 68 for `ShellStopRequestIndex` and 69 for `ThreadMessageSearch`. Existing fork databases have already applied their migration 68. Build and test an explicit history bridge against fresh databases, fork-68 snapshots, and every upstream history the candidate supports. Verify the workflow tables, stop-request index, and search schema together before opening copied application data with the full candidate. Preserve compatible source and data for rollback.
+- **Migration history:** this fork records migration 68 as `WorkflowReviews`; upstream `v0.1.3` uses 68 for `ShellStopRequestIndex` and 69 for `ThreadMessageSearch`. The separate project-brief candidate uses 69 for `ProjectBrief`. Existing fork databases have already applied their migration 68. Build and test an explicit history bridge against fresh databases, fork-68 snapshots, project-brief histories if adopted, and every upstream history the candidate supports. Verify the workflow tables, stop-request index, search schema, and any adopted project-brief schema together before opening copied application data with the full candidate. Preserve compatible source and data for rollback.
 - **Authorization and private routing:** keep authoritative lineage lookup before creating or rotating MCP credentials, retain restricted credentials on lookup failure, and preserve model/account destination checks. Verify child direct-call denial and private routing after resolving provider-session, orchestration, and MCP conflicts.
 - **Dependencies:** reconcile the workspace, patches, and frozen lockfile together. Preserve the fork's security updates to the MCP SDK, stream-json, KaTeX, and sharp. Assess and remediate the Undici and Zod advisory ranges per runtime consumer; the configured Node runtime's embedded HTTP library and npm dependency versions need separate checks. Recheck current vendor guidance during that work.
 - **Client data bounds:** a Stop-state repair must retain the ordinary thread projection's bounded command/tool payloads in transit and persisted caches. Verify that settlement repairs preserve status without automatically retaining on-demand details.
@@ -70,7 +85,7 @@ About labels the desktop package version separately from the upstream release ba
 
 Source builds use manual rebuilds initially. Development-mode desktop updating is disabled by the application; packaged upstream auto-updates belong to the official release app. A future packaged fork needs its own explicit update distribution. Keep desktop and server protocol versions compatible.
 
-The fork's [desktop preview workflow](../../.github/workflows/fork-release.yml) reuses upstream's desktop and CLI packaging. Tag pushes build Apple-silicon macOS; manual dispatch can select `platform=all` for all six desktop targets. It accepts existing tags shaped like `v0.1.2-unlock.2-preview.20261030.1`, verifies that the tagged commit belongs to the default branch and has a successful `Check` result, and creates a draft prerelease with `SHA256SUMS`. A tag push or manual dispatch starts the build. Use a fresh tag for each attempt that produced a release. Complete native platform smoke checks before publishing its draft. These initial artifacts are unsigned, use manual installation, and carry no automatic update feed. Preview packages retain upstream desktop profile identity. Use a disposable OS account or VM for side-by-side testing and a separate `T3CODE_HOME` for server state. Signing, a production update feed, T3 Connect relay configuration, npm publication, and hosted deployments require their own setup.
+The fork's [desktop preview workflow](../../.github/workflows/fork-release.yml) reuses upstream's desktop and CLI packaging. It accepts only tags shaped like `vX.Y.Z-unlock.N-preview.YYYYMMDD.N`; its package version is derived from that entire tag after removing the leading `v`. A plain `v0.1.3` tag is not accepted by this preview workflow, so keep the requested human-facing Unlock Digital version distinct from a preview tag and its package version. Tag pushes build Apple-silicon macOS; manual dispatch can select `platform=all` for all six desktop targets. The workflow verifies that the tagged commit belongs to the default branch and has a successful `Check` result, then creates a draft prerelease with `SHA256SUMS`. A tag push or manual dispatch starts the build. Complete native platform smoke checks before publishing its draft. These initial artifacts are unsigned, use manual installation, and carry no automatic update feed. Preview packages retain upstream desktop profile identity. Use a disposable OS account or VM for side-by-side testing and a separate `T3CODE_HOME` for server state. Signing, a production update feed, T3 Connect relay configuration, npm publication, and hosted deployments require their own setup.
 
 Rollback restores both a source checkpoint and a database backup compatible with it. Preserve newer state separately before restoring a backup.
 

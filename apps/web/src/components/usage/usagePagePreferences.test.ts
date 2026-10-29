@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { usageAccountOrderId } from "./usageAccountOrder";
 import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
 
 const key = "t3code:usage-page-preferences:v1";
@@ -39,11 +40,25 @@ describe("Usage page preferences", () => {
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 30 });
   });
 
+  it("round-trips account order and preserves it across preset changes", () => {
+    saveUsagePagePreferences({
+      metric: "limits",
+      windowDays: 30,
+      accountSort: "custom",
+      accountOrder: [usageAccountOrderId("env-a/provider-a"), usageAccountOrderId("env-b/hub-b")],
+    });
+    const saved = readUsagePagePreferences();
+    saveUsagePagePreferences({ ...saved, accountSort: "name" });
+    expect(readUsagePagePreferences()).toEqual({ ...saved, accountSort: "name" });
+  });
+
   // regression: #10189 an invalid saved usage selection was never replaced
   it.each([
     "not-json",
     '{"metric":"unknown","windowDays":7}',
     '{"metric":"cost","windowDays":365}',
+    '{"metric":"limits","windowDays":30,"accountOrder":["email@example.com"]}',
+    '{"metric":"limits","windowDays":30,"accountSort":"invalid"}',
   ])("replaces invalid preferences on the next save: %s", (value) => {
     values.set(key, value);
     expect(readUsagePagePreferences()).toEqual({ metric: "limits", windowDays: 30 });

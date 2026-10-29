@@ -501,6 +501,33 @@ describe("GitHubSourceControlProvider writes", () => {
       assert.strictEqual(requests.length, 2);
     });
   });
+
+  it.effect("rejects a deceptive repository host before making a REST request", () => {
+    const requests: string[] = [];
+    return Effect.gen(function* () {
+      const gh = yield* makeProvider({
+        rest: (input) =>
+          Effect.sync(() => {
+            requests.push(input.host);
+            return restResponse({
+              full_name: "acme/web",
+              html_url: "https://github.com/acme/web",
+              ssh_url: "git@github.com:acme/web.git",
+            });
+          }),
+      });
+      for (const repository of [
+        "evil.com#.ghe.com/acme/web",
+        "evil.com?.ghe.com/acme/web",
+        "user@evil.com/acme/web",
+      ]) {
+        yield* Effect.flip(gh.getRepositoryCloneUrls({ cwd: "/repo", repository }));
+      }
+      assert.deepStrictEqual(requests, []);
+      yield* gh.getRepositoryCloneUrls({ cwd: "/repo", repository: "github.com/acme/web" });
+      assert.deepStrictEqual(requests, ["github.com"]);
+    });
+  });
 });
 
 describe("GitHubSourceControlProvider.checkoutChangeRequest", () => {

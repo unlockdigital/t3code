@@ -1,3 +1,4 @@
+import type { UsagePagePreferences } from "./usagePagePreferences";
 import {
   ANTIGRAVITY_USAGE_SCOPE,
   collectLimitAccounts,
@@ -605,6 +606,8 @@ export function UsageLimitsPooled({
   cursorPrompt,
   density,
   onDensityChange,
+  preferences,
+  onPreferencesChange,
   historyEnvironments,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
@@ -612,6 +615,8 @@ export function UsageLimitsPooled({
   readonly cursorPrompt?: ReactNode;
   readonly density: "compact" | "comfortable";
   readonly onDensityChange: (density: "compact" | "comfortable") => void;
+  readonly preferences: UsagePagePreferences;
+  readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly historyEnvironments: readonly import("@t3tools/shared/usageLimits").UsageAccountHistoryEnvironment[];
 }) {
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
@@ -626,6 +631,8 @@ export function UsageLimitsPooled({
         now={now}
         density={density}
         onDensityChange={onDensityChange}
+        preferences={preferences}
+        onPreferencesChange={onPreferencesChange}
         historyEnvironments={historyEnvironments}
       />
       {accounts.length === 0 && notices.length === 0 && !cursorPrompt ? (
