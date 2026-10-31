@@ -1,19 +1,26 @@
-# Unlock Digital: setup status
+# Unlock Digital: current direction and setup status
 
-Updated October 23, 2026, America/Chicago.
+Updated October 28, 2026, America/Chicago.
 
-The verified MIT-licensed v0.1.2 source is installed in the Unlock Digital fork with full history, separate customization and baseline branches, an isolated pinned toolchain, a repeatable desktop launcher, and a dedicated application data directory. Optional product telemetry and tracing are disabled for this local development instance. The fork is registered inside T3 as a project for agent-driven IDE improvements.
+## Current priority
 
-Both Codex subscription accounts and the Google account completed tasks. The separate Anthropic API-credit route completed a small check. Claude Enterprise authenticated and reported a fully used monthly spending budget; the user chose to keep it connected. Source changes clarify five-hour windows, the monthly spending limit, Google's quota scope, and the API billing route.
+Improve T3 through features useful in the owner's everyday work, then carry successful adaptations into the Unlock Digital offering. The next scoped feature is a concise project brief accessible from thread metadata: project contents, mission and documented current emphasis, generated explicitly using the project's title-generation model setting and cached for later reading.
 
-Same-thread model, account, and cross-provider transitions preserved the sample conversation's decisions. Cross-provider delegation and stopping a child task passed. Restart persistence passed: the saved sample runs remained intact and the sample files were unchanged. Required changed-file checks passed for formatting, lint, unused files/dependencies, generated GraphQL operations, affected-package typechecks, and four test files. The restarted app reports the new five-hour and monthly labels plus API-key authentication and the Anthropic billing link.
+The brief is proposed and independently design-reviewed. Implementation and activation remain future checkpoints. The owner has deferred the work-Mac trial, further Teddy/mobile/Telegram work and the previously recommended guided project workflow. Existing services and schedules retain their state.
 
-Next account work: follow [Kimi K3 setup and trial](KIMI_SETUP.md) to install a supported OpenCode release, try OpenCode Go at $10/month, and compare a capped Tinfoil API route through its verifying proxy. NEAR AI also lists Kimi K3 through an attested third-party host and remains an optional follow-up. The $40 Go Plus tier follows measured usage. Account activation, actual model access, exact Tinfoil pricing, and runtime privacy checks remain pending.
+## Recorded product state
 
-The GitHub Copilot Education route remains available for a later account session. Check existing entitlement before enrollment, then configure its supported OpenCode connection. OpenRouter is an optional future route. Enrollment links and billing distinctions are recorded in PROVIDERS.md.
+- **Implemented:** the v0.1.2-based fork includes Home/navigation, usage clarity, upstream maintenance and the consolidated independent-preview features. Canonical head `6b9dc6702e` and preview source `9accbf53ff` had matching source trees at the October 27 activation checkpoint. Full upstream v0.1.3 adoption retains its separate integration gates.
+- **Activated:** October 27 local receipts record the release-packaging checkout running with preserved configured account inventory, threads, messages and migration history. This is dated activation evidence; fresh runtime health was outside the October 28 roadmap pass.
+- **Tested:** saved qualification records report exact-source CI, 34 focused dependency tests, typechecks for 32 affected packages, and isolated runtime/desktop smokes. Earlier usage, Home, upstream and provider checks retain their original revision-specific scope.
+- **Published preview:** the Apple-silicon `.4` preview has a dedicated launcher, source identity and checksum companions. Receiving-Mac provider-task, delegation, Stop and persistence acceptance remains open and deferred. Follow [the portable trial procedure](PORTABLE_TRIAL.md) when that work resumes.
+- **Provider routing:** preview/recommendation capability exists; automatic dispatch remains disabled in the recorded qualification. Preserve provider-reported limits, route distinctions and explicit unavailable states. The [provider ledger](PROVIDERS.md) contains dated account evidence; current entitlement needs a fresh check when relevant.
+- **Teddy and connectors:** prior records establish local Teddy, iPhone pairing and a read-only N2ITION snapshot. Further mobile acceptance and contextual usefulness remain open. Telegram conversational reply export remains proposed. Source presence and a general runtime upgrade alone do not establish caller-specific P4 enforcement acceptance.
 
-The user is trying the usage dashboard and the new Upstream Updates panel. The panel checks official releases and public advisories and prepares separate candidates that retain committed customizations. Its native T3 implementation chat preserves the work trace. All required checks passed with 101 tests across 10 files. The latest live check returned v0.1.2, matching the recorded base. The existing daily upstream watch retains its schedule.
+## Next development slice
 
-Keep provider-reported limits, reset timestamps, and billing links accurate; expose unavailable data explicitly. A future account-by-account cost view or direct billing integration should use a provider-supported data source with the required account access. Source development uses the local launcher with stable server/desktop bundles so agents can edit the IDE through T3; load backend changes after active chats finish.
+Scope a project-owned saved brief shared across its threads, with an accessible details popover and explicit generate/refresh/clear. Aim for three short sentences and at most 500 characters. Keep generation tied to project privacy, bounded selected sources and the effective text-generation model. Preserve the last successful text on failure and protect against stale completions. Web/desktop forms the initial slice; native-mobile controls, MCP entry points and automatic refresh remain follow-ups.
 
-Later experiment: connect additional workstations across environments after the single-machine account workflow establishes a need. Multi-computer setup is deferred. Continue through the command line and user-operated sign-in surfaces.
+The local workspace's `research/T3_CURRENT_ROADMAP.md` holds the cross-product evidence ledger. `research/project-hover-brief-scope-2026-10-28.md` holds the Astra-reviewed implementation scope. These workspace planning artifacts remain outside the product source repository.
+
+Build the bounded slice in an isolated checkout, verify its permissions, provider isolation, persistence and UI behavior, then record implementation, activation and owner acceptance separately. Follow the [upstream maintenance procedure](UPSTREAM_SYNC.md) for later source upgrades.

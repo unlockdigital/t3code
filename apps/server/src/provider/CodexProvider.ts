@@ -531,7 +531,17 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   const versionMatch = initialize.userAgent.match(/\/([^\s]+)/);
   const version = versionMatch ? versionMatch[1] : undefined;
 
-  const accountResponse = yield* client.request("account/read", {});
+  // Codex uses generic RPC errors for transient account-routing failures. Match these
+  // known messages so only this read retries within the existing probe deadline.
+  const accountResponse = yield* client.request("account/read", {}).pipe(
+    Effect.retry({
+      times: 1,
+      while: (error) =>
+        error._tag === "CodexAppServerRequestError" &&
+        (error.message === "workspace routing discovery failed" ||
+          error.message === "workspace routing discovery timed out"),
+    }),
+  );
   if (!accountResponse.account && accountResponse.requiresOpenaiAuth) {
     return {
       account: accountResponse,
