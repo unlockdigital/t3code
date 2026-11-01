@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   OrchestratorMcpFailure,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
@@ -229,6 +230,7 @@ const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E,
         // The CLI runs as the machine's owner. New threads still start at
         // the project's default mode, never at this ceiling by default.
         access,
+        peerLink: false,
         client: { deviceType: "bot" },
       }),
       (session) =>
@@ -352,6 +354,63 @@ const readTimeline = Effect.fn("cli.thread.readTimeline")(function* (
   return { thread: page.thread, items };
 });
 
+/**
+ * The latest `count` user and assistant messages, oldest first. Positions
+ * count every timeline item, so the read starts near the end and widens
+ * backward only while tool and plan items leave too few messages.
+ */
+export const readLatestMessages = Effect.fn("cli.thread.readLatestMessages")(function* (
+  tools: ThreadTools,
+  threadId: ThreadId,
+  count: number,
+) {
+  let { thread } = yield* tools.call(
+    "t3_thread_read",
+    { threadId, limit: 1, runLimit: 1 },
+    OrchestratorMcpThreadReadResult,
+  );
+  let messages: Array<OrchestratorMcpThreadTimelineItem> = [];
+  // The newest window has no upper bound, so items added since the first
+  // read are still shown.
+  let before: number | undefined;
+  let start = thread.itemCount;
+  let span = Math.max(count, READ_PAGE_LIMIT);
+  do {
+    const end = before;
+    start = Math.max(0, start - span);
+    const window: Array<OrchestratorMcpThreadTimelineItem> = [];
+    let afterPosition = start - 1;
+    let page: OrchestratorMcpThreadReadResult;
+    do {
+      page = yield* tools.call(
+        "t3_thread_read",
+        {
+          threadId,
+          view: "messages",
+          limit: READ_PAGE_LIMIT,
+          runLimit: 1,
+          ...(afterPosition < 0 ? {} : { afterPosition }),
+        },
+        OrchestratorMcpThreadReadResult,
+      );
+      window.push(
+        ...page.items.filter(
+          (item) =>
+            (item.type === "user_message" || item.type === "assistant_message") &&
+            (end === undefined || item.position < end),
+        ),
+      );
+      afterPosition = page.nextPosition ?? Number.POSITIVE_INFINITY;
+    } while (page.hasMore && afterPosition < (end ?? Number.POSITIVE_INFINITY) - 1);
+    thread = page.thread;
+    // A window can hold the whole --messages count, too many to spread as arguments.
+    messages = window.concat(messages);
+    before = start;
+    span *= 2;
+  } while (messages.length < count && start > 0);
+  return { thread, messages: messages.slice(Math.max(0, messages.length - count)) };
+});
+
 /** Item text past the read's per-item cap. */
 const readFullText = Effect.fn("cli.thread.readFullText")(function* (
   tools: ThreadTools,
@@ -389,9 +448,8 @@ const readFullText = Effect.fn("cli.thread.readFullText")(function* (
   return text;
 });
 
-export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
+const readThreadEnvironment = Effect.fn("cli.thread.readEnvironment")(function* (
   tools: ThreadTools,
-  threadId: ThreadId,
   expectedEnvironment?: string,
 ) {
   const identity = yield* tools.call(
@@ -404,6 +462,15 @@ export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
       detail: `This server is environment ${identity.environmentId}; the conversation belongs to ${expectedEnvironment}. Run the command on the source machine and select its T3 data directory with --base-dir.`,
     });
   }
+  return identity;
+});
+
+export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
+  tools: ThreadTools,
+  threadId: ThreadId,
+  expectedEnvironment?: string,
+) {
+  const identity = yield* readThreadEnvironment(tools, expectedEnvironment);
   const { thread, items } = yield* readTimeline(tools, threadId, "messages");
   const workspacePath =
     thread.worktreePath ??
@@ -431,7 +498,10 @@ export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
   );
   return {
     title: thread.title,
-    reference: threadLinkHref(threadId),
+    reference: threadLinkHref({
+      environmentId: EnvironmentId.make(identity.environmentId),
+      threadId,
+    }),
     environmentId: identity.environmentId,
     updatedAt: thread.updatedAt,
     workspacePath,
@@ -551,7 +621,7 @@ const launchWorkspaceStrategy = (input: {
     onNone: () =>
       Option.isSome(input.branch)
         ? Effect.fail(new ThreadUsageError({ detail: "--branch needs --worktree <base-ref>." }))
-        : Effect.succeed(undefined),
+        : Effect.void,
     onSome: (baseRef) =>
       Effect.succeed({
         type: "worktree" as const,
@@ -578,15 +648,15 @@ const threadArgument = Argument.String("thread").pipe(
 );
 
 const decodeTitle = Schema.decodeUnknownEffect(TrimmedNonEmptyString);
-const decodeThreadId = (value: string) => {
-  const threadId = parseThreadReference(value);
-  return threadId === null
+const decodeThreadReference = (value: string) => {
+  const reference = parseThreadReference(value);
+  return reference === null
     ? Effect.fail(
         new ThreadUsageError({
           detail: "Pass a thread ID, t3-thread:// link, or Markdown thread link.",
         }),
       )
-    : Effect.succeed(threadId);
+    : Effect.succeed(reference);
 };
 
 const threadListCommand = Command.make("list", {
@@ -716,11 +786,14 @@ const threadSendCommand = Command.make("send", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const threadId = yield* decodeThreadId(flags.thread);
+      const reference = yield* decodeThreadReference(flags.thread);
+      const threadId = reference.threadId;
       const message = yield* readMessageArgument(flags.message);
       yield* withThreadTools(
         flags,
         Effect.fn("cli.thread.send")(function* (tools) {
+          if (reference.environmentId !== null)
+            yield* readThreadEnvironment(tools, reference.environmentId);
           const sent = yield* tools.call(
             "t3_thread_send",
             { threadId, message, mode: "queue" },
@@ -750,15 +823,18 @@ const threadShowCommand = Command.make("show", {
   Command.withDescription("Show a thread's state and its latest messages."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const threadId = yield* decodeThreadId(flags.thread);
+      const reference = yield* decodeThreadReference(flags.thread);
+      const threadId = reference.threadId;
       yield* withThreadTools(
         flags,
         Effect.fn("cli.thread.show")(function* (tools) {
-          const { thread, items } = yield* readTimeline(tools, threadId, "messages");
-          const conversation = items.filter(
-            (item) => item.type === "user_message" || item.type === "assistant_message",
+          if (reference.environmentId !== null)
+            yield* readThreadEnvironment(tools, reference.environmentId);
+          const { thread, messages: latest } = yield* readLatestMessages(
+            tools,
+            threadId,
+            flags.messages,
           );
-          const latest = conversation.slice(Math.max(0, conversation.length - flags.messages));
           const messages = yield* Effect.forEach(latest, (item) =>
             readFullText(tools, threadId, item).pipe(
               Effect.map((text) => ({
@@ -832,11 +908,21 @@ const threadExportCommand = Command.make("export", {
       const output = (context: ConversationContext) =>
         flags.json ? printJson(context) : Console.log(formatConversationMarkdown(context));
       if (source === "t3") {
-        const threadId = yield* decodeThreadId(reference);
+        const linked = yield* decodeThreadReference(reference);
+        const threadId = linked.threadId;
+        const requestedEnvironment = Option.getOrUndefined(flags.environment);
+        if (
+          linked.environmentId !== null &&
+          requestedEnvironment !== undefined &&
+          linked.environmentId !== requestedEnvironment
+        )
+          return yield* new ThreadUsageError({
+            detail: "The link and --environment name different source environments.",
+          });
         return yield* withThreadTools(
           flags,
           (tools) =>
-            readThreadContext(tools, threadId, Option.getOrUndefined(flags.environment)).pipe(
+            readThreadContext(tools, threadId, linked.environmentId ?? requestedEnvironment).pipe(
               Effect.flatMap(output),
             ),
           "read-only",

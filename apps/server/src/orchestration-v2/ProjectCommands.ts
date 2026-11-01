@@ -4,6 +4,7 @@ import {
   MAX_SCRIPT_ID_LENGTH,
   type ModelSelection,
   type ProjectIconOverride,
+  type ProjectBriefState,
   ProjectId,
   type ProjectScript,
   SCRIPT_RUN_COMMAND_PATTERN,
@@ -26,6 +27,8 @@ export interface ProjectCreateCommand {
 }
 
 export interface ProjectMetaUpdateCommand {
+  readonly briefState?: ProjectBriefState;
+  readonly expectedBriefRevision?: string;
   readonly type: "project.meta.update";
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
@@ -37,6 +40,8 @@ export interface ProjectMetaUpdateCommand {
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly pinned?: boolean;
+  readonly archived?: boolean;
 }
 
 export interface ProjectDeleteCommand {
@@ -104,10 +109,7 @@ export interface ProjectCommandState {
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
 
-/**
- * The caller reads `state` under the project's lock and commits the planned
- * event.
- */
+/** Read state and commit the planned event under the project lock. */
 export function planProjectCommand(input: {
   readonly command: ProjectCommand;
   readonly state: ProjectCommandState;
@@ -174,14 +176,22 @@ export function planProjectCommand(input: {
       const project = activeProject;
       if (project === undefined) return missingProject();
       if (
+        command.expectedBriefRevision !== undefined &&
+        command.expectedBriefRevision !== (project.briefState?.revision ?? "initial")
+      ) {
+        return invariant("The project brief request is stale.");
+      }
+      if (command.briefState?.saved && Array.from(command.briefState.saved.text).length > 500) {
+        return invariant("Project briefs must contain at most 500 Unicode characters.");
+      }
+      if (
         command.projectIcon?.kind === "monogram" &&
         Array.from(monogramSegmenter.segment(command.projectIcon.text)).length > 2
       ) {
         return invariant("Project monograms must contain at most two characters.");
       }
       if (command.scripts !== undefined) {
-        // Persisted IDs predate shortcut validation. Let users edit or remove them
-        // without allowing another invalid ID to enter the project.
+        // Allow editing or removing persisted invalid script ids, while rejecting new invalid ids.
         const existingIds = new Set(project.scripts.map((script) => script.id));
         for (const script of command.scripts) {
           if (!existingIds.has(script.id) && !isScriptRunCommand(`script.${script.id}.run`)) {
@@ -200,6 +210,10 @@ export function planProjectCommand(input: {
         type: "project.meta-updated",
         payload: {
           projectId: command.projectId,
+          ...(command.briefState === undefined ? {} : { briefState: command.briefState }),
+          ...(command.workspaceRoot !== undefined && command.workspaceRoot !== project.workspaceRoot
+            ? { briefState: { revision: input.eventId, contextFile: null, saved: null } }
+            : {}),
           ...(command.title === undefined ? {} : { title: command.title }),
           ...(command.workspaceRoot === undefined ? {} : { workspaceRoot: command.workspaceRoot }),
           ...(command.defaultModelSelection === undefined
@@ -212,6 +226,13 @@ export function planProjectCommand(input: {
           ...(command.faviconPath === undefined ? {} : { faviconPath: command.faviconPath }),
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
+          // Repeating a pin or archive keeps the original time.
+          ...(command.pinned === undefined
+            ? {}
+            : { pinnedAt: command.pinned ? (project.pinnedAt ?? occurredAt) : null }),
+          ...(command.archived === undefined
+            ? {}
+            : { archivedAt: command.archived ? (project.archivedAt ?? occurredAt) : null }),
           updatedAt: occurredAt,
         },
       });

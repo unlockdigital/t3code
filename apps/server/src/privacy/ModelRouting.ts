@@ -60,8 +60,9 @@ export const make = Effect.gen(function* () {
   const canonical = (value: string) => fs.realPath(path.resolve(value));
   const canonicalRoot = (value: string) =>
     canonical(value).pipe(
-      Effect.catch((cause) =>
-        cause.reason._tag === "NotFound" ? Effect.succeed(path.resolve(value)) : Effect.fail(cause),
+      Effect.catchIf(
+        (cause) => cause.reason._tag === "NotFound",
+        () => Effect.succeed(path.resolve(value)),
       ),
     );
 

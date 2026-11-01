@@ -48,15 +48,15 @@ it.effect("preserves policy through older-client updates and replaces ordered st
 it.effect("serializes conflicting policy writes and preserves the winning revision", () =>
   Effect.gen(function* () {
     const settings = yield* Settings.ServerSettingsService;
-    const results = yield* Effect.all(
-      ["first", "second"].map((policyId) =>
+    const results = yield* Effect.forEach(
+      ["first", "second"],
+      (policyId) =>
         settings
           .updateSettings({
             accountRouting: { ...policy, policyId },
             accountRoutingExpectedRevision: 0,
           })
           .pipe(Effect.exit),
-      ),
       { concurrency: "unbounded" },
     );
     assert.equal(results.filter(Exit.isSuccess).length, 1);

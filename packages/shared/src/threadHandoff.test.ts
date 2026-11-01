@@ -101,7 +101,7 @@ describe("portable conversation context", () => {
       ],
     };
     const context = threadTranscriptContext(EnvironmentId.make("local-env"), transcript);
-    expect(context.reference).toBe("t3-thread://v1/thread-1");
+    expect(context.reference).toBe("t3-thread://v2/local-env/thread-1");
     expect(context.entries.map((entry) => [entry.role, entry.text])).toEqual([
       ["assistant", "A complete answer"],
       ["plan", "1. Finish"],
@@ -136,7 +136,7 @@ describe("portable conversation context", () => {
         unavailableAttachmentCount: 0,
       },
     });
-    expect(handoff).toContain("Source thread: ` t3-thread://v1/");
+    expect(handoff).toContain("Source thread: ` t3-thread://v2/local-env/");
     expect(handoff).toContain("`` /private/$(touch test)`file/conversation.md ``");
     expect(handoff).not.toContain("```sh");
   });

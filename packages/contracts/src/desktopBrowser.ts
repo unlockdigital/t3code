@@ -16,8 +16,8 @@ export const DesktopBrowserEvent = Schema.Union([
     type: Schema.Literal("claudeBilling"),
     requestId: TrimmedNonEmptyString,
     result: Schema.Union([
-      Schema.Struct({ _tag: Schema.Literal("Success"), credits: Schema.Unknown }),
-      Schema.Struct({ _tag: Schema.Literal("Failure"), error: ClaudeConsoleBillingReadError }),
+      Schema.TaggedStruct("Success", { credits: Schema.Unknown }),
+      Schema.TaggedStruct("Failure", { error: ClaudeConsoleBillingReadError }),
     ]),
   }),
   Schema.Struct({ type: Schema.Literal("attached"), ...TabKey }),
@@ -42,6 +42,12 @@ export const DesktopBrowserCommand = Schema.Union([
     phase: Schema.Literals(["move", "click"]),
     x: Schema.Finite,
     y: Schema.Finite,
+  }),
+  /** Whether an agent turn runs on the thread, so the tabs it uses stay focused between steps. */
+  Schema.Struct({
+    type: Schema.Literal("turn"),
+    threadId: TrimmedNonEmptyString,
+    active: Schema.Boolean,
   }),
 ]);
 export type DesktopBrowserCommand = typeof DesktopBrowserCommand.Type;

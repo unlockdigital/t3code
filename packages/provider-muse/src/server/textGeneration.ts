@@ -343,6 +343,14 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
+    generateProjectBrief: () =>
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateProjectBrief",
+          detail:
+            "Muse Code does not support tool-free project briefs. Select a Claude provider configured with API or cloud-provider credentials as the project text-generation model.",
+        }),
+      ),
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

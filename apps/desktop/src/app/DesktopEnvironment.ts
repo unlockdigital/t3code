@@ -1,3 +1,9 @@
+import {
+  isUnlockDigitalPreviewVersion,
+  UNLOCK_PREVIEW_PRODUCT_NAME,
+  UNLOCK_PREVIEW_APP_ID,
+  UNLOCK_PREVIEW_HOME,
+} from "@t3tools/shared/forkIdentity";
 import type {
   DesktopAppBranding,
   DesktopAppStageLabel,
@@ -77,6 +83,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly linuxDesktopEntryName: string;
     readonly linuxWmClass: string;
     readonly linuxApplicationsDir: string;
+    readonly desktopLauncherPath: Option.Option<string>;
     readonly appImagePath: Option.Option<string>;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
     readonly runtimeInfo: DesktopRuntimeInfo;
@@ -148,7 +155,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const homeDirectory = input.homeDirectory;
   const devServerUrl = config.devServerUrl;
   const isDevelopment = Option.isSome(devServerUrl);
-  const appDataDirectory = Option.match(config.desktopAppDataDirectory, {
+  const forkPreview =
+    input.isPackaged && !isDevelopment && isUnlockDigitalPreviewVersion(input.appVersion);
+  const defaultAppDataDirectory = Option.match(config.desktopAppDataDirectory, {
     onSome: (directory) => path.resolve(directory),
     onNone: () =>
       input.platform === "win32"
@@ -159,7 +168,12 @@ const make = Effect.fn("desktop.environment.make")(function* (
           ? path.join(homeDirectory, "Library", "Application Support")
           : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config")),
   });
+  const appDataDirectory =
+    forkPreview && Option.isNone(config.desktopAppDataDirectory)
+      ? path.join(defaultAppDataDirectory, UNLOCK_PREVIEW_PRODUCT_NAME)
+      : defaultAppDataDirectory;
   const baseDir = resolveDesktopBaseDir({
+    defaultDirectoryName: forkPreview ? UNLOCK_PREVIEW_HOME : ".t3",
     homeDirectory,
     joinPath: path.join,
     t3Home: config.t3Home,
@@ -170,10 +184,17 @@ const make = Effect.fn("desktop.environment.make")(function* (
     input.isPackaged && input.platform === "win32"
       ? path.join(input.resourcesPath, "server.asar")
       : appRoot;
-  const branding = resolveDesktopAppBranding({
+  const standardBranding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
   });
+  const branding = forkPreview
+    ? {
+        ...standardBranding,
+        baseName: UNLOCK_PREVIEW_PRODUCT_NAME,
+        displayName: UNLOCK_PREVIEW_PRODUCT_NAME,
+      }
+    : standardBranding;
   const displayName = branding.displayName;
   const stateDir = resolveDesktopStateDir({
     baseDir,
@@ -231,11 +252,16 @@ const make = Effect.fn("desktop.environment.make")(function* (
     branding,
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      isDevelopment
+        ? "com.t3tools.t3code.dev"
+        : forkPreview
+          ? UNLOCK_PREVIEW_APP_ID
+          : "com.t3tools.t3code",
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
     linuxApplicationsDir,
+    desktopLauncherPath: config.desktopLauncherPath,
     appImagePath: config.appImagePath,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),
     runtimeInfo: resolveDesktopRuntimeInfo({

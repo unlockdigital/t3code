@@ -1,5 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { CommandId, EventId, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import {
+  CommandId,
+  EventId,
+  ProjectId,
+  ProviderInstanceId,
+  type ProjectScript,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
 
@@ -23,6 +29,8 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   faviconPath: null,
   projectIcon: null,
   scripts: [],
+  pinnedAt: null,
+  archivedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   deletedAt: null,
@@ -56,6 +64,93 @@ const failureOf = (result: ReturnType<typeof plan>) => {
 };
 
 describe("planProjectCommand", () => {
+  it("invalidates saved briefs on workspace moves and rejects stale completions", () => {
+    const briefState = {
+      revision: "request-1",
+      contextFile: "mission.md",
+      saved: {
+        text: "A documented mission.",
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        sources: ["README.md"],
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+      },
+    };
+    const command = {
+      type: "project.meta.update" as const,
+      commandId: CommandId.make("cmd-brief"),
+      projectId,
+    };
+    assert.deepEqual(
+      payloadOf(plan({ ...command, workspaceRoot: "/new-root" }, { project: row({ briefState }) }))
+        .briefState,
+      { revision: "event:planned", contextFile: null, saved: null },
+    );
+    assert.equal(
+      failureOf(
+        plan(
+          { ...command, briefState, expectedBriefRevision: "request-1" },
+          {
+            project: row({ briefState: { ...briefState, revision: "cleared" } }),
+          },
+        ),
+      )._tag,
+      "ProjectCommandInvariantError",
+    );
+    assert.equal(
+      failureOf(
+        plan(
+          { ...command, briefState, expectedBriefRevision: "request-1" },
+          {
+            project: row({ briefState, deletedAt: "2026-01-01T00:00:00.000Z" }),
+          },
+        ),
+      )._tag,
+      "ProjectCommandMissingProjectError",
+    );
+    assert.deepEqual(
+      payloadOf(
+        plan(
+          { ...command, briefState, expectedBriefRevision: "request-1" },
+          {
+            project: row({ briefState }),
+          },
+        ),
+      ).briefState,
+      briefState,
+    );
+  });
+
+  it("bounds brief output by Unicode code points", () => {
+    const command = {
+      type: "project.meta.update" as const,
+      commandId: CommandId.make("cmd-brief-size"),
+      projectId,
+    };
+    const saved = {
+      text: "😀".repeat(500),
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      sources: ["README.md"],
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+    };
+    const briefState = { revision: "new", contextFile: null, saved };
+    assert.deepEqual(
+      payloadOf(plan({ ...command, briefState }, { project: row() })).briefState,
+      briefState,
+    );
+    assert.equal(
+      failureOf(
+        plan(
+          {
+            ...command,
+            briefState: { ...briefState, saved: { ...saved, text: saved.text + "x" } },
+          },
+          { project: row() },
+        ),
+      )._tag,
+      "ProjectCommandInvariantError",
+    );
+  });
+
   it("keeps legacy scripts editable and removable while rejecting new invalid ones", () => {
     const legacy = script("install-javascript-dependencies");
     const withLegacy = (scripts: ReadonlyArray<ProjectScript>) =>
@@ -75,6 +170,38 @@ describe("planProjectCommand", () => {
       failureOf(withLegacy([legacy, script("another.invalid.id")]))._tag,
       "ProjectCommandInvariantError",
     );
+  });
+
+  it("keeps the first pin and archive time, and clears both on undo", () => {
+    const earlier = "2025-12-01T00:00:00.000Z";
+    const update = (project: ProjectRow, change: { pinned?: boolean; archived?: boolean }) =>
+      payloadOf(
+        plan(
+          {
+            type: "project.meta.update",
+            commandId: CommandId.make("cmd-organize"),
+            projectId,
+            ...change,
+          },
+          { project },
+        ),
+      );
+    assert.deepInclude(update(row(), { pinned: true, archived: true }), {
+      pinnedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const organized = row({ pinnedAt: earlier, archivedAt: earlier });
+    assert.deepInclude(update(organized, { pinned: true, archived: true }), {
+      pinnedAt: earlier,
+      archivedAt: earlier,
+    });
+    assert.deepInclude(update(organized, { pinned: false, archived: false }), {
+      pinnedAt: null,
+      archivedAt: null,
+    });
+    const untouched = update(organized, {});
+    assert.notProperty(untouched, "pinnedAt");
+    assert.notProperty(untouched, "archivedAt");
   });
 
   it("rejects a workspace root held by another active project", () => {

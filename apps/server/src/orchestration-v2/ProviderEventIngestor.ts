@@ -9,6 +9,8 @@ import {
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
   type ModelSelection,
+  type OrchestrationV2Actor,
+  type OrchestrationV2CreationSource,
   type RuntimeMode,
   type ProviderInteractionMode,
   ProviderInstanceId,
@@ -32,6 +34,7 @@ import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -86,6 +89,19 @@ export interface ProviderTurnAnalyticsContext {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly origin?: ProviderTurnOrigin;
+}
+
+/**
+ * Where the run's starting message came from. Most turns start without a
+ * person (provider continuations, agent sends, delegated subagents), so
+ * reports need this to tell user turns apart.
+ */
+export interface ProviderTurnOrigin {
+  readonly createdBy: OrchestrationV2Actor;
+  readonly creationSource: OrchestrationV2CreationSource;
+  readonly scheduled: boolean;
+  readonly subagent: boolean;
 }
 
 export class ProviderTurnAnalytics extends Context.Reference<{
@@ -99,8 +115,11 @@ export const layerAnalytics = Layer.effect(
   Effect.gen(function* () {
     const analytics = yield* AnalyticsService.AnalyticsService;
     return {
-      record: (properties: Readonly<Record<string, unknown>>) =>
-        analytics.record("provider.turn.completed", properties),
+      record: Effect.fn("ProviderTurnAnalytics.record")(function (
+        properties: Readonly<Record<string, unknown>>,
+      ) {
+        return analytics.record("provider.turn.completed", properties);
+      }),
     };
   }),
 );
@@ -135,6 +154,7 @@ function providerTurnAnalyticsProperties(input: {
     ...(effort ? { effort } : {}),
     ...(input.context?.runtimeMode ? { runtimeMode: input.context.runtimeMode } : {}),
     ...(input.context?.interactionMode ? { interactionMode: input.context.interactionMode } : {}),
+    ...input.context?.origin,
     ...(input.providerTurn.startedAt && input.providerTurn.completedAt
       ? {
           durationMs: Math.max(
@@ -307,6 +327,7 @@ export const layer: Layer.Layer<
   | IdAllocator.IdAllocatorV2
   | ProjectionStore.ProjectionStoreV2
   | ThreadCommandExecutor.ThreadCommandExecutor
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
 > = Layer.effect(
   ProviderEventIngestorV2,
   Effect.gen(function* () {
@@ -317,6 +338,8 @@ export const layer: Layer.Layer<
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
     const agentScope = yield* AgentScope;
+    const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const scope = yield* Effect.scope;
     const completedTurnAnalytics = new Set<string>();
 
     const makeDomainEvent =
@@ -399,12 +422,7 @@ export const layer: Layer.Layer<
       },
     );
 
-    /**
-     * A native subagent's thread starts on the parent's model when the provider
-     * names the real one later (a Claude agent file's model arrives with the
-     * subagent's first reply). Thread commands rewrite the whole thread row
-     * under the thread's lock, so this read and write take it too.
-     */
+    /** Providers may reveal native subagent models late; lock full-row updates against concurrent thread commands. */
     const syncSubagentThreadModel = Effect.fn("ProviderEventIngestor.syncSubagentThreadModel")(
       function* (input: ProviderEventIngestInput, subagent: OrchestrationV2Subagent) {
         const { childThreadId, model } = subagent;
@@ -449,12 +467,7 @@ export const layer: Layer.Layer<
       },
     );
 
-    /**
-     * Retire the runs that fell off its active branch with the same run,
-     * root-node, and checkpoint updates CheckpointRollbackService writes for a
-     * T3 revert. The run reporting the rewind performed it and stays, so it
-     * keeps lastRunOrdinal.
-     */
+    /** Retire rewound runs like CheckpointRollbackService; retain the reporting run and its lastRunOrdinal. */
     const rollBackRewoundRuns = Effect.fn("ProviderEventIngestor.rollBackRewoundRuns")(function* (
       input: ProviderEventIngestInput,
       rewind: {
@@ -687,6 +700,8 @@ export const layer: Layer.Layer<
                 }),
               ];
             }
+            case "background_work.updated":
+              return [];
             case "command_output.delta":
               // Live output is routed to the command output hub before ingestion.
               return [];
@@ -785,6 +800,23 @@ export const layer: Layer.Layer<
           },
           (effect, input) =>
             effect.pipe(
+              Effect.tap((storedEvents) =>
+                Effect.gen(function* () {
+                  if (
+                    storedEvents.length === 0 ||
+                    input.event.type !== "turn.terminal" ||
+                    input.event.status !== "failed" ||
+                    input.event.failure.class !== "usage_limit"
+                  )
+                    return;
+                  const instance = yield* instances.getInstance(input.providerInstanceId);
+                  if (!instance?.snapshot.refreshUsage) return;
+                  yield* instance.snapshot.refreshUsage.pipe(
+                    Effect.ignoreCause({ log: true }),
+                    Effect.forkIn(scope, { startImmediately: true }),
+                  );
+                }),
+              ),
               Effect.flatMap((storedEvents) =>
                 Effect.gen(function* () {
                   if (input.event.type !== "app_thread.created") return storedEvents;
@@ -824,6 +856,7 @@ export const layer: Layer.Layer<
                   ),
                 ),
               ),
+              // @effect-diagnostics-next-line flatMapConditionalToFilterOrFail:off - The predicate narrows the captured event for the subagent update.
               Effect.flatMap((storedEvents) =>
                 storedEvents.length === 0 || input.event.type !== "subagent.updated"
                   ? Effect.succeed(storedEvents)

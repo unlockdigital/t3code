@@ -1,3 +1,4 @@
+import { desktopSchemeForVersion, UNLOCK_PREVIEW_SCHEME } from "@t3tools/shared/forkIdentity";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -16,16 +17,22 @@ export const DESKTOP_HOST = "app";
 const DESKTOP_PRODUCTION_SCHEME = "t3code";
 const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
 
-export function getDesktopScheme(isDevelopment: boolean): string {
-  return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;
+export function getDesktopScheme(
+  isDevelopment: boolean,
+  appVersion = "",
+  isPackaged = true,
+): string {
+  return isDevelopment
+    ? DESKTOP_DEVELOPMENT_SCHEME
+    : desktopSchemeForVersion(isPackaged ? appVersion : "");
 }
 
-function getDesktopOrigin(isDevelopment: boolean): string {
-  return `${getDesktopScheme(isDevelopment)}://${DESKTOP_HOST}`;
+function getDesktopOrigin(isDevelopment: boolean, appVersion: string, isPackaged: boolean): string {
+  return `${getDesktopScheme(isDevelopment, appVersion, isPackaged)}://${DESKTOP_HOST}`;
 }
 
-export function getDesktopUrl(isDevelopment: boolean): string {
-  return `${getDesktopOrigin(isDevelopment)}/`;
+export function getDesktopUrl(isDevelopment: boolean, appVersion = "", isPackaged = true): string {
+  return `${getDesktopOrigin(isDevelopment, appVersion, isPackaged)}/`;
 }
 
 export class ElectronProtocolRegistrationError extends Schema.TaggedError<ElectronProtocolRegistrationError>()(
@@ -78,11 +85,8 @@ function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrationInpu
     "https://challenges.cloudflare.com",
   ];
 
-  // The renderer connects directly to user-configured environments in addition to
-  // the build-configured Clerk, relay, and OTLP endpoints. Those environment
-  // origins are not known when this response policy is created, so restrict
-  // connections by the network schemes the client supports instead of by host.
-  // GLTFLoader fetches embedded textures through blob URLs after parsing the model.
+  // User-configured environment origins are unknown here, so allow supported network schemes.
+  // GLTFLoader fetches embedded textures through blob URLs.
   const connectSources = ["'self'", "blob:", "http:", "https:", "ws:", "wss:"];
 
   return [
@@ -110,24 +114,21 @@ function withContentSecurityPolicy(response: Response, policy: string): Response
   });
 }
 
-/**
- * Must run synchronously during process bootstrap, before Electron emits `ready`.
- */
+// Must run synchronously before Electron emits ready.
 function registerDesktopSchemePrivilegesSync(): void {
   Electron.protocol.registerSchemesAsPrivileged([
-    {
-      scheme: DESKTOP_PRODUCTION_SCHEME,
+    ...[DESKTOP_PRODUCTION_SCHEME, UNLOCK_PREVIEW_SCHEME].map((scheme) => ({
+      scheme,
       privileges: {
         standard: true,
         secure: true,
         supportFetchAPI: true,
         corsEnabled: true,
         stream: true,
-        // Custom schemes skip Chromium's V8 code cache unless they opt in.
-        // Dev stays off: Vite serves changing code at stable URLs.
+        // Custom schemes must opt into V8 caching; dev URLs serve changing code.
         codeCache: true,
       },
-    },
+    })),
     {
       scheme: DESKTOP_DEVELOPMENT_SCHEME,
       privileges: {
@@ -173,7 +174,10 @@ const proxyRequest = Effect.fn("desktop.protocol.proxyRequest")(function* (
     return new Response(null, { status: 404 });
   }
 
-  const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, targetOrigin);
+  // Assign the path so leading slashes cannot replace the configured host.
+  const targetUrl = new URL(targetOrigin);
+  targetUrl.pathname = requestUrl.pathname;
+  targetUrl.search = requestUrl.search;
   const headers = new Headers(request.headers);
   const headersToRemove: string[] = [];
   for (const name of headers.keys()) {
@@ -246,7 +250,7 @@ const serveDesktopAsset = Effect.fn("desktop.protocol.serveAsset")(function* (
   });
 });
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const registered = yield* Ref.make(false);
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();

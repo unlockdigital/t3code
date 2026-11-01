@@ -104,7 +104,7 @@ function AccountRow({
     : credits?.balance !== undefined
       ? Number(credits.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
       : credits?.hasCredits
-        ? "—"
+        ? "Unknown"
         : "0";
   const summaryLimit = credits || isApi ? 2 : 3;
   const summaryWindows =
@@ -272,7 +272,7 @@ function AccountRow({
                 {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
               </dt>
               <dd className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tabular-nums">
-                {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "—"}
+                {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "Unknown"}
                 {creditPercent !== null ? (
                   <span className="text-xs font-normal text-muted-foreground">
                     {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}% left
@@ -354,7 +354,7 @@ function AccountRow({
                   Monthly API spending{monthlySpend.stale ? " · stale" : ""}
                 </span>
                 <span className="font-medium tabular-nums">
-                  {monthlySpend.spentUsd === null ? "—" : formatUsd(monthlySpend.spentUsd)} /{" "}
+                  {monthlySpend.spentUsd === null ? "Unknown" : formatUsd(monthlySpend.spentUsd)} /{" "}
                   {formatUsd(monthlySpend.budgetUsd)}
                 </span>
               </div>
@@ -422,7 +422,7 @@ function AccountRow({
                 <p>
                   Estimated spend:{" "}
                   {history.records === 0
-                    ? "—"
+                    ? "Unknown"
                     : history.unpriced && history.costUsd === 0
                       ? "Unpriced"
                       : `${formatUsd(history.costUsd)}${history.unpriced ? "+" : ""}`}
@@ -596,6 +596,7 @@ export function UsageAccounts({
   const doneButton = useRef<HTMLButtonElement>(null);
   const restoreOrderFocus = useRef(false);
   const section = useRef<HTMLElement>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep the native Escape listener active during account arrangement.
   useEffect(() => {
     if (!arranging) return;
     // PointerSensor cancels Escape without preventing the page's back shortcut.
@@ -612,6 +613,7 @@ export function UsageAccounts({
     window.addEventListener("keydown", handleArrangeEscape, true);
     return () => window.removeEventListener("keydown", handleArrangeEscape, true);
   }, [arranging, dragOrder]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Restore DOM focus when arrangement opens or closes.
   useLayoutEffect(() => {
     if (arranging) doneButton.current?.focus();
     if (!arranging && restoreOrderFocus.current) {
@@ -620,6 +622,7 @@ export function UsageAccounts({
     }
   }, [arranging]);
   const keys = JSON.stringify(accounts.map((account) => account.key));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Restore DOM focus if a refreshed account list removes the focused row.
   useLayoutEffect(() => {
     const present: readonly string[] = JSON.parse(keys);
     if (focusedAccount.current && !present.includes(focusedAccount.current)) {

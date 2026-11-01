@@ -95,6 +95,7 @@ export function HomeActivity() {
     pendingNavigation.current = null;
   };
   const closeMenuOnUnmount = useEffectEvent(() => closeMenu());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Close the native menu and cancel pending navigation when this view unmounts.
   useEffect(
     () => () => {
       if (pendingNavigation.current !== null) clearTimeout(pendingNavigation.current);
@@ -323,7 +324,9 @@ function ActivityRow({
         (option) => option.slug === model,
       )
     : undefined;
-  const modelName = modelOption ? getTriggerDisplayModelName(modelOption) : model;
+  const modelName = modelOption
+    ? getTriggerDisplayModelName(modelOption, selectedProviderEntry?.driverKind)
+    : model;
   const current =
     selectedProviderEntry?.snapshot ??
     providers.find((provider) => provider.instanceId === instanceId);
@@ -467,7 +470,7 @@ function ActivityRow({
                 }}
               />
             ) : online ? (
-              "—"
+              "Unknown"
             ) : (
               "Last known"
             )}

@@ -54,6 +54,7 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
   const restore = useEffectEvent(() => {
     void run({ action: "read" });
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Read persisted status from the source environment when this panel opens.
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- Restore this environment's persisted source status on opening.
     if (allowed) restore();

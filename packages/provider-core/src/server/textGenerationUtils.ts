@@ -118,3 +118,25 @@ export function normalizeCliError(
     cause: error,
   });
 }
+
+/** Preserve complete sentences when a model exceeds the project brief budget. */
+export function sanitizeProjectBrief(raw: string): string {
+  const text = Array.from(raw, (character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127 ? " " : character;
+  })
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (Array.from(text).length <= 500) return text;
+  let complete = "";
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "sentence" }).segment(
+    text,
+  )) {
+    const next = complete + segment;
+    if (Array.from(next.trim()).length > 500) break;
+    complete = next;
+  }
+  if (complete.trim()) return complete.trim();
+  return Array.from(text).slice(0, 499).join("").trimEnd() + "…";
+}
