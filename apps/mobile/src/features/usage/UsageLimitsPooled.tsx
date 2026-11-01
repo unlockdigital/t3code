@@ -525,7 +525,7 @@ function UsageAccountRow({
                     maximumFractionDigits: 2,
                   })
                 : limits.creditBalance.hasCredits
-                  ? "—"
+                  ? "Unknown"
                   : "0"}
           </Text>
         </Pressable>
@@ -538,7 +538,7 @@ function UsageAccountRow({
           </Text>
           <View className="flex-row flex-wrap items-baseline gap-2">
             <Text className="text-lg font-t3-semibold text-foreground tabular-nums">
-              {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "—"}
+              {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "Unknown"}
             </Text>
             {creditPercent !== null ? (
               <Text className="text-xs text-foreground-muted">
@@ -591,7 +591,7 @@ function UsageAccountRow({
                   Monthly API spending{monthlySpend.stale ? " · stale" : ""}
                 </Text>
                 <Text className="text-xs font-t3-medium text-foreground tabular-nums">
-                  {monthlySpend.spentUsd === null ? "—" : formatUsd(monthlySpend.spentUsd)} /{" "}
+                  {monthlySpend.spentUsd === null ? "Unknown" : formatUsd(monthlySpend.spentUsd)} /{" "}
                   {formatUsd(monthlySpend.budgetUsd)}
                 </Text>
               </View>
@@ -679,7 +679,7 @@ function UsageAccountRow({
               <Text className="text-xs text-foreground-muted">
                 Estimated spend:{" "}
                 {history.records === 0
-                  ? "—"
+                  ? "Unknown"
                   : history.unpriced && history.costUsd === 0
                     ? "Unpriced"
                     : `${formatUsd(history.costUsd)}${history.unpriced ? "+" : ""}`}

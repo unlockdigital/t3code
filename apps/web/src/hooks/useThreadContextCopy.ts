@@ -108,7 +108,7 @@ function createThreadContextCopyAction({
           branch: thread.branch,
         });
       } else {
-        value = threadLinkHref(target.threadId);
+        value = threadLinkHref(target);
       }
       if (await writeTextToClipboard(value, "thread context")) {
         toastManager.add({

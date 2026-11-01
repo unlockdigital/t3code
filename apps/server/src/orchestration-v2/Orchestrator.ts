@@ -311,16 +311,6 @@ export class OrchestratorCommandIdConflictError extends Schema.TaggedError<Orche
   }
 }
 
-/**
- * A command receipt only proves that this exact command already ran for the
- * thread it was recorded against. Replaying it for a command aimed at another
- * thread would report success for work that never happened there, so the
- * dispatcher rejects the reuse instead (mirrors v1's command-id conflict).
- */
-function canReplayCommandReceipt(receiptThreadId: ThreadId, commandThreadId: ThreadId): boolean {
-  return receiptThreadId === commandThreadId;
-}
-
 export class OrchestratorPrivateRoutingError extends Schema.TaggedError<OrchestratorPrivateRoutingError>()(
   "OrchestratorPrivateRoutingError",
   { commandId: CommandId, reason: ModelRoutingError.fields.reason },

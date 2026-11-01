@@ -549,7 +549,7 @@ it.effect("prefers the selected stored Go key over the auth.json key OpenCode 2 
       { replacedStatus: 401, requested: ["replaced-key", "imported-key"] },
     ]) {
       const authorizations: string[] = [];
-      const limits = yield* readOpenCodeGoUsageLimits({
+      const limits = yield* readOpenCodeUsageLimits({
         enabled: true,
         serverUrl: "",
         environment: { XDG_DATA_HOME: dataHome },

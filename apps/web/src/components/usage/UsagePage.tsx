@@ -353,6 +353,7 @@ export function UsagePage() {
       refreshingRef.current = false;
     });
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Refresh recorded provider activity with a timer while limits are visible.
   useEffect(() => {
     if (!showingLimits) return;
     const timer = globalThis.window.setInterval(refreshRecordedActivity, 60_000);

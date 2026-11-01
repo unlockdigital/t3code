@@ -113,7 +113,9 @@ export function SidebarThreadPopover({
       ),
   );
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Synchronize the external brief controller with the project cache.
   useEffect(() => controller.syncCached(project?.briefState), [controller, project?.briefState]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Move DOM focus when the popover changes its displayed view.
   useEffect(() => {
     if (view === "brief") headingRef.current?.focus();
     else if (persistent) projectButton.current?.focus();

@@ -1,4 +1,4 @@
-import type { EnvironmentId, OrchestrationV2ThreadTranscript } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type OrchestrationV2ThreadTranscript } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { formatThreadLink, threadLinkHref } from "./threadLinks.ts";
@@ -43,11 +43,15 @@ export function formatThreadHandoff(input: {
   };
 }): string {
   const snapshot = input.localSnapshot;
-  const reference = threadLinkHref(input.threadId);
+  const source = {
+    environmentId: EnvironmentId.make(input.environmentId),
+    threadId: ThreadId.make(input.threadId),
+  };
+  const reference = threadLinkHref(source);
   return [
     /[\s()[\]<>`\\]/.test(reference)
       ? `${oneLine(input.title)}\nSource thread: ${codeSpan(reference)}`
-      : formatThreadLink(input.threadId, input.title),
+      : formatThreadLink(source, input.title),
     `Source environment: ${codeSpan(input.environmentId)}`,
     "",
     `Read the private local conversation snapshot: ${codeSpan(snapshot.transcriptPath)}`,
@@ -97,7 +101,7 @@ export function threadTranscriptContext(
 ): ConversationContext {
   return {
     title: transcript.title,
-    reference: threadLinkHref(transcript.threadId),
+    reference: threadLinkHref({ environmentId, threadId: transcript.threadId }),
     environmentId,
     updatedAt: DateTime.formatIso(transcript.updatedAt),
     entries: transcript.items.flatMap<ConversationContext["entries"][number]>(({ item }) => {

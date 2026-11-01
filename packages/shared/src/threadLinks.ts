@@ -89,16 +89,15 @@ export function formatThreadLink(ref: ThreadLink | string, label?: string): stri
 }
 
 /** Accept the same clipboard value in the app and the CLI. Keep literal percent escapes. */
-export function parseThreadReference(value: string): ThreadId | null {
+export function parseThreadReference(value: string): ThreadLink | null {
   const trimmed = value.trim();
   const markdown = /^\[[^\]\n]*\]\((t3-thread:\/\/v[12]\/[^\s)]+)\)$/.exec(trimmed);
   const href = markdown?.[1] ?? trimmed;
   if (href.startsWith(`${THREAD_LINK_PROTOCOL}:`))
-    return /^t3-thread:\/\/v[12]\/[^\s)]+$/.test(href)
-      ? (parseThreadLinkHref(href)?.threadId ?? null)
-      : null;
+    return /^t3-thread:\/\/v[12]\/[^\s)]+$/.test(href) ? parseThreadLinkHref(href) : null;
   if (/\s|:\/\//.test(href)) return null;
-  return Option.getOrNull(decodeThreadId(href));
+  const threadId = Option.getOrNull(decodeThreadId(href));
+  return threadId === null ? null : { environmentId: null, threadId };
 }
 
 export function hasThreadLinks(markdown: string): boolean {

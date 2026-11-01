@@ -914,6 +914,7 @@ function ProviderRetryStatus({
   item: Extract<OrchestrationV2TurnItem, { type: "error" }>;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Update the visible retry countdown from a native timer.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);

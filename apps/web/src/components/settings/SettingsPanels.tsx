@@ -1,6 +1,5 @@
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { desktopUpstreamSettingsSearch } from "./settingsScopeNavigation";
-import { SettingsGroup } from "./SettingsGroup";
 import { useAtomValue } from "@effect/atom-react";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";

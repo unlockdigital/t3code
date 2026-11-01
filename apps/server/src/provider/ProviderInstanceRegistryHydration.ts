@@ -1,5 +1,4 @@
 import {
-  defaultInstanceIdForDriver,
   ProviderDriverKind,
   ProviderInstanceId,
   providerInstanceConfigEnabledFlag,

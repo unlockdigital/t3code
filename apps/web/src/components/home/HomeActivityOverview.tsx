@@ -95,6 +95,7 @@ export function HomeActivity() {
     pendingNavigation.current = null;
   };
   const closeMenuOnUnmount = useEffectEvent(() => closeMenu());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Close the native menu and cancel pending navigation when this view unmounts.
   useEffect(
     () => () => {
       if (pendingNavigation.current !== null) clearTimeout(pendingNavigation.current);
@@ -469,7 +470,7 @@ function ActivityRow({
                 }}
               />
             ) : online ? (
-              "—"
+              "Unknown"
             ) : (
               "Last known"
             )}

@@ -44,6 +44,7 @@ function N2itionConnection() {
     } else
       setError("Connection status unavailable. Check this environment’s connection and try again.");
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Poll the owner environment while its connection status is displayed.
   useEffect(() => {
     if (!allowed) return;
     // oxlint-disable-next-line react/set-state-in-effect -- The owner RPC updates state after its response arrives.

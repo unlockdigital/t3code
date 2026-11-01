@@ -59,11 +59,16 @@ describe("thread link destinations", () => {
 });
 
 describe("thread links", () => {
+  it("preserves the environment in a copied v2 reference", () => {
+    expect(parseThreadReference("[Shared chat](t3-thread://v2/source-env/shared-chat)")).toEqual(
+      ref("source-env", "shared-chat"),
+    );
+  });
   it("accepts copied links, Markdown links, and literal IDs in the CLI", () => {
     const id = "thread:delegated-task:mcp%3A1";
-    expect(parseThreadReference(threadLinkHref(id))).toBe(id);
-    expect(parseThreadReference(`  ${formatThreadLink(id, "Other session")}  `)).toBe(id);
-    expect(parseThreadReference(id)).toBe(id);
+    expect(parseThreadReference(threadLinkHref(id))).toEqual(v1(id));
+    expect(parseThreadReference(`  ${formatThreadLink(id, "Other session")}  `)).toEqual(v1(id));
+    expect(parseThreadReference(id)).toEqual(v1(id));
     for (const invalid of [
       "",
       "t3-thread://v2/t1",

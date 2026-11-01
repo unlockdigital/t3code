@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   OrchestratorMcpFailure,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
@@ -447,9 +448,8 @@ const readFullText = Effect.fn("cli.thread.readFullText")(function* (
   return text;
 });
 
-export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
+const readThreadEnvironment = Effect.fn("cli.thread.readEnvironment")(function* (
   tools: ThreadTools,
-  threadId: ThreadId,
   expectedEnvironment?: string,
 ) {
   const identity = yield* tools.call(
@@ -462,6 +462,15 @@ export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
       detail: `This server is environment ${identity.environmentId}; the conversation belongs to ${expectedEnvironment}. Run the command on the source machine and select its T3 data directory with --base-dir.`,
     });
   }
+  return identity;
+});
+
+export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
+  tools: ThreadTools,
+  threadId: ThreadId,
+  expectedEnvironment?: string,
+) {
+  const identity = yield* readThreadEnvironment(tools, expectedEnvironment);
   const { thread, items } = yield* readTimeline(tools, threadId, "messages");
   const workspacePath =
     thread.worktreePath ??
@@ -489,7 +498,10 @@ export const readThreadContext = Effect.fn("cli.thread.readContext")(function* (
   );
   return {
     title: thread.title,
-    reference: threadLinkHref(threadId),
+    reference: threadLinkHref({
+      environmentId: EnvironmentId.make(identity.environmentId),
+      threadId,
+    }),
     environmentId: identity.environmentId,
     updatedAt: thread.updatedAt,
     workspacePath,
@@ -636,15 +648,15 @@ const threadArgument = Argument.String("thread").pipe(
 );
 
 const decodeTitle = Schema.decodeUnknownEffect(TrimmedNonEmptyString);
-const decodeThreadId = (value: string) => {
-  const threadId = parseThreadReference(value);
-  return threadId === null
+const decodeThreadReference = (value: string) => {
+  const reference = parseThreadReference(value);
+  return reference === null
     ? Effect.fail(
         new ThreadUsageError({
           detail: "Pass a thread ID, t3-thread:// link, or Markdown thread link.",
         }),
       )
-    : Effect.succeed(threadId);
+    : Effect.succeed(reference);
 };
 
 const threadListCommand = Command.make("list", {
@@ -774,11 +786,14 @@ const threadSendCommand = Command.make("send", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const threadId = yield* decodeThreadId(flags.thread);
+      const reference = yield* decodeThreadReference(flags.thread);
+      const threadId = reference.threadId;
       const message = yield* readMessageArgument(flags.message);
       yield* withThreadTools(
         flags,
         Effect.fn("cli.thread.send")(function* (tools) {
+          if (reference.environmentId !== null)
+            yield* readThreadEnvironment(tools, reference.environmentId);
           const sent = yield* tools.call(
             "t3_thread_send",
             { threadId, message, mode: "queue" },
@@ -808,10 +823,13 @@ const threadShowCommand = Command.make("show", {
   Command.withDescription("Show a thread's state and its latest messages."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const threadId = yield* decodeThreadId(flags.thread);
+      const reference = yield* decodeThreadReference(flags.thread);
+      const threadId = reference.threadId;
       yield* withThreadTools(
         flags,
         Effect.fn("cli.thread.show")(function* (tools) {
+          if (reference.environmentId !== null)
+            yield* readThreadEnvironment(tools, reference.environmentId);
           const { thread, messages: latest } = yield* readLatestMessages(
             tools,
             threadId,
@@ -890,11 +908,21 @@ const threadExportCommand = Command.make("export", {
       const output = (context: ConversationContext) =>
         flags.json ? printJson(context) : Console.log(formatConversationMarkdown(context));
       if (source === "t3") {
-        const threadId = yield* decodeThreadId(reference);
+        const linked = yield* decodeThreadReference(reference);
+        const threadId = linked.threadId;
+        const requestedEnvironment = Option.getOrUndefined(flags.environment);
+        if (
+          linked.environmentId !== null &&
+          requestedEnvironment !== undefined &&
+          linked.environmentId !== requestedEnvironment
+        )
+          return yield* new ThreadUsageError({
+            detail: "The link and --environment name different source environments.",
+          });
         return yield* withThreadTools(
           flags,
           (tools) =>
-            readThreadContext(tools, threadId, Option.getOrUndefined(flags.environment)).pipe(
+            readThreadContext(tools, threadId, linked.environmentId ?? requestedEnvironment).pipe(
               Effect.flatMap(output),
             ),
           "read-only",

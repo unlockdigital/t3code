@@ -66,6 +66,7 @@ export function SidebarAgentNavigation() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actions] = useState(() => createAgentShortcutActions(shortcut));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep the action controller synchronized with the saved shortcut.
   useEffect(() => {
     actions.syncShortcut(shortcut);
   }, [actions, shortcut]);

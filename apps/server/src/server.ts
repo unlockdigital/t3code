@@ -464,13 +464,6 @@ const layerPreview = Layer.empty.pipe(
   Layer.provideMerge(layerPortScanner),
 );
 
-const layerServerBrowser = ServerBrowser.layer.pipe(
-  Layer.provideMerge(DesktopBrowserChannel.layer),
-  Layer.provideMerge(PreviewBrowser.layer),
-  Layer.provideMerge(PreviewAutomationBroker.layer),
-  Layer.provide(PreviewManager.layer),
-);
-
 const layerDevice = DeviceService.layer.pipe(
   Layer.provide(layerServerSettings),
   Layer.provide(ProcessRunner.layer),
