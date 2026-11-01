@@ -1,4 +1,9 @@
-import { ProjectId, ThreadId, type ThreadPullRequestLink } from "@t3tools/contracts";
+import {
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { v2Project, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
@@ -27,6 +32,39 @@ const otherIdentity = {
 };
 
 describe("applyShellStreamEvent", () => {
+  it("synchronizes a project brief and its clear while retaining repository identity", () => {
+    const saved = {
+      revision: "generated",
+      contextFile: null,
+      saved: {
+        text: "A shared project brief.",
+        generatedAt: "2026-10-28T12:00:00.000Z",
+        sources: ["README.md"],
+        modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "sonnet" },
+      },
+    };
+    const before = {
+      ...v2ShellSnapshot,
+      projects: [{ ...v2Project, repositoryIdentity }],
+    };
+    const generated = applyShellStreamEvent(before, {
+      kind: "project.updated",
+      sequence: 1,
+      project: { ...v2Project, briefState: saved, repositoryIdentity: null },
+    });
+    expect(generated.projects[0]?.briefState).toEqual(saved);
+    expect(generated.projects[0]?.repositoryIdentity).toEqual(repositoryIdentity);
+    const cleared = applyShellStreamEvent(generated, {
+      kind: "project.updated",
+      sequence: 2,
+      project: {
+        ...v2Project,
+        briefState: { revision: "cleared", contextFile: null, saved: null },
+      },
+    });
+    expect(cleared.projects[0]?.briefState?.saved).toBeNull();
+    expect(cleared.projects[0]?.briefState?.revision).toBe("cleared");
+  });
   it("ignores stale project updates without mutating the snapshot", () => {
     const snapshotWithProject = {
       ...v2ShellSnapshot,

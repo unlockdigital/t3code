@@ -38,6 +38,28 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("isolates direct preview launch and preserves explicit and source profiles", () =>
+    Effect.gen(function* () {
+      const preview = { isPackaged: true, appVersion: "0.1.6-unlock.1-preview.20261101.1" };
+      const isolated = yield* makeEnvironment(preview);
+      assert.equal(isolated.baseDir, "/Users/alice/.t3-unlock-preview");
+      assert.equal(
+        isolated.appDataDirectory,
+        "/Users/alice/Library/Application Support/T3 Code Unlock Digital Preview",
+      );
+      assert.equal(isolated.displayName, "T3 Code Unlock Digital Preview");
+      const explicit = yield* makeEnvironment(preview, {
+        T3CODE_HOME: "/tmp/explicit-server",
+        T3CODE_DESKTOP_APP_DATA_DIR: "/tmp/explicit-desktop",
+      });
+      assert.equal(explicit.baseDir, "/tmp/explicit-server");
+      assert.equal(explicit.appDataDirectory, "/tmp/explicit-desktop");
+      const source = yield* makeEnvironment({ ...preview, isPackaged: false });
+      assert.equal(source.baseDir, "/Users/alice/.t3");
+      assert.equal(source.appDataDirectory, "/Users/alice/Library/Application Support");
+    }),
+  );
+
   it.effect("uses the standard macOS app data directory by default", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment();

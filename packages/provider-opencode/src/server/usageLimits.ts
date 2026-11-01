@@ -55,7 +55,7 @@ const UsageResponse = Schema.Struct({
 
 // Selecting before decoding preserves the selected account for unsupported
 // credential types and self-hosted connections. NULL-active rows predate the selection flag.
-const readConsoleCredential = (databasePath: string) =>
+const readConsoleCredential = (databasePath: string, integrationId: "opencode" | "opencode-go") =>
   Effect.try(() => {
     const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -63,10 +63,10 @@ const readConsoleCredential = (databasePath: string) =>
       const row = database
         .prepare(
           `SELECT value FROM credential
-           WHERE integration_id = 'opencode' AND active IS NOT 0
+           WHERE integration_id = ? AND active IS NOT 0
            ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
         )
-        .get();
+        .get(integrationId);
       const stored =
         typeof row?.value === "string"
           ? Option.getOrUndefined(decodeStoredCredential(row.value))
@@ -142,12 +142,21 @@ export const readOpenCodeUsageLimits = Effect.fn("readOpenCodeUsageLimits")(func
     // Console supplies Go credentials in OpenCode 2. Inline auth explicitly
     // overrides local credentials, including the Console connection.
     const databaseFile = env.OPENCODE_DB ?? "opencode.db";
-    const consoleCredential =
+    const databasePath = path.resolve(dataHome, "opencode", databaseFile);
+    const storedCredentials =
       env.OPENCODE_AUTH_CONTENT || databaseFile === ":memory:"
-        ? undefined
-        : yield* readConsoleCredential(path.resolve(dataHome, "opencode", databaseFile));
-    let accountId = consoleCredential?.accountId;
-    let apiKey = consoleCredential?.key || goKey;
+        ? []
+        : [
+            yield* readConsoleCredential(databasePath, "opencode"),
+            yield* readConsoleCredential(databasePath, "opencode-go"),
+          ];
+    const credentials = storedCredentials.filter(
+      (credential): credential is NonNullable<typeof credential> => credential !== undefined,
+    );
+    if (goKey && !credentials.some((credential) => credential.key === goKey))
+      credentials.push({ key: goKey });
+    let apiKey = credentials[0]?.key;
+    let accountId = credentials[0]?.accountId;
     if (!apiKey) return unsupported;
 
     const client = yield* HttpClient.HttpClient;
@@ -158,9 +167,10 @@ export const readOpenCodeUsageLimits = Effect.fn("readOpenCodeUsageLimits")(func
         ),
       );
     let response = yield* readUsage(apiKey);
-    if ((response.status === 401 || response.status === 403) && goKey && goKey !== apiKey) {
-      accountId = undefined;
-      apiKey = goKey;
+    for (const credential of credentials.slice(1)) {
+      if (response.status !== 401 && response.status !== 403) break;
+      apiKey = credential.key;
+      accountId = credential.accountId;
       response = yield* readUsage(apiKey);
     }
     // A valid Zen key can exist without a Go subscription.

@@ -1,3 +1,6 @@
+import { defaultHomeForVersion } from "@t3tools/shared/forkIdentity";
+import packageJson from "../package.json" with { type: "json" };
+export const defaultServerHomeName = defaultHomeForVersion(packageJson.version);
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   listLoginShellCandidates,
@@ -68,8 +71,7 @@ export const fixPath = Effect.fn("fixPath")(function* (options?: {
   const env = yield* HostProcess.Environment;
 
   if (platform === "win32") {
-    // The desktop already ran both PowerShell probes into the env this child
-    // extends. Repeating them here costs seconds of startup on Windows.
+    // Desktop already populated the child env; repeating PowerShell probes costs seconds.
     if (options?.shellEnvironmentPrepared === true) return;
     const repairedEnvironment = yield* resolveWindowsEnvironment(env).pipe(
       Effect.catchDefect((defect) =>
@@ -124,7 +126,7 @@ export const expandHomePath = Effect.fn(function* (input: string) {
 export const resolveBaseDir = Effect.fn(function* (raw: string | undefined) {
   const { join, resolve } = yield* Path.Path;
   if (!raw || raw.trim().length === 0) {
-    return join(yield* HostProcess.HomeDirectory, ".t3");
+    return join(yield* HostProcess.HomeDirectory, defaultServerHomeName);
   }
   return resolve(yield* expandHomePath(raw.trim()));
 });

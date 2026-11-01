@@ -48,6 +48,7 @@ vi.mock("../../state/environments", () => ({
   useEnvironmentProviders: () => state.providers,
 }));
 vi.mock("../../uiStateStore", () => ({
+  legacyProjectCwdPreferenceKey: (cwd: string) => `legacy-project-cwd:${cwd}`,
   useUiStateStore: () => state.visits,
 }));
 vi.mock("../../hooks/useSettings", () => ({

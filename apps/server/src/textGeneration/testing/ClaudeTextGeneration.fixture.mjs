@@ -70,3 +70,17 @@ if (stderrText) {
 
 process.stdout.write(process.env.T3_FAKE_CLAUDE_OUTPUT ?? "");
 process.exitCode = Number(process.env.T3_FAKE_CLAUDE_EXIT_CODE ?? 0);
+
+if (stdinContent.includes("Write a plain-language project brief")) {
+  if (!argv.includes("--bare") || !argv.includes("--no-session-persistence")) {
+    fail("project briefs must suppress implicit context and history persistence", 14);
+  }
+  const settingsSourcesIndex = argv.indexOf("--setting-sources");
+  if (settingsSourcesIndex === -1 || argv[settingsSourcesIndex + 1] !== "") {
+    fail("project briefs must disable filesystem settings", 15);
+  }
+  const deniedIndex = argv.indexOf("--disallowedTools");
+  if (deniedIndex === -1 || argv[deniedIndex + 1] !== "*") {
+    fail("project briefs must deny every tool", 16);
+  }
+}

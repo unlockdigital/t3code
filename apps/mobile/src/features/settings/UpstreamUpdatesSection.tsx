@@ -6,7 +6,7 @@ import { Linking, View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { SettingsActionRow } from "./components/SettingsActionRow";
+import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSection } from "./components/SettingsSection";
 
 export function UpstreamUpdatesSection({
@@ -37,6 +37,7 @@ export function UpstreamUpdatesSection({
   const restore = useEffectEvent(() => {
     void run({ action: "read" });
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Read persisted status from this environment when the panel opens.
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- Restore this environment's persisted source status on opening.
     if (allowed) restore();

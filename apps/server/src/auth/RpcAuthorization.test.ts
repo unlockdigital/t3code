@@ -8,6 +8,8 @@ import {
   clientRpcRequiredScopes,
   ProviderInstanceId,
   ProjectId,
+  ProviderDriverKind,
+  SecretProviderId,
   ThreadId,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
@@ -32,16 +34,18 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 import { selectAccountRouting } from "@t3tools/shared/accountRouting";
 
 describe("RPC authorization scopes", () => {
-  it("guards coordinator removal with settings-write on client and server", () => {
-    expect(
-      clientRpcRequiredScopes(WS_METHODS.serverSetApprovalCoordinator, {
-        threadId: ThreadId.make("old"),
-      }),
-    ).toEqual([AuthSettingsWriteScope]);
-    expect(requiredScopeForRpcMethod(WS_METHODS.serverSetApprovalCoordinator)).toBe(
-      AuthSettingsWriteScope,
+  it("separates saved project briefs from source-reading generation and edits", () => {
+    expect(clientRpcRequiredScopes(WS_METHODS.projectsGetBrief, {})).toEqual([
+      AuthOrchestrationReadScope,
+    ]);
+    expect(new Set(clientRpcRequiredScopes(WS_METHODS.projectsGenerateBrief, {}))).toEqual(
+      new Set([AuthFilesystemReadScope, AuthOrchestrationOperateScope]),
     );
+    for (const method of [WS_METHODS.projectsClearBrief, WS_METHODS.projectsConfigureBrief]) {
+      expect(clientRpcRequiredScopes(method, {})).toEqual([AuthOrchestrationOperateScope]);
+    }
   });
+
   it("requires provider management to connect a private billing key", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.providerConnectTinfoilBilling)).toBe(
       AuthProvidersManageScope,
@@ -72,12 +76,14 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("keeps triage, which seeds an agent that reads logs and the database, behind operate scope", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverPrepareTriage)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("separates passive terminal observation from operations that can change a shell", () => {
-    for (const method of [
-      WS_METHODS.terminalObserve,
-      WS_METHODS.subscribeTerminalEvents,
-      WS_METHODS.subscribeTerminalMetadata,
-    ]) {
+    for (const method of [WS_METHODS.terminalObserve, WS_METHODS.subscribeTerminalMetadata]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalReadScope);
     }
     for (const method of [
@@ -86,8 +92,8 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.terminalWrite,
       WS_METHODS.terminalResize,
       WS_METHODS.terminalClear,
-      WS_METHODS.terminalRestart,
       WS_METHODS.terminalClose,
+      WS_METHODS.previewStopLocalServer,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalOperateScope);
     }
@@ -157,6 +163,46 @@ describe("RPC scope middleware", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+it.effect.each([
+  { scopes: [AuthOrchestrationReadScope], missing: AuthOrchestrationOperateScope },
+  { scopes: [AuthFilesystemReadScope], missing: AuthOrchestrationOperateScope },
+  { scopes: [AuthOrchestrationOperateScope], missing: AuthFilesystemReadScope },
+])(
+  "blocks brief generation before source collection with missing $missing",
+  ({ scopes, missing }) =>
+    Effect.gen(function* () {
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (
+            tag,
+          ): tag is Exclude<
+            keyof typeof RPC_REQUIRED_SCOPES,
+            typeof WS_METHODS.projectsGenerateBrief
+          > => tag !== WS_METHODS.projectsGenerateBrief,
+        ),
+      );
+      let handled = false;
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.projectsGenerateBrief, () =>
+              Effect.sync(() => {
+                handled = true;
+              }).pipe(Effect.andThen(Effect.never)),
+            ),
+            RpcAuthorization.layer(scopes),
+          ),
+        ),
+      );
+      expect(
+        yield* client[WS_METHODS.projectsGenerateBrief]({
+          projectId: ProjectId.make("brief-project"),
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: missing });
+      expect(handled).toBe(false);
+    }).pipe(Effect.scoped),
+);
 
 it.effect("guards account routing preview and policy updates with their respective scopes", () =>
   Effect.gen(function* () {
@@ -306,17 +352,38 @@ describe("settings mutation authorization", () => {
       );
       yield* client[WS_METHODS.serverUpdateSettings]({ patch: {}, providerInstanceMutation });
       expect(handled).toBe(1);
+      yield* client[WS_METHODS.serverUpdateSettings]({
+        patch: {},
+        providerInstanceMutation: {
+          operation: "upsert",
+          instanceId: ProviderInstanceId.make("codex_work"),
+          instance: {
+            driver: ProviderDriverKind.make("codex"),
+            environment: [
+              {
+                name: "OPENAI_API_KEY",
+                sensitive: true,
+                value: {
+                  provider: SecretProviderId.make("personal"),
+                  reference: "op://Private/OpenAI/credential",
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(handled).toBe(2);
       expect(
         yield* client[WS_METHODS.serverUpdateSettings]({
           patch: { defaultRuntimeMode: "full-access" },
           providerInstanceMutation,
         }).pipe(Effect.flip),
       ).toMatchObject({ requiredPermission: AuthSettingsWriteScope });
-      expect(handled).toBe(1);
+      expect(handled).toBe(2);
     }).pipe(Effect.scoped),
   );
 
-  it.effect("does not let a settings grant create or remove providers", () =>
+  it.effect("does not let a settings grant create or remove providers or secret providers", () =>
     Effect.gen(function* () {
       let handled = false;
       const client = yield* RpcTest.makeClient(group).pipe(
@@ -336,6 +403,11 @@ describe("settings mutation authorization", () => {
         yield* client[WS_METHODS.serverUpdateSettings]({
           patch: {},
           providerInstanceMutation,
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: AuthProvidersManageScope });
+      expect(
+        yield* client[WS_METHODS.serverUpdateSettings]({
+          patch: { secretProviders: { [SecretProviderId.make("personal")]: null } },
         }).pipe(Effect.flip),
       ).toMatchObject({ requiredPermission: AuthProvidersManageScope });
       expect(handled).toBe(false);

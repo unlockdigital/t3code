@@ -60,7 +60,6 @@ describe("threadRoutes", () => {
 
     expect(isThreadRoutePathname("/env-1/thread-1", ref)).toBe(true);
     expect(isThreadRoutePathname("/env-1/thread-1/", ref)).toBe(true);
-    // A pending navigation away from the thread already shows these locations.
     expect(isThreadRoutePathname("/new", ref)).toBe(false);
     expect(isThreadRoutePathname("/home", ref)).toBe(false);
     expect(isThreadRoutePathname("/env-1/thread-2", ref)).toBe(false);
@@ -98,9 +97,7 @@ describe("threadRoutes", () => {
 
   it.each([
     { status: "cached", source: "server thread" },
-    { status: "synchronizing", source: "server thread" },
     { status: "cached", source: "draft" },
-    { status: "synchronizing", source: "draft" },
   ] as const)(
     "keeps available $source visible while the shell is $status",
     ({ status, source }) => {

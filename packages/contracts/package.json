@@ -1,6 +1,6 @@
 {
   "name": "@t3tools/contracts",
-  "version": "0.1.1",
+  "version": "0.1.6-unlock.1-preview.20261101.1",
   "private": true,
   "files": [
     "dist"
@@ -18,10 +18,6 @@
     "./relay": {
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"
-    },
-    "./n2itionConnection": {
-      "types": "./src/n2itionConnection.ts",
-      "import": "./src/n2itionConnection.ts"
     }
   },
   "scripts": {

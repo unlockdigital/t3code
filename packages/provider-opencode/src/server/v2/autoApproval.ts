@@ -28,7 +28,6 @@ const inside = (root: string, path: string) => {
 // quotes. This accepts only a single command with literal arguments.
 function words(command: string): string[] | undefined {
   // Control characters and expansion operators require explicit approval.
-  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f$`\\;&|<>(){}*?!~[\]]/.test(command)) return undefined;
   const tokens: string[] = [];
   let end = 0;

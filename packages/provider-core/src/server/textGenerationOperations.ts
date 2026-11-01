@@ -10,12 +10,14 @@ import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  buildProjectBriefPrompt,
   buildReviewGuidePrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
+  sanitizeProjectBrief,
   sanitizeThreadTitle,
 } from "./textGenerationUtils.ts";
 
@@ -28,11 +30,7 @@ export interface Request<S extends Schema.Top> {
   readonly outputSchema: S;
   readonly modelSelection: ModelSelection;
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
-  /**
-   * Set when the model must investigate `cwd` before answering: it may read files and run
-   * read-only commands there, over as many turns as it needs, and must change nothing. A
-   * runner that cannot guarantee read-only tools fails rather than answering blind.
-   */
+  /** Investigate cwd with read-only tools across turns; fail if the runner cannot guarantee read-only access. */
   readonly investigate?: { readonly timeoutMs: number } | undefined;
 }
 
@@ -73,7 +71,36 @@ export const decodeJsonReply = <S extends Schema.Top>(
   );
 };
 
-export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
+export function fromRunner(
+  name: string,
+  run: Runner,
+  options: { readonly boundedProjectBrief?: boolean } = {},
+): ProviderTextGeneration {
+  // Other runners can inspect workspaces or expose tools even during background operations.
+  const generateProjectBrief: ProviderTextGeneration["generateProjectBrief"] = Effect.fn(
+    `${name}.generateProjectBrief`,
+  )(function* (input) {
+    if (!options.boundedProjectBrief) {
+      return yield* new TextGenerationError({
+        operation: "generateProjectBrief",
+        detail: `${name} does not support bounded project briefs. Select Codex or a Claude provider configured with API or cloud-provider credentials as the project text-generation model.`,
+      });
+    }
+    const generated = yield* run({
+      operation: "generateProjectBrief",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildProjectBriefPrompt(input.sourceText),
+    });
+    const text = sanitizeProjectBrief(generated.text);
+    if (!text) {
+      return yield* new TextGenerationError({
+        operation: "generateProjectBrief",
+        detail: "The model returned an empty project brief. Try generating again.",
+      });
+    }
+    return { text };
+  });
   const generateCommitMessage: ProviderTextGeneration["generateCommitMessage"] = Effect.fn(
     `${name}.generateCommitMessage`,
   )(function* (input) {
@@ -147,8 +174,10 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
       ...buildThreadTitlePrompt({
         message: input.message,
         previousTitle: input.previousTitle,
+        forkSource: input.forkSource,
         linkedContext: input.linkedContext,
         attachments: input.attachments,
+        instructions: input.instructions,
       }),
     });
     return {
@@ -170,6 +199,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
   });
 
   return {
+    generateProjectBrief,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

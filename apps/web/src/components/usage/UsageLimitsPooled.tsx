@@ -1,6 +1,8 @@
 import type { UsagePagePreferences } from "./usagePagePreferences";
 import {
   ANTIGRAVITY_USAGE_SCOPE,
+  CHATGPT_USAGE_URL,
+  collectExternalUsageLinks,
   collectLimitAccounts,
   collectUsageAccounts,
   collectLimitNotices,
@@ -15,8 +17,11 @@ import {
   paceRemainingPercent,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
+import { ensureLocalApi } from "../../localApi";
+import { OpenAI } from "../Icons";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { AlertTriangleIcon, TicketIcon } from "lucide-react";
+import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
+import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import {
   createContext,
   type ReactNode,
@@ -251,6 +256,7 @@ function ActiveSegmentPopover({
   // The trigger is gone, so the popup has nothing to anchor to: an exit transition would
   // slide it to the viewport origin. Unmount it outright, which also clears Base UI's
   // active-trigger bookkeeping so the segment can open again when it comes back.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the popover handle and unmounts the Base UI popup before paint when its trigger is gone
   useLayoutEffect(() => {
     if (available) return;
     handle.close();
@@ -401,7 +407,12 @@ function SegmentTriggers({
               className="min-w-0 truncate font-medium text-foreground"
             />
           ) : null}
-          <span className="shrink-0 font-semibold text-foreground tabular-nums">{remaining}%</span>
+          {/* A single-account bar repeats the headline percentage. */}
+          {showAccountName ? (
+            <span className="shrink-0 font-semibold text-foreground tabular-nums">
+              {remaining}%
+            </span>
+          ) : null}
           {resetsIn || credits ? (
             <span className="ms-auto flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm bg-background/85 px-1.5 py-0.5 text-2xs whitespace-nowrap text-foreground tabular-nums">
               {resetsIn?.replace("resets in ", "↻ ") ?? ""}
@@ -508,7 +519,7 @@ function PoolBar({
               window={member.window}
               reset={restores.get(member.account.key)}
               refillPercent={member.refillPercent}
-              color={color}
+              color={normalizeProviderAccentColor(member.account.accentColor) ?? color}
               now={now}
               index={position + 1}
               showAccountName={pool.columns.length > 1}
@@ -623,6 +634,7 @@ export function UsageLimitsPooled({
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
+  const externalLinks = collectExternalUsageLinks(presentations);
   const accounts = collectUsageAccounts(presentations);
   return (
     <div className="flex flex-col gap-4">
@@ -635,7 +647,10 @@ export function UsageLimitsPooled({
         onPreferencesChange={onPreferencesChange}
         historyEnvironments={historyEnvironments}
       />
-      {accounts.length === 0 && notices.length === 0 && !cursorPrompt ? (
+      {accounts.length === 0 &&
+      notices.length === 0 &&
+      !cursorPrompt &&
+      externalLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Add a provider account in Settings to see its usage here.
         </p>
@@ -669,6 +684,39 @@ export function UsageLimitsPooled({
           ) : null
         }
       </Popover>
+      {externalLinks.map((link) => (
+        <section
+          key={link.url}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            {link.url === CHATGPT_USAGE_URL ? (
+              <OpenAI className="size-5 shrink-0" aria-hidden="true" />
+            ) : null}
+            <div className="min-w-0 space-y-1">
+              <h2 className="text-sm font-medium">{link.label}</h2>
+              <p className="text-xs break-words text-muted-foreground">
+                {link.accounts.join(", ")}
+              </p>
+              {link.url === CHATGPT_USAGE_URL ? (
+                <p className="text-xs text-muted-foreground">
+                  View usage in ChatGPT with your connected account.
+                </p>
+              ) : link.message ? (
+                <p className="max-w-xl text-xs text-muted-foreground">{link.message}</p>
+              ) : null}
+            </div>
+          </div>
+          <Button
+            variant="ghost-muted"
+            size="xs"
+            onClick={() => void ensureLocalApi().shell.openExternal(link.url)}
+          >
+            Manage usage
+            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+        </section>
+      ))}
       <LimitNotices notices={notices} />
     </div>
   );
