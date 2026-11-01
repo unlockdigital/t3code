@@ -410,8 +410,12 @@ describe("Antigravity subscription limits", () => {
           windowDurationMins,
         })),
       ).toEqual([
-        { id: "gemini-weekly", resetsAt: "2026-10-28T10:16:04.000Z", windowDurationMins: 10080 },
-        { id: "gemini-quota", resetsAt: "2026-10-21T15:16:04.000Z", windowDurationMins: undefined },
+        { id: "gemini-a-weekly", resetsAt: "2026-10-28T10:16:04.000Z", windowDurationMins: 10080 },
+        {
+          id: "gemini-a-quota",
+          resetsAt: "2026-10-21T15:16:04.000Z",
+          windowDurationMins: undefined,
+        },
       ]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );

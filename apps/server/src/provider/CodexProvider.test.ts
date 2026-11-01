@@ -183,8 +183,9 @@ const makeAccountProbeFixture = Effect.fn("makeAccountProbeFixture")(function* (
   let spawns = 0;
   let releases = 0;
   const encoder = new TextEncoder();
-  const spawner = ChildProcessSpawner.make(() =>
+  const spawner = ChildProcessSpawner.make((command) =>
     Effect.gen(function* () {
+      const isVersion = command._tag === "StandardCommand" && command.args.includes("--version");
       spawns += 1;
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
@@ -193,8 +194,8 @@ const makeAccountProbeFixture = Effect.fn("makeAccountProbeFixture")(function* (
       );
       return ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(1),
-        exitCode: Effect.never,
-        isRunning: Effect.succeed(true),
+        exitCode: isVersion ? Effect.succeed(ChildProcessSpawner.ExitCode(0)) : Effect.never,
+        isRunning: Effect.succeed(!isVersion),
         kill: () => Effect.void,
         unref: Effect.succeed(Effect.void),
         stdin: Sink.forEach((chunk: Uint8Array) =>
@@ -243,7 +244,9 @@ const makeAccountProbeFixture = Effect.fn("makeAccountProbeFixture")(function* (
             yield* Queue.offer(output, encoder.encode(`${JSON.stringify({ id, ...response })}\n`));
           }),
         ),
-        stdout: Stream.fromQueue(output),
+        stdout: isVersion
+          ? Stream.make(encoder.encode("codex-cli 1.0.0\n"))
+          : Stream.fromQueue(output),
         stderr: Stream.empty,
         all: Stream.empty,
         getInputFd: () => Sink.drain,
@@ -298,7 +301,8 @@ it.layer(NodeServices.layer)("Codex account probe recovery", (it) => {
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.auth.status, "unknown");
         assert.strictEqual(status.message, `Codex app-server provider probe failed: ${message}.`);
-        assert.deepStrictEqual(fixture.counts(), { accountReads: 2, spawns: 1, releases: 1 });
+        assert.strictEqual(status.version, "1.0.0");
+        assert.deepStrictEqual(fixture.counts(), { accountReads: 2, spawns: 2, releases: 2 });
       }
     }),
   );
@@ -317,7 +321,8 @@ it.layer(NodeServices.layer)("Codex account probe recovery", (it) => {
           status.message,
           `Codex app-server provider probe failed: ${error.message}.`,
         );
-        assert.deepStrictEqual(fixture.counts(), { accountReads: 1, spawns: 1, releases: 1 });
+        assert.strictEqual(status.version, "1.0.0");
+        assert.deepStrictEqual(fixture.counts(), { accountReads: 1, spawns: 2, releases: 2 });
       }
     }),
   );

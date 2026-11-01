@@ -151,6 +151,7 @@ it.effect("keeps private search snippets out of an ordinary cloud caller", () =>
   const matches = [privateId, publicId].map((id) => ({
     threadId: id,
     projectId: privateShell.projectId,
+    title: "Synthetic search result",
     source: "user" as const,
     snippet: id === privateId ? "SYNTHETIC_PRIVATE_SEARCH_CANARY" : "Ordinary synthetic result",
     messageCreatedAt: null,
@@ -164,7 +165,9 @@ it.effect("keeps private search snippets out of an ordinary cloud caller", () =>
         Effect.provideService(McpSchema.McpServerClient, client),
       );
     expect(result.isError).toBe(false);
-    expect(result.structuredContent).toEqual({ matches: [matches[1]] });
+    expect(result.structuredContent).toEqual({
+      matches: [{ ...matches[1], link: McpInvocationContext.threadLinkFor(scope, publicId) }],
+    });
     expect(JSON.stringify(result)).not.toContain("SYNTHETIC_PRIVATE_SEARCH_CANARY");
   }).pipe(
     Effect.provide(
@@ -174,7 +177,9 @@ it.effect("keeps private search snippets out of an ordinary cloud caller", () =>
         Layer.provide(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
         Layer.provide(
-          Layer.mock(ThreadSearch.ThreadSearch)({ search: () => Effect.succeed({ matches }) }),
+          Layer.mock(ThreadSearch.ThreadSearch)({
+            searchThreads: () => Effect.succeed({ matches }),
+          }),
         ),
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({

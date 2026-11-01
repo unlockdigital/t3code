@@ -7,7 +7,7 @@ import {
 // Settings validation and registry hydration share these implicit instances without
 // loading provider runtimes into the settings service.
 export const DEFAULT_PROVIDER_INSTANCES: ProviderInstanceConfigMap = Object.fromEntries(
-  ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "pi", "muse"].map(
+  ["codex", "claudeAgent", "cursor", "grok", "fx", "opencode", "antigravity", "pi", "muse"].map(
     (kind) => {
       const driver = ProviderDriverKind.make(kind);
       return [defaultInstanceIdForDriver(driver), { driver }];

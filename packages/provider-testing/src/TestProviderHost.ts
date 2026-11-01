@@ -56,7 +56,7 @@ export const layer = (
           changes: Stream.empty,
           subscribe: Effect.succeed(Stream.empty),
         },
-        canRetryTurn: () => Effect.succeed(true),
+        canRetryTurn: Effect.fn("ProviderHost.canRetryTurn")(() => Effect.succeed(true)),
         shouldRunBackgroundWork: Effect.fn("ProviderHost.shouldRunBackgroundWork")(function () {
           return Effect.succeed(options.runBackgroundWork ?? true);
         }),

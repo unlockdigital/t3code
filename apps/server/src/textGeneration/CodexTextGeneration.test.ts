@@ -772,7 +772,16 @@ it.effect.each([false, true])("text generation preflight: exhausted=%s", (exhaus
         linkedContext: "",
         modelSelection: selection,
       }),
-    ).toEqual({ title: "Generated title" });
+    ).toEqual({
+      title: "Generated title",
+      modelSelection: exhausted
+        ? {
+            instanceId: fallback,
+            model:
+              DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[ProviderDriverKind.make("claudeAgent")],
+          }
+        : selection,
+    });
     expect(calls).toEqual([
       exhausted
         ? {

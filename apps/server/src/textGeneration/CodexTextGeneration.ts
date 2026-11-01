@@ -87,26 +87,21 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     operation: string,
     prefix: string,
     content: string,
-  ): Effect.Effect<string, TextGenerationError> =>
-    fileSystem
-      .makeTempFile({
-        prefix: `t3code-${prefix}-${process.pid}-`,
-      })
-      .pipe(
-        Effect.tap((filePath) =>
-          fileSystem
-            .writeFileString(filePath, content)
-            .pipe(Effect.onError(() => removeTempFileDir(filePath))),
-        ),
-        Effect.mapError(
-          (cause) =>
-            new TextGenerationError({
-              operation,
-              detail: `Failed to write temp file`,
-              cause,
-            }),
-        ),
-      );
+  ): Effect.Effect<string, TextGenerationError, Scope.Scope> =>
+    Effect.acquireRelease(
+      fileSystem.makeTempFile({ prefix: `t3code-${prefix}-${process.pid}-` }),
+      removeTempFileDir,
+    ).pipe(
+      Effect.tap((filePath) => fileSystem.writeFileString(filePath, content)),
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: `Failed to write temp file`,
+            cause,
+          }),
+      ),
+    );
 
   // Enumeration and inference share the effective runtime, environment and cwd.
   // Global CLI config still applies; enumeration and inference are separate processes.

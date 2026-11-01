@@ -16,8 +16,8 @@ export const DesktopBrowserEvent = Schema.Union([
     type: Schema.Literal("claudeBilling"),
     requestId: TrimmedNonEmptyString,
     result: Schema.Union([
-      Schema.Struct({ _tag: Schema.Literal("Success"), credits: Schema.Unknown }),
-      Schema.Struct({ _tag: Schema.Literal("Failure"), error: ClaudeConsoleBillingReadError }),
+      Schema.TaggedStruct("Success", { credits: Schema.Unknown }),
+      Schema.TaggedStruct("Failure", { error: ClaudeConsoleBillingReadError }),
     ]),
   }),
   Schema.Struct({ type: Schema.Literal("attached"), ...TabKey }),
