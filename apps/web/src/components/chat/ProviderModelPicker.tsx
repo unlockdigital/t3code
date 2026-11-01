@@ -396,6 +396,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         initialFocus={searchInputRef}
         align="start"
         className="before:hidden"
+        width={docked ? "xl" : "auto"}
         padding="none"
         touchBackdrop
       >

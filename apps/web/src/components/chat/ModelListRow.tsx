@@ -40,6 +40,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
     name: props.name,
     subProvider: props.subProvider,
   };
+  const modelName = getDisplayModelName(model);
 
   const row = (
     <ComboboxItem
@@ -49,7 +50,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
       value={modelPickerModelKey(props.instanceId, props.slug)}
       disabled={Boolean(props.disabledReason)}
       className={cn(
-        "group relative w-full !min-w-0 max-w-full cursor-pointer",
+        "@container/model-option group relative w-full !min-w-0 max-w-full cursor-pointer",
         props.disabledReason &&
           "data-disabled:pointer-events-auto data-disabled:cursor-not-allowed",
       )}
@@ -68,13 +69,23 @@ export const ModelListRow = memo(function ModelListRow(props: {
         badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
       />
       <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <div className="min-w-0 truncate text-sm font-normal leading-snug">
-          {getDisplayModelName(model)}
-          {/* The logo is decorative, so name the provider for screen readers. */}
-          <span className="sr-only">, {props.providerDisplayName}</span>
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div className="min-w-0 flex-1 truncate text-sm font-normal leading-snug">
+                {modelName}
+                {/* The logo is decorative, so name the provider for screen readers. */}
+                <span className="sr-only">, {props.providerDisplayName}</span>
+              </div>
+            }
+          />
+          <TooltipPopup side="top" align="start">
+            {modelName}
+            <span className="block text-muted-foreground">{props.providerDisplayName}</span>
+          </TooltipPopup>
+        </Tooltip>
         {(props.showProvider ?? props.showInstanceBadge) && (
-          <div className="mt-1 flex items-center gap-1.5">
+          <div className="mt-1 hidden min-w-0 max-w-24 shrink-0 items-center gap-1.5 @min-[18rem]/model-option:flex">
             <ProviderInstanceIcon
               driverKind={props.driverKind}
               instanceId={props.instanceId}

@@ -837,10 +837,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       <div
         ref={pickerContentRef}
         className={cn(
-          "relative flex w-screen max-w-90 flex-row overflow-hidden",
+          "relative flex flex-row overflow-hidden",
           props.docked
-            ? "max-sm:h-56 max-sm:min-h-0! max-sm:w-full max-sm:max-w-none"
-            : "max-h-86.5",
+            ? "min-w-0 w-full sm:flex-1 max-sm:h-56 max-sm:min-h-0!"
+            : "w-screen max-w-90 max-h-86.5",
         )}
         style={
           isSearching
