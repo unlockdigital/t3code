@@ -482,7 +482,7 @@ it.effect("keeps a forwarded wait short and its retries scoped to the caller", (
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("launches in a linked environment with the caller's modes, retry-safe", () =>
+it.effect("defaults linked launches to Auto within the caller's modes, retry-safe", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const seen = yield* Ref.make<Seen>(nothingSeen);
@@ -511,11 +511,20 @@ it.effect("launches in a linked environment with the caller's modes, retry-safe"
       });
       const retried = yield* launch("thread:laptop-plan");
       const [launched, relaunched] = (yield* Ref.get(seen)).launches;
-      // The thread there runs with the caller's own modes here, below the
-      // link's full access, and a retry asks for the same thread.
-      expect(launched).toMatchObject({ runtimeMode: "full-access", interactionMode: "plan" });
+      // New launches default to Auto and retain the caller's plan restriction.
+      // Retries keep the same thread; explicit Full Access stays within the caller's grant.
+      expect(launched).toMatchObject({ runtimeMode: "auto", interactionMode: "plan" });
       expect(relaunched?.threadId).toBe(launched?.threadId);
       expect(retried.structuredContent).toEqual(first.structuredContent);
+      const explicitFull = yield* launch("thread:laptop-plan", {
+        runtimeMode: "full-access",
+        clientRequestId: "launch-explicit-full",
+      });
+      expect(explicitFull.isError).toBe(false);
+      expect((yield* Ref.get(seen)).launches.at(-1)).toMatchObject({
+        runtimeMode: "full-access",
+        interactionMode: "plan",
+      });
 
       // An escalation past the caller's own modes is refused here.
       const escalated = yield* launch("thread:laptop-plan", { interactionMode: "default" });
@@ -530,7 +539,7 @@ it.effect("launches in a linked environment with the caller's modes, retry-safe"
       });
       expect(failureOf(withUpload)).toMatchObject({ code: "invalid_request" });
       expect(yield* Ref.get(b.bearers)).toEqual([]);
-      expect((yield* Ref.get(seen)).launches).toHaveLength(2);
+      expect((yield* Ref.get(seen)).launches).toHaveLength(3);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
