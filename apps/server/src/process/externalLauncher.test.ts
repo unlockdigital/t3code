@@ -59,11 +59,17 @@ function makeMockDetachedHandle(input: MockSpawnResult & { readonly onUnref?: ()
 const layerTest = (input: {
   readonly platform: NodeJS.Platform;
   readonly env?: Record<string, string>;
+  readonly fileSystem?: FileSystem.FileSystem;
   readonly resolveExecutable?: (command: string) => string | undefined;
   readonly onSpawn?: (command: ChildProcess.StandardCommand) => void;
   readonly onUnref?: () => void;
   readonly spawnResult?: (command: ChildProcess.StandardCommand) => MockSpawnResult | undefined;
 }) => {
+  const launcherLayer = input.fileSystem
+    ? ExternalLauncher.layer.pipe(
+        Layer.provide(Layer.succeed(FileSystem.FileSystem, input.fileSystem)),
+      )
+    : ExternalLauncher.layer;
   const layerSpawner = Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
     ChildProcessSpawner.make((command) =>
@@ -84,7 +90,7 @@ const layerTest = (input: {
   );
 
   return Layer.mergeAll(
-    ExternalLauncher.layer.pipe(Layer.provide(Layer.merge(NodeServices.layer, layerSpawner))),
+    launcherLayer.pipe(Layer.provide(Layer.merge(NodeServices.layer, layerSpawner))),
     Layer.succeed(HostProcess.Platform, input.platform),
     Layer.succeed(
       SpawnExecutableResolution,
@@ -616,6 +622,22 @@ it.effect("keeps the macOS VS Code Insiders bundle out of stable VS Code", () =>
       Effect.provide(
         layerTest({
           platform: "darwin",
+          fileSystem: FileSystem.FileSystem.of({
+            ...fs,
+            readDirectory: (target) =>
+              target === "/Applications" ? Effect.succeed([]) : fs.readDirectory(target),
+            stat: (target) =>
+              target.startsWith("/Applications/")
+                ? Effect.fail(
+                    PlatformError.systemError({
+                      _tag: "NotFound",
+                      module: "FileSystem",
+                      method: "stat",
+                      pathOrDescriptor: target,
+                    }),
+                  )
+                : fs.stat(target),
+          }),
           env: { HOME: home, PATH: path.join(home, "empty") },
           onSpawn: (command) => {
             spawned = command;

@@ -1,3 +1,4 @@
+import { executableNodeFixture } from "./testing/executableNodeFixture.ts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off - observes the children the launcher spawns with Node built-ins.
 import type * as NodeChildProcess from "node:child_process";
 
@@ -117,7 +118,7 @@ const writeFakeRuntime = (
   Effect.gen(function* () {
     const entryPath = path.join(versionDir, "t3");
     yield* fs.makeDirectory(versionDir, { recursive: true });
-    yield* fs.writeFileString(entryPath, `#!${process.execPath}\n${childSource}`);
+    yield* fs.writeFileString(entryPath, executableNodeFixture(process.execPath, childSource));
     yield* fs.chmod(entryPath, 0o755);
     yield* fs.writeFileString(
       path.join(versionDir, ".install-complete"),

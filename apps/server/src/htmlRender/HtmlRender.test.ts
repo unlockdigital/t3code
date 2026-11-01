@@ -1,3 +1,4 @@
+import { executableNodeFixture } from "../testing/executableNodeFixture.ts";
 // @effect-diagnostics nodeBuiltinImport:off - plain local servers stand in for LAN services.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
@@ -332,8 +333,9 @@ describe("HtmlRender", () => {
           const exitRecord = path.join(directory, "exited");
           yield* fileSystem.writeFileString(
             executable,
-            `#!${process.execPath}
-const fs = require("node:fs");
+            executableNodeFixture(
+              process.execPath,
+              `const fs = require("node:fs");
 process.on("SIGTERM", () => {});
 const quit = () => { fs.writeFileSync(${JSON.stringify(exitRecord)}, "asked to close"); process.exit(0); };
 const reply = (message) => fs.writeSync(4, JSON.stringify(message) + "\\0");
@@ -354,6 +356,7 @@ fs.createReadStream(null, { fd: 3 }).on("end", quit).on("data", (chunk) => {
   }
 });
 `,
+            ),
             { mode: 0o755 },
           );
 

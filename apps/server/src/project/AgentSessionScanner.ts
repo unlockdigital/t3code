@@ -735,7 +735,11 @@ export const make = Effect.gen(function* () {
     path.join(homeDir, "Documents", "Codex"),
   ];
 
-  const isExcludedProjectPath = (candidatePath: string) =>
+  const canonicalManagedRoots = Effect.forEach([baseDir, worktreesDir], (root) =>
+    fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
+  );
+
+  const isExcludedProjectPath = (candidatePath: string, canonicalRoots: ReadonlyArray<string>) =>
     excludedProjectRoots.has(normalizeProjectPathForComparison(candidatePath)) ||
     excludedProjectAncestors.some((ancestor) =>
       normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
@@ -745,7 +749,12 @@ export const make = Effect.gen(function* () {
     normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
       normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
     ) ||
-    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase);
+    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase) ||
+    canonicalRoots.some((root) =>
+      normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
+        normalizeForWorktreeMatch(root, foldWorktreeCase),
+      ),
+    );
 
   const listDirectory = (directory: string) =>
     fileSystem.readDirectory(directory).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
@@ -1387,6 +1396,7 @@ export const make = Effect.gen(function* () {
 
   const scan: AgentSessionScanner["Service"]["scan"] = Effect.gen(function* () {
     const { candidates: raw, truncated } = yield* collectCandidates();
+    const canonicalRoots = yield* canonicalManagedRoots;
     cachedCandidates = raw;
 
     const merged = new Map<
@@ -1406,7 +1416,7 @@ export const make = Effect.gen(function* () {
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
-      if (isExcludedProjectPath(resolved)) continue;
+      if (isExcludedProjectPath(resolved, canonicalRoots)) continue;
       let key = directoryKeys.get(resolved);
       if (key === undefined) {
         const stats = yield* statOption(resolved);
@@ -1418,7 +1428,7 @@ export const make = Effect.gen(function* () {
           .realPath(resolved)
           .pipe(Effect.orElseSucceed(() => resolved));
         // Symlinks can disguise excluded worktree paths; re-check their targets.
-        if (isExcludedProjectPath(realPath)) {
+        if (isExcludedProjectPath(realPath, canonicalRoots)) {
           key = "";
         } else {
           const gitIdentity = yield* readGitIdentity(resolved);
@@ -1508,9 +1518,14 @@ export const make = Effect.gen(function* () {
     workspaceRoot: string,
     completedSources: ReadonlyArray<AgentSessionImportSource>,
   ) {
+    const canonicalRoots = yield* canonicalManagedRoots;
     const root = path.resolve(expandHomePath(workspaceRoot, homeDir));
     const realRoot = yield* fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root));
-    if (isExcludedProjectPath(root) || isExcludedProjectPath(realRoot)) return Stream.empty;
+    if (
+      isExcludedProjectPath(root, canonicalRoots) ||
+      isExcludedProjectPath(realRoot, canonicalRoots)
+    )
+      return Stream.empty;
     const rootIdentity = yield* directoryIdentity(root);
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const cutoffMs = nowMs - RECENT_THREAD_WINDOW_MS;

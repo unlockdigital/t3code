@@ -49,6 +49,7 @@ interface ScannerTestInput {
   readonly piAgentDir?: string;
   readonly importedWorkspaceRoots?: ReadonlyArray<string>;
   readonly configBaseDir?: string;
+  readonly worktreesDir?: string;
   readonly providerInstances?: ContractServerSettings["providerInstances"];
 }
 
@@ -83,9 +84,21 @@ const layerScannerTest = (input: ScannerTestInput) =>
             ...input.providerInstances,
           },
         }),
-        ServerConfig.layerTest(
-          input.claudeHomePath,
-          input.configBaseDir ?? { prefix: "t3code-scanner-config-" },
+        Layer.effect(
+          ServerConfig.ServerConfig,
+          ServerConfig.ServerConfig.pipe(
+            Effect.map((config) => ({
+              ...config,
+              worktreesDir: input.worktreesDir ?? config.worktreesDir,
+            })),
+          ),
+        ).pipe(
+          Layer.provide(
+            ServerConfig.layerTest(
+              input.claudeHomePath,
+              input.configBaseDir ?? { prefix: "t3code-scanner-config-" },
+            ),
+          ),
         ),
         layerProjectStore(input.importedWorkspaceRoots ?? []),
       ),
@@ -930,29 +943,77 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
       }),
     );
 
-    it.effect("excludes sandboxes reached through a symlink into the worktrees dir", () =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path;
-        const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
-        const codexHomePath = yield* makeTempDir("t3code-codex-home-");
-        const configBaseDir = yield* makeTempDir("t3code-scanner-base-");
-        const linkParent = yield* makeTempDir("t3code-scanner-links-");
-        const fileSystem = yield* FileSystem.FileSystem;
-
-        const worktreeCwd = path.join(configBaseDir, "worktrees", "t3code", "wt-3");
-        yield* fileSystem.makeDirectory(worktreeCwd, { recursive: true });
-        const symlinkCwd = path.join(linkParent, "innocent-project");
-        yield* fileSystem.symlink(worktreeCwd, symlinkCwd);
-        yield* writeTranscript({
-          filePath: path.join(claudeHomePath, "projects", "-slug", "a.jsonl"),
-          contents: claudeSessionLine(symlinkCwd),
-          mtimeMs: Date.parse("2026-01-01T00:00:00.000Z"),
-        });
-
-        const result = yield* runScan({ claudeHomePath, codexHomePath, configBaseDir });
-
-        expect(result.candidates).toEqual([]);
-      }),
+    it.effect(
+      "excludes newly created managed directories through symlinks on every operation",
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse("2026-01-02T00:00:00.000Z"));
+          const path = yield* Path.Path;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
+          const codexHomePath = yield* makeTempDir("t3code-codex-home-");
+          const parent = yield* makeTempDir("t3code-scanner-managed-");
+          const configBaseDir = path.join(parent, "app");
+          const worktreesDir = path.join(parent, "managed");
+          const backingDir = path.join(parent, "backing");
+          const ordinaryCwd = path.join(parent, "managed-ordinary");
+          yield* Effect.gen(function* () {
+            const scanner = yield* AgentSessionScanner.AgentSessionScanner;
+            const worktreeCwd = path.join(worktreesDir, "t3code", "wt-3");
+            expect(yield* fileSystem.exists(worktreesDir)).toBe(false);
+            expect((yield* scanner.scan).candidates).toEqual([]);
+            yield* fileSystem.makeDirectory(path.join(backingDir, "t3code", "wt-3"), {
+              recursive: true,
+            });
+            yield* fileSystem.symlink(backingDir, worktreesDir);
+            const baseSandbox = path.join(configBaseDir, "private-sandbox");
+            yield* fileSystem.makeDirectory(baseSandbox, { recursive: true });
+            const baseAlias = path.join(parent, "innocent-data");
+            yield* fileSystem.symlink(baseSandbox, baseAlias);
+            yield* fileSystem.makeDirectory(ordinaryCwd, { recursive: true });
+            const symlinkCwd = path.join(parent, "innocent-project");
+            yield* fileSystem.symlink(worktreeCwd, symlinkCwd);
+            for (const [id, cwd] of [
+              ["managed", symlinkCwd],
+              ["app-data", baseAlias],
+              ["ordinary", ordinaryCwd],
+            ] as const) {
+              yield* writeTranscript({
+                filePath: path.join(claudeHomePath, "projects", id, "a.jsonl"),
+                contents: [
+                  JSON.stringify({
+                    type: "user",
+                    cwd,
+                    sessionId: id,
+                    timestamp: "2026-01-01T00:00:00.000Z",
+                    message: { role: "user", content: "Work on this project" },
+                  }),
+                  JSON.stringify({
+                    type: "assistant",
+                    sessionId: id,
+                    timestamp: "2026-01-01T00:01:00.000Z",
+                    message: { role: "assistant", content: [{ type: "text", text: "Done" }] },
+                  }),
+                  "",
+                ].join("\n"),
+                mtimeMs: Date.parse("2026-01-01T00:00:00.000Z"),
+              });
+            }
+            expect(yield* scanner.recentThreads(symlinkCwd).pipe(Stream.runCollect)).toEqual([]);
+            expect(yield* scanner.recentThreads(baseAlias).pipe(Stream.runCollect)).toEqual([]);
+            expect((yield* scanner.scan).candidates.map((candidate) => candidate.path)).toEqual([
+              ordinaryCwd,
+            ]);
+            const ordinary = yield* scanner.recentThreads(ordinaryCwd).pipe(Stream.runCollect);
+            expect(ordinary.map((outcome) => outcome._tag)).toEqual(["Importable"]);
+            expect(yield* scanner.recentThreads(symlinkCwd).pipe(Stream.runCollect)).toEqual([]);
+            expect(yield* scanner.recentThreads(baseAlias).pipe(Stream.runCollect)).toEqual([]);
+          }).pipe(
+            Effect.provide(
+              layerScannerTest({ claudeHomePath, codexHomePath, configBaseDir, worktreesDir }),
+            ),
+          );
+        }),
     );
 
     it.effect("finds the cwd on a later line when the first records carry none", () =>
