@@ -323,7 +323,9 @@ function ActivityRow({
         (option) => option.slug === model,
       )
     : undefined;
-  const modelName = modelOption ? getTriggerDisplayModelName(modelOption) : model;
+  const modelName = modelOption
+    ? getTriggerDisplayModelName(modelOption, selectedProviderEntry?.driverKind)
+    : model;
   const current =
     selectedProviderEntry?.snapshot ??
     providers.find((provider) => provider.instanceId === instanceId);

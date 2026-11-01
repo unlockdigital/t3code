@@ -77,7 +77,7 @@ const make = Effect.gen(function* () {
           selection,
         ).pipe(
           Effect.as(true),
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.orElseSucceed(() => false),
         );
         // Published snapshots lack verified entitlement, funding control, auth epoch,
         // and per-item observation provenance. Preview keeps those facts unknown.

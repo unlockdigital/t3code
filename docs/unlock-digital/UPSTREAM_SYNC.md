@@ -2,11 +2,11 @@
 
 ## Recorded base
 
-- Stable release: `v0.1.2`, published October 22, 2026.
-- Base SHA: `044f07257c9684ae4543bd1e1ebf9c394e9e3830`.
+- Stable release incorporated in this candidate: `v0.1.6`, published October 31, 2026.
+- Base SHA: `2359643cffa6ba9ee84d6f2694b935de54a8013e`.
 - `origin`: `https://github.com/unlockdigital/t3code.git`.
 - `upstream`: `https://github.com/pingdotgg/t3code.git`.
-- Working branch and fork default: `unlock-digital/main`.
+- Candidate branch: `review/upstream-v0.1.6-20261031`. The maintained fork default remains `unlock-digital/main`.
 - Preserved baseline tag: `v0.1.2`.
 - Upstream development is available through `upstream/main`; the fork keeps one maintained public branch.
 - `remote.pushDefault` is `origin`.
@@ -15,7 +15,7 @@
 
 The plain numeric version `v0.1.3` identifies an **Unlock Digital fork** release in `unlockdigital/t3code`. Identify a completed fork release by its repository, tag, and full commit SHA from `unlockdigital/t3code`; do not infer its source from this worktree's current `HEAD`. A draft may record a target commit before its tag exists; verify the target, tag, and artifacts together before publishing.
 
-The fork's recorded upstream base remains `pingdotgg/t3code` `v0.1.2` at `044f07257c9684ae4543bd1e1ebf9c394e9e3830`. Selected backports and fork changes do not make the fork an upstream `v0.1.3` release. The official upstream `v0.1.3` tag resolves to commit `d2c440312e5f39d59827ed466838a623516454d6`. In the reviewed checkout, the unqualified local `refs/tags/v0.1.3` resolves to that upstream commit; it is not a tag for the Unlock Digital release.
+This candidate incorporates official upstream `v0.1.6` at `2359643cffa6ba9ee84d6f2694b935de54a8013e`. The existing installation remains on its previous compatible runtime and data until a separate activation. Fork and upstream release identities remain distinct. The official upstream `v0.1.3` tag resolves to commit `d2c440312e5f39d59827ed466838a623516454d6`. In the reviewed checkout, the unqualified local `refs/tags/v0.1.3` resolves to that upstream commit; it is not a tag for the Unlock Digital release.
 
 Keep upstream tag inspection in a separate upstream checkout or fetch it into a distinct namespace, then compare full commit SHAs and repository-qualified commit links. For example, in the fork checkout:
 
@@ -92,3 +92,7 @@ Rollback restores both a source checkpoint and a database backup compatible with
 Primary guidance: [updating](../user/updating.md), [development](../operations/development.md).
 
 Official maintenance references: [GitHub fork syncing](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/syncing-a-fork), [Dependabot alerts](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-dependabot-alerts), [upstream releases](https://github.com/pingdotgg/t3code/releases), [T3 security policy](https://t3.codes/security-policy).
+
+## Fork database compatibility
+
+Historical fork migration records `68_WorkflowReviews` and `69_ProjectBrief` remain intact. The compatibility bridge applies the upstream schema those numbers would otherwise skip; future fork schema uses `unlock_digital_schema_migrations` independently of upstream numbering. Unknown or incomplete histories stop the upgrade. Rollback pairs the preserved previous runtime with its pre-upgrade private data snapshot; retain post-upgrade data separately before restoring that pair.

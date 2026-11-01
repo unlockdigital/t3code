@@ -48,9 +48,10 @@ const fixture = Effect.gen(function* () {
     prefix: "t3-n2ition-grant-store-",
   });
   // Initialize the test config so the store's state directory exists.
-  yield* Effect.gen(function* () {
-    yield* ServerConfig.ServerConfig;
-  }).pipe(Effect.provide(ServerConfig.layerTest(root, root)));
+  yield* ServerConfig.ServerConfig.pipe(
+    Effect.asVoid,
+    Effect.provide(ServerConfig.layerTest(root, root)),
+  );
   return { root, filename: grantFilename(root), fs };
 });
 

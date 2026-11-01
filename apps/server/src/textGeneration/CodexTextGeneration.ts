@@ -30,9 +30,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 const CODEX_TIMEOUT_MS = 180_000;
 const CODEX_MCP_LIST_TIMEOUT_MS = 10_000;
-// Plugins and apps bring MCP servers of their own; the user's are listed and
-// turned off by name below. These follow the user's launch args, so they win
-// over a `-c features.plugins=true` there, which `--disable plugins` does not.
+// Plugins/apps add MCP servers; use trailing config overrides because --disable loses to user -c flags.
 const CODEX_NO_PLUGIN_ARGS = [
   "--config",
   "features.plugins=false",
@@ -44,10 +42,7 @@ const CodexMcpServers = Schema.fromJsonString(
 );
 const decodeCodexMcpServers = Schema.decodeEffect(CodexMcpServers);
 
-/**
- * `mcp_servers={}` merges into the user's servers rather than replacing them,
- * so each is named; quoting the name keeps one with a dot a single key.
- */
+// mcp_servers={} merges instead of replacing; disable named entries and quote dotted names.
 const codexMcpServersOff = (names: ReadonlyArray<string>): string | null =>
   names.length === 0
     ? null
@@ -84,27 +79,34 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       ),
     );
 
-  const writeTempFile = Effect.fn("CodexTextGeneration.writeTempFile")(function* (
+  const removeTempFileDir = (filePath: string): Effect.Effect<void, never> =>
+    fileSystem.remove(path.dirname(filePath), { recursive: true }).pipe(Effect.ignore);
+
+  // Background fibers may inherit closed scopes that immediately reap temp files; write unscoped.
+  const writeTempFile = (
     operation: string,
     prefix: string,
     content: string,
-  ) {
-    return yield* Effect.gen(function* () {
-      const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: `t3code-${prefix}-` });
-      const filePath = path.join(directory, "data");
-      yield* fileSystem.writeFileString(filePath, content);
-      return filePath;
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new TextGenerationError({
-            operation,
-            detail: "Failed to write Codex temp file.",
-            cause,
-          }),
-      ),
-    );
-  });
+  ): Effect.Effect<string, TextGenerationError> =>
+    fileSystem
+      .makeTempFile({
+        prefix: `t3code-${prefix}-${process.pid}-`,
+      })
+      .pipe(
+        Effect.tap((filePath) =>
+          fileSystem
+            .writeFileString(filePath, content)
+            .pipe(Effect.onError(() => removeTempFileDir(filePath))),
+        ),
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation,
+              detail: `Failed to write temp file`,
+              cause,
+            }),
+        ),
+      );
 
   // Enumeration and inference share the effective runtime, environment and cwd.
   // Global CLI config still applies; enumeration and inference are separate processes.

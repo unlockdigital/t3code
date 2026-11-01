@@ -23,7 +23,13 @@ export function HomeCreateActions() {
     (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : null);
   const localShortcut = shortcutLabelForCommand(keybindings, "chat.newLocal");
   const createThread = (event: MouseEvent) => {
-    if (!shouldCreateNewThreadInCurrentProject(event.shiftKey, projectGroups.length)) {
+    if (
+      !shouldCreateNewThreadInCurrentProject(
+        event.shiftKey,
+        projectGroups.filter((group) => !group.archived).length,
+        projectGroups.length,
+      )
+    ) {
       openCommandPalette({ open: "new-thread-in" });
       return;
     }

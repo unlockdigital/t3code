@@ -232,11 +232,10 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
       }),
     withConsent: (expected, use) =>
       Effect.gen(function* () {
-        try {
-          GrantStore.validateGrant(currentGrant, nowMillis);
-        } catch (error) {
-          return yield* error as N2itionConnectionError;
-        }
+        yield* Effect.try({
+          try: () => GrantStore.validateGrant(currentGrant, nowMillis),
+          catch: (error) => error as N2itionConnectionError,
+        });
         if (providerConfigurationHash(expected) !== providerConfigurationHash(currentGrant))
           return yield* new N2itionConnectionError({ reason: "changed" });
         if (

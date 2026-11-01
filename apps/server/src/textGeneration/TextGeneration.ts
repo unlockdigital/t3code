@@ -2,15 +2,26 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  isProviderAvailable,
+  isProviderTextGenerationCapable,
+  resolveProjectProviderInstanceEnabled,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import { exhaustedUsageWindow } from "@t3tools/shared/usageLimits";
+import {
+  defaultTextGenerationModel,
+  fallbackTextGenerationModelSelection,
+} from "@t3tools/shared/serverSettings";
+import * as ServerSettings from "../serverSettings.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
-import { resolveProjectProviderInstanceEnabled, TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ThreadTitleLinks from "./ThreadTitleLinks.ts";
 import * as ModelRouting from "../privacy/ModelRouting.ts";
-import * as ServerSettings from "../serverSettings.ts";
 
 export type {
   BranchNameGenerationInput,
@@ -57,7 +68,10 @@ const resolveInstance = (
     ),
   );
 
-/** @public Service construction is part of the canonical Effect module API. */
+// Review guides investigate the checkout read-only; the other drivers reject that request.
+const INVESTIGATING_DRIVERS = new Set(["codex", "claudeAgent"]);
+
+/** @public */
 export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const routing = yield* ModelRouting.ModelRouting;
@@ -106,16 +120,71 @@ export const make = Effect.gen(function* () {
           "The effective project brief provider is disabled for this project. Enable it or select another text-generation model.",
       });
     }
-    const generation = yield* resolveInstance(registry, operation, route.modelSelection.instanceId);
-    const result = yield* use(
-      generation,
-      { ...input, modelSelection: route.modelSelection },
-      route.private,
-    );
-    return { ...result, modelSelection: route.modelSelection };
+    let selection = route.modelSelection;
+    if (!route.private && operation !== "generateProjectBrief") {
+      const snapshots = yield* registry.listInstances.pipe(
+        Effect.flatMap((instances) =>
+          Effect.forEach(instances, (instance) => instance.snapshot.getSnapshot),
+        ),
+      );
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      if (
+        exhaustedUsageWindow(
+          snapshots.find((provider) => provider.instanceId === selection.instanceId),
+          now,
+          selection.model,
+        )
+      ) {
+        const fallbackSettings = yield* settings.getSettings.pipe(
+          Effect.mapError(
+            (cause) =>
+              new TextGenerationError({
+                operation,
+                detail: "Could not read fallback model settings.",
+                cause,
+              }),
+          ),
+        );
+        const fallback = fallbackTextGenerationModelSelection(
+          fallbackSettings.providerInstances,
+          (instanceId, driver) => {
+            const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
+            return (
+              instanceId !== selection.instanceId &&
+              provider?.enabled === true &&
+              resolveProjectProviderInstanceEnabled(
+                fallbackSettings,
+                input.projectId ?? null,
+                instanceId,
+              ) &&
+              provider.installed &&
+              provider.auth.status !== "unauthenticated" &&
+              isProviderAvailable(provider) &&
+              isProviderTextGenerationCapable(provider) &&
+              (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
+              !exhaustedUsageWindow(provider, now, defaultTextGenerationModel(driver))
+            );
+          },
+          { includeConfiguredInstances: true },
+        );
+        if (fallback !== undefined) {
+          const checked = yield* routing
+            .backgroundModel({ ...input, modelSelection: fallback })
+            .pipe(
+              Effect.mapError(
+                (cause) => new TextGenerationError({ operation, detail: cause.message, cause }),
+              ),
+            );
+          selection = checked.modelSelection;
+        }
+      }
+    }
+    const generation = yield* resolveInstance(registry, operation, selection.instanceId);
+    const result = yield* use(generation, { ...input, modelSelection: selection }, route.private);
+    return { ...result, modelSelection: selection };
   });
   return TextGeneration.of({
-    generateProjectBrief: (input) =>
+    generateProjectBrief: Effect.fn("TextGeneration.generateProjectBrief")((input) =>
       routed(
         "generateProjectBrief",
         {
@@ -126,23 +195,28 @@ export const make = Effect.gen(function* () {
         },
         (generation, value) => generation.generateProjectBrief(value),
       ),
-    generateCommitMessage: (input) =>
+    ),
+    generateCommitMessage: Effect.fn("TextGeneration.generateCommitMessage")((input) =>
       routed("generateCommitMessage", input, (generation, value) =>
         generation.generateCommitMessage(value),
       ),
-    generatePrContent: (input) =>
+    ),
+    generatePrContent: Effect.fn("TextGeneration.generatePrContent")((input) =>
       routed("generatePrContent", input, (generation, value) =>
         generation.generatePrContent(value),
       ),
-    generateBranchName: (input) =>
+    ),
+    generateBranchName: Effect.fn("TextGeneration.generateBranchName")((input) =>
       routed("generateBranchName", input, (generation, value) =>
         generation.generateBranchName(value),
       ),
-    generateReviewGuide: (input) =>
+    ),
+    generateReviewGuide: Effect.fn("TextGeneration.generateReviewGuide")((input) =>
       routed("generateReviewGuide", input, (generation, value) =>
         generation.generateReviewGuide(value),
       ),
-    generateThreadTitle: (input) =>
+    ),
+    generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")((input) =>
       routed("generateThreadTitle", input, (textGeneration, input, isPrivate) =>
         Effect.gen(function* () {
           const linkedContext =
@@ -158,6 +232,7 @@ export const make = Effect.gen(function* () {
           return yield* textGeneration.generateThreadTitle({ ...input, linkedContext });
         }),
       ),
+    ),
   });
 });
 

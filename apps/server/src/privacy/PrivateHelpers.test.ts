@@ -211,7 +211,7 @@ it.effect(
             helpers.decide({ threadId, packetId: packet.id, digest: "wrong", decision: "approve" }),
           ),
         ).toMatchObject({ reason: "changed" });
-        const decisions = yield* Effect.all(
+        const decisions = yield* Effect.forEach(
           [
             helpers.decide({
               threadId,
@@ -225,7 +225,8 @@ it.effect(
               digest: packet.digest,
               decision: "approve",
             }),
-          ].map((effect) => Effect.result(effect)),
+          ],
+          (effect) => Effect.result(effect),
           { concurrency: "unbounded" },
         );
         expect(decisions.filter((result) => result._tag === "Success")).toHaveLength(1);

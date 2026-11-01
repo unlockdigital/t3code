@@ -42,14 +42,71 @@ This edition is maintained as a reproducible source build with an isolated, pinn
 
 Install and authenticate at least one provider before use:
 
-- **Codex**: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-- **Claude**: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-- **Antigravity**: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**.
-- **OpenCode**: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-- **Cursor**: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-- **Grok Build**: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
+#### Windows (`winget`)
+
+```bash
+winget install T3Tools.T3Code
+```
+
+#### Windows (`scoop`)
+
+```bash
+scoop install extras/t3code
+```
+
+#### macOS (Homebrew)
+
+```bash
+brew install --cask t3-code
+```
+
+#### Debian, Ubuntu (`.deb`)
+
+Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
+
+```bash
+sudo apt install ./T3-Code-*.deb
+```
+
+#### Arch Linux (AUR)
+
+Stable:
+
+```bash
+yay -S t3code-bin
+```
+
+Nightly:
+
+```bash
+yay -S t3code-nightly-bin
+```
+
+The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
+
+#### Nix (nixpkgs)
+
+```bash
+nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
+```
+
+The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
+and includes the desktop app (`t3code-desktop`) and the `t3` command.
+See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
+
+## Some notes
+
+We are very very early in this project. Expect bugs.
+
+We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
 
 ## Documentation
+
+Full docs live in [docs/](./docs). There's no docs site yet.
+
+- [FAQ](./docs/user/faq.md)
+
+## Unlock Digital fork
 
 - [Unlock Digital setup and customizations](./docs/unlock-digital/SETUP.md)
 - [Upstream synchronization guide](./docs/unlock-digital/UPSTREAM_SYNC.md)

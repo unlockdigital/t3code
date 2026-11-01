@@ -189,7 +189,7 @@ const make = Effect.gen(function* () {
   return ProjectBriefService.of({
     get,
     generate,
-    clear: (projectId) => replace(projectId, undefined),
+    clear: Effect.fn("ProjectBriefService.clear")((projectId) => replace(projectId, undefined)),
     configure,
   });
 });

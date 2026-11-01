@@ -112,7 +112,7 @@ export const make = Effect.gen(function* () {
     if (!(yield* fs.exists(usagePath))) return;
     if (Number((yield* fs.stat(usagePath)).size) > 32768) return;
     const text = yield* fs.readFileString(usagePath);
-    const value = yield* Schema.decodeUnknownEffect(usageCodec)(text, {
+    const value = yield* Schema.decodeEffect(usageCodec)(text, {
       onExcessProperty: "error",
     });
     days = Object.fromEntries(
@@ -122,7 +122,7 @@ export const make = Effect.gen(function* () {
           Object.values(row).every((n) => Number.isSafeInteger(n) && n >= 0),
       ),
     );
-  }).pipe(Effect.catch(() => Effect.void));
+  }).pipe(Effect.ignore);
   yield* readUsage;
   const record = Effect.fn("N2itionContext.recordUsage")(function* (change: Partial<Usage>) {
     const now = yield* Clock.currentTimeMillis;
@@ -448,7 +448,7 @@ export const make = Effect.gen(function* () {
     if (now < nextCheckAt) return;
     nextCheckAt = now + grant.cadenceHours * 3600000;
     yield* refresh;
-  }).pipe(Effect.catch(() => Effect.void));
+  }).pipe(Effect.ignore);
   const control = Effect.fn("N2itionContext.control")(function* (input: N2itionControlInput) {
     yield* grants.control(input);
     cache = null;

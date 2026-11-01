@@ -149,8 +149,7 @@ const replayHttpClient = (
           query,
           raw === undefined ? undefined : decodeJson(raw),
         );
-        // The event stream and requests are separate connections: a request
-        // is matched only once what was recorded before it was delivered.
+        // HTTP streams and requests use separate connections; deliver prior recorded inbound data before matching requests.
         if (operation.type !== "event.subscribe") await controller.untilInboundDelivered();
         if (operation.type === "session.prompt") onPrompt?.(operation.input);
         await controller.expectOutbound(operation);
@@ -256,6 +255,7 @@ const layerReplayHost = TestProviderHost.layer().pipe(Layer.provide(NodeServices
 const layerReplayHostWithAttachments = (
   attachmentsDir: string | undefined,
   canRetryTurn?: () => Effect.Effect<boolean>,
+  resolveExtractedTextPath?: (path: string) => Effect.Effect<string | undefined>,
 ) =>
   Layer.effect(
     ProviderHost.ProviderHost,
@@ -270,6 +270,7 @@ const layerReplayHostWithAttachments = (
             attachmentsDir: attachmentsDir ?? host.paths.attachmentsDir,
             attachment,
           }),
+        ...(resolveExtractedTextPath === undefined ? {} : { resolveExtractedTextPath }),
       });
     }),
   ).pipe(Layer.provide(layerReplayHost));
@@ -293,6 +294,7 @@ export const openCode2ReplayRuntime = (
     readonly borrowers?: { current: number };
     readonly replayGate?: ProviderReplayGate;
     readonly attachmentsDir?: string;
+    readonly resolveExtractedTextPath?: (path: string) => Effect.Effect<string | undefined>;
     readonly fileSystem?: FileSystem.FileSystem;
     readonly canRetryTurn?: () => Effect.Effect<boolean>;
   },
@@ -327,7 +329,11 @@ export const openCode2ReplayRuntime = (
       Layer.mergeAll(
         options?.attachmentsDir === undefined && options?.canRetryTurn === undefined
           ? layerReplayHost
-          : layerReplayHostWithAttachments(options?.attachmentsDir, options?.canRetryTurn),
+          : layerReplayHostWithAttachments(
+              options?.attachmentsDir,
+              options?.canRetryTurn,
+              options?.resolveExtractedTextPath,
+            ),
         IdAllocator.layer,
         NodeServices.layer,
       ),
