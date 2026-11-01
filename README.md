@@ -6,6 +6,12 @@ Works with your subscriptions and configurations across Claude Code, Codex, Goog
 
 Current preview source integrates official **v0.1.6**. See [included improvements](docs/unlock-digital/CUSTOMIZATIONS.md), [Mac installation and profile isolation](docs/unlock-digital/PORTABLE_TRIAL.md), and [upstream maintenance](docs/unlock-digital/UPSTREAM_SYNC.md). Release assets identify the exact fork commit, validation, and signing status.
 
+## Current release · November 1, 2026
+
+[Download for Apple-silicon Mac](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/T3-Code-0.1.6-unlock.1-preview.20261101.1-arm64.dmg) · [Source package](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/t3code-0.1.6-unlock.1-preview.20261101.1-source.tar.gz) · [Release notes](https://github.com/unlockdigital/t3code/releases/tag/v0.1.6-unlock.1-preview.20261101.1)
+
+This release includes the qualified Unlock Digital customizations and uses separate preview profiles. Follow the [install guide](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/INSTALL.md) and verify downloads with [SHA256SUMS](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/SHA256SUMS). The [validation report](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/VALIDATION.md) records signing, acceptance and security coverage. Updates and adoption remain manual.
+
 ## Unlock Digital Enhancements
 
 This edition builds on upstream stable releases while providing tailored capabilities for multi-provider orchestration and local development:
@@ -43,6 +49,8 @@ This edition is maintained as a reproducible source build with an isolated, pinn
 ### Prerequisites & Providers
 
 Install and authenticate at least one provider before use:
+
+The package-manager commands below install upstream T3 Code. Use the Unlock Digital download above for this fork's customizations.
 
 #### Windows (`winget`)
 
