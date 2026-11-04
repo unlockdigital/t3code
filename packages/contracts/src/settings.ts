@@ -1513,6 +1513,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "remove-secret",
   "remove-stale-secret",
   "write-secret",
+  "unsupported-secret-reference",
   "write-secret-provider",
   "write-file",
   "prepare-directory",

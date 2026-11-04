@@ -99,6 +99,98 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect.each(["github.com", " GitHub.COM "])(
+    "preserves future credential references and private routing through older settings saves (%s)",
+    (host) =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* ServerSecretStore.ServerSecretStore;
+        const sourceId = UsageLimitSourceId.make("future-hub");
+        const instanceId = ProviderInstanceId.make("private-local");
+        const reference = { provider: "personal", reference: "op://Private/GitHub/token" };
+        const usageReference = { provider: "personal", reference: "op://Private/Hub/key" };
+        const providerInstances = {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            displayName: "Private local",
+            config: {},
+          },
+        };
+        const privateModelRoute = {
+          modelSelection: { instanceId, model: "sol" },
+          providerConfigHash: "a".repeat(64),
+        };
+        const fixture = {
+          providerInstances,
+          modelPrivacy: "private",
+          privateModelRoute,
+          usageModelFilter: {
+            include: [{ provider: "codex", model: "sol" }],
+            exclude: [{ model: "legacy" }],
+          },
+          sourceControlHosts: { github: { tokens: { [host]: reference } } },
+          usageLimitSources: {
+            [sourceId]: {
+              kind: "cliproxy",
+              url: "https://hub.example.test",
+              enabled: true,
+              managementKey: usageReference,
+            },
+          },
+        };
+        const secretNames = [
+          sourceControlHostSecretName({
+            kind: "github",
+            field: "tokens",
+            serverHost: "github.com",
+          }),
+          `usage-limit-source-${Buffer.from(sourceId).toString("base64url")}`,
+        ];
+        for (const name of secretNames) {
+          yield* store.set(name, new TextEncoder().encode("stale-secret"));
+        }
+        yield* fs.writeFileString(config.settingsPath, JSON.stringify(fixture));
+        const loaded = yield* service.getSettings;
+        assert.equal(loaded.modelPrivacy, "private");
+        assert.deepEqual(loaded.privateModelRoute, privateModelRoute);
+        assert.deepEqual(loaded.providerInstances[instanceId], providerInstances[instanceId]);
+        assert.deepEqual(loaded.sourceControlHosts.github?.tokens, { "github.com": "" });
+        assert.equal(loaded.usageLimitSources[sourceId]?.managementKey, "");
+        assert.notInclude(JSON.stringify(loaded), "stale-secret");
+        assert.equal((yield* service.getRoutingSettings).modelPrivacy, "private");
+        const saved = yield* service.updateSettings({ responseStreamingMode: "turn" });
+        assert.equal(saved.modelPrivacy, "private");
+        const readDisk = Effect.gen(function* () {
+          return JSON.parse(yield* fs.readFileString(config.settingsPath)) as typeof fixture;
+        });
+        let disk = yield* readDisk;
+        assert.deepEqual(disk.sourceControlHosts, {
+          github: { tokens: { "github.com": reference } },
+        });
+        assert.deepEqual(disk.usageLimitSources, fixture.usageLimitSources);
+        assert.deepEqual(disk.usageModelFilter, fixture.usageModelFilter);
+        for (const name of secretNames) {
+          assert.equal(
+            new TextDecoder().decode(Option.getOrThrow(yield* store.get(name))),
+            "stale-secret",
+          );
+        }
+        const rejected = yield* Effect.flip(
+          service.updateSettings({
+            sourceControlHosts: { github: { tokens: { "github.com": "replacement" } } },
+          }),
+        );
+        assert.equal(rejected.operation, "unsupported-secret-reference");
+        disk = yield* readDisk;
+        assert.deepEqual(disk.sourceControlHosts, {
+          github: { tokens: { "github.com": reference } },
+        });
+        assert.deepEqual(disk.usageLimitSources, fixture.usageLimitSources);
+      }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
   it.effect("persists routing against implicit and atomically created accounts", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
