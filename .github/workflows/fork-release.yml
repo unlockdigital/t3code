@@ -125,6 +125,12 @@ jobs:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
         run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
 
+      - name: Verify resolved dependency security patches
+        run: vp run check:dependency-security
+
+      - name: Audit release dependencies for critical advisories
+        run: vp env exec -- pnpm audit --audit-level critical
+
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 

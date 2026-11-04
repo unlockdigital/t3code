@@ -30,7 +30,7 @@ import {
   restartContinuationNote,
 } from "./RestartBackgroundNote.ts";
 
-const CONTINUE_PROMPT = "Continue where you left off.";
+export const RESTART_CONTINUATION_PROMPT = "Continue where you left off.";
 
 const MAX_CONTINUATION_CHAIN = 3;
 const CONTINUATION_LOOP_WINDOW_MS = 5 * 60 * 1_000;
@@ -300,10 +300,10 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
       note.work.length === 0 ? undefined : restartCancelledBackgroundWorkNote(note.work);
     const text =
       noteText === undefined
-        ? CONTINUE_PROMPT
+        ? RESTART_CONTINUATION_PROMPT
         : note.settled
           ? noteText
-          : `${noteText}\n\n${CONTINUE_PROMPT}`;
+          : `${noteText}\n\n${RESTART_CONTINUATION_PROMPT}`;
     yield* threads
       .dispatch({
         type: "message.dispatch",

@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
+import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
@@ -65,8 +66,10 @@ function makeThread(input: {
 }
 
 const grokInstanceId = ProviderInstanceId.make("grok");
+const antigravityInstanceId = ProviderInstanceId.make("antigravity");
 const supportedRuntimeModesByInstance = new Map<ProviderInstanceId, ReadonlyArray<RuntimeMode>>([
   [grokInstanceId, ["approval-required", "auto", "full-access"]],
+  [antigravityInstanceId, ["approval-required", "auto-accept-edits", "full-access"]],
 ]);
 const providerInstanceFor = (instanceId: ProviderInstanceId) =>
   ({
@@ -205,6 +208,46 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       assert.equal(yield* modeFor(grokInstanceId, "auto"), "auto");
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
+      const request = {
+        sessionId: "session-1",
+        toolCall: { toolCallId: "command-1", title: "Run command", kind: "execute" as const },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" as const }],
+      };
+      for (const runtimeMode of ["auto", "auto-accept-edits", "full-access"] as const) {
+        const resolved = yield* policy.resolve({
+          thread: makeThread({ now, worktreePath: null, runtimeMode }),
+          modelSelection: { instanceId: antigravityInstanceId, model: "test-model" },
+        });
+        assert.equal(
+          resolved.runtimeMode,
+          runtimeMode === "auto" ? "approval-required" : runtimeMode,
+        );
+        assert.equal(
+          acpPermissionDisposition(resolved, request),
+          runtimeMode === "full-access" ? "allow" : "ask",
+        );
+      }
+      const storedAuto = makeThread({ now, worktreePath: null, runtimeMode: "auto" });
+      for (const thread of [
+        { ...storedAuto, createdBy: "system" as const, creationSource: "server" as const },
+        {
+          ...storedAuto,
+          createdBy: "agent" as const,
+          creationSource: "mcp" as const,
+          lineage: {
+            ...storedAuto.lineage,
+            parentThreadId: ThreadId.make("parent"),
+            relationshipToParent: "subagent" as const,
+          },
+        },
+      ]) {
+        const resolved = yield* policy.resolve({
+          thread,
+          modelSelection: { instanceId: antigravityInstanceId, model: "test-model" },
+        });
+        assert.equal(resolved.runtimeMode, "approval-required");
+        assert.equal(acpPermissionDisposition(resolved, request), "ask");
+      }
     }),
   );
 });

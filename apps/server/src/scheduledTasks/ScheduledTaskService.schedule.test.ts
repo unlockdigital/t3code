@@ -7,6 +7,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
@@ -165,6 +166,14 @@ it.effect("keeps the task list order when a toggle or edit rewrites updated_at",
       const edit = { ...input(older.task.id), requireExisting: true, title: "Edited" };
       yield* service.upsert(yield* decodeUpsertInput({ ...edit, enabled: false }));
       expect(yield* listedIds).toEqual(order);
+      const sql = yield* SqlClient.SqlClient;
+      const futureSchedule = '{"type":"once","runAt":"2026-07-02T09:00:00.000Z"}';
+      yield* sql`UPDATE scheduled_tasks SET schedule_json = ${futureSchedule} WHERE task_id = ${order[0]}`;
+      expect(yield* listedIds).toEqual([order[1]]);
+      const rows = yield* sql<{
+        schedule_json: string;
+      }>`SELECT schedule_json FROM scheduled_tasks WHERE task_id = ${order[0]}`;
+      expect(rows[0]?.schedule_json).toBe(futureSchedule);
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

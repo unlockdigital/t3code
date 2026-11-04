@@ -295,6 +295,7 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
           showInteractionModeToggle: false,
           supportsConversationRollback: false,
           supportsTextGeneration: false,
+          supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
         });
         expect(yield* Ref.get(harness.probeCalls)).toBe(0);
         expect(yield* Ref.get(harness.safetyCalls)).toBe(0);

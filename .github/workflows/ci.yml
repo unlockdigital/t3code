@@ -90,6 +90,12 @@ jobs:
         with:
           task-cache-read-token: ${{ secrets.T3_TASK_CACHE_READ_TOKEN }}
 
+      - name: Verify resolved dependency security patches
+        run: vp run check:dependency-security
+
+      - name: Audit workspace dependencies for critical advisories
+        run: vp env exec -- pnpm audit --audit-level critical
+
       # electron's install.js (run by ensure:electron) reads this cache before it
       # downloads from GitHub. The key changes only with the Electron version.
       - name: Cache Electron download
@@ -292,7 +298,8 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
     runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    # GitHub-hosted fork runners need setup and production-boot time beyond the web suite.
+    timeout-minutes: ${{ github.repository == 'pingdotgg/t3code' && 10 || 20 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6

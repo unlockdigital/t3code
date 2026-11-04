@@ -167,6 +167,9 @@ const webhookFilters = (filters: ReadonlyArray<ScheduledTaskWebhookFilter> | und
 
 const decodeTask = Schema.decodeUnknownEffect(ScheduledTask);
 const decodeTaskId = Schema.decodeUnknownOption(ScheduledTaskId);
+const decodeScheduleType = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ type: Schema.String })),
+);
 const decodeScheduleJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.schedule),
 );
@@ -469,7 +472,23 @@ export const layer = Layer.effect(
     const listRows = Effect.fn("ScheduledTaskService.listRows")(function* () {
       const rows = yield* selectAllRows();
       const origin = yield* readWebhookOrigin;
-      return yield* Effect.forEach(rows, (row) => decodeRow(row, origin), { concurrency: 1 });
+      const supported: ScheduledTaskRow[] = [];
+      let unsupported = 0;
+      for (const row of rows) {
+        const decodedType = decodeScheduleType(row.schedule_json);
+        const type = Option.isSome(decodedType) ? decodedType.value.type : undefined;
+        if (typeof type === "string" && !["interval", "fixed_time", "webhook"].includes(type)) {
+          unsupported++;
+        } else {
+          supported.push(row);
+        }
+      }
+      if (unsupported > 0) {
+        yield* Effect.logWarning("Skipping tasks with unsupported schedules", {
+          count: unsupported,
+        });
+      }
+      return yield* Effect.forEach(supported, (row) => decodeRow(row, origin), { concurrency: 1 });
     });
 
     const getRows = (id: ScheduledTaskId) =>
