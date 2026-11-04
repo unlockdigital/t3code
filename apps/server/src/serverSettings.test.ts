@@ -14,7 +14,7 @@ import {
   UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { assert, it } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -151,6 +151,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         for (const name of secretNames) {
           yield* store.set(name, new TextEncoder().encode("stale-secret"));
         }
+        using reads = vi.spyOn(store, "get");
         yield* fs.writeFileString(config.settingsPath, JSON.stringify(fixture));
         const loaded = yield* service.getSettings;
         assert.equal(loaded.modelPrivacy, "private");
@@ -160,7 +161,11 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         assert.equal(loaded.usageLimitSources[sourceId]?.managementKey, "");
         assert.notInclude(JSON.stringify(loaded), "stale-secret");
         assert.equal((yield* service.getRoutingSettings).modelPrivacy, "private");
-        const saved = yield* service.updateSettings({ responseStreamingMode: "turn" });
+        const saved = yield* service.updateSettings({
+          responseStreamingMode: "turn",
+          sourceControlHosts: loaded.sourceControlHosts,
+          usageLimitSources: loaded.usageLimitSources,
+        });
         assert.equal(saved.modelPrivacy, "private");
         const readDisk = Effect.gen(function* () {
           return JSON.parse(yield* fs.readFileString(config.settingsPath)) as typeof fixture;
@@ -171,23 +176,75 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         });
         assert.deepEqual(disk.usageLimitSources, fixture.usageLimitSources);
         assert.deepEqual(disk.usageModelFilter, fixture.usageModelFilter);
+        for (const tokens of [
+          { "github.com": "replacement" },
+          { "github.com": "", " GitHub.COM ": "replacement" },
+          { "github.com": "", " GitHub.COM ": "••••••" },
+        ]) {
+          const rejected = yield* Effect.flip(
+            service.updateSettings({
+              sourceControlHosts: { github: { tokens } },
+            }),
+          );
+          assert.equal(rejected.operation, "unsupported-secret-reference");
+        }
+        assert.deepEqual(
+          reads.mock.calls.filter(([name]) => secretNames.includes(name)),
+          [],
+        );
+        disk = yield* readDisk;
+        assert.deepEqual(disk.sourceControlHosts, {
+          github: { tokens: { "github.com": reference } },
+        });
+        assert.deepEqual(disk.usageLimitSources, fixture.usageLimitSources);
         for (const name of secretNames) {
           assert.equal(
             new TextDecoder().decode(Option.getOrThrow(yield* store.get(name))),
             "stale-secret",
           );
         }
-        const rejected = yield* Effect.flip(
-          service.updateSettings({
-            sourceControlHosts: { github: { tokens: { "github.com": "replacement" } } },
-          }),
-        );
-        assert.equal(rejected.operation, "unsupported-secret-reference");
-        disk = yield* readDisk;
-        assert.deepEqual(disk.sourceControlHosts, {
-          github: { tokens: { "github.com": reference } },
+      }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
+  it.effect.each([true, false])(
+    "rejects ambiguous saved credential hosts without rewriting references (alias first: %s)",
+    (aliasFirst) =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* ServerSecretStore.ServerSecretStore;
+        const entries = [
+          [" GitHub.COM ", { provider: "personal", reference: "op://Private/First/token" }],
+          ["github.com", { provider: "personal", reference: "op://Private/Second/token" }],
+        ];
+        const raw = JSON.stringify({
+          modelPrivacy: "private",
+          sourceControlHosts: {
+            github: { tokens: Object.fromEntries(aliasFirst ? entries : entries.toReversed()) },
+          },
         });
-        assert.deepEqual(disk.usageLimitSources, fixture.usageLimitSources);
+        const secretName = sourceControlHostSecretName({
+          kind: "github",
+          field: "tokens",
+          serverHost: "github.com",
+        });
+        yield* store.set(secretName, new TextEncoder().encode("stale-secret"));
+        using reads = vi.spyOn(store, "get");
+        yield* fs.writeFileString(config.settingsPath, raw);
+        for (const operation of [
+          service.getSettings,
+          service.getRoutingSettings,
+          service.updateSettings({ responseStreamingMode: "turn" }),
+        ]) {
+          const rejected = yield* Effect.flip(operation);
+          assert.equal(rejected.operation, "unsupported-secret-reference");
+          assert.equal(yield* fs.readFileString(config.settingsPath), raw);
+        }
+        assert.deepEqual(
+          reads.mock.calls.filter(([name]) => name === secretName),
+          [],
+        );
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 

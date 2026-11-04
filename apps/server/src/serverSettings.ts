@@ -430,13 +430,31 @@ const setAtPath = (value: Record<string, unknown>, path: ReadonlyArray<string>, 
   });
 };
 
+const hasConflictingCredentialHosts = (settings: unknown) => {
+  const hosts = valueAtPath(settings, ["sourceControlHosts"]);
+  if (!isSettingsObject(hosts)) return false;
+  for (const fields of Object.values(hosts)) {
+    if (!isSettingsObject(fields) || !isSettingsObject(fields.tokens)) continue;
+    const seen = new Set<string>();
+    for (const host of Object.keys(fields.tokens)) {
+      const normalized = host.trim().toLowerCase();
+      if (seen.has(normalized)) return true;
+      seen.add(normalized);
+    }
+  }
+  return false;
+};
+
 // A rollback keeps newer credentials opaque and unavailable until a supporting server returns.
 const readForwardSettingsReferences = (raw: string) => {
   const references: ForwardSettingsReference[] = [];
   const decoded = decodeSettingsDocumentExit(raw);
   if (Exit.isFailure(decoded) || !isSettingsObject(decoded.value))
-    return { raw, references, usageModelFilter: undefined };
+    return { raw, references, usageModelFilter: undefined, conflictingHosts: false };
   const document = decoded.value;
+  if (hasConflictingCredentialHosts(document)) {
+    return { raw, references, usageModelFilter: undefined, conflictingHosts: true };
+  }
   const keepReference = (path: ReadonlyArray<string>, secretName: string) => {
     const reference = valueAtPath(document, path);
     if (!isSecretReference(reference)) return;
@@ -447,8 +465,7 @@ const readForwardSettingsReferences = (raw: string) => {
   if (isSettingsObject(hosts)) {
     for (const [kind, fields] of Object.entries(hosts)) {
       if (!isSettingsObject(fields) || !isSettingsObject(fields.tokens)) continue;
-      for (const host of Object.keys(fields.tokens)) {
-        const reference = fields.tokens[host];
+      for (const [host, reference] of Object.entries(fields.tokens)) {
         if (!isSecretReference(reference)) continue;
         const normalizedHost = host.trim().toLowerCase();
         Reflect.deleteProperty(fields.tokens, host);
@@ -474,6 +491,7 @@ const readForwardSettingsReferences = (raw: string) => {
     raw: references.length > 0 ? JSON.stringify(document) : raw,
     references,
     usageModelFilter: document.usageModelFilter,
+    conflictingHosts: false,
   };
 };
 
@@ -795,6 +813,14 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  const protectedSettingsSecrets = new WeakMap<ServerSettings, ReadonlySet<string>>();
+  const conflictingHostsError = () =>
+    new ServerSettingsError({
+      settingsPath,
+      operation: "unsupported-secret-reference",
+      cause: "Multiple credential host keys identify the same host. Keep one entry per host.",
+    });
+
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (
       settings: ServerSettings,
@@ -864,6 +890,7 @@ const make = Effect.gen(function* () {
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
       const compatible = readForwardSettingsReferences(raw);
+      if (compatible.conflictingHosts) return yield* conflictingHostsError();
       const decoded = decodeServerSettingsJsonExit(compatible.raw);
       const legacySettings = decodeLegacyProviderSettingsJsonExit(raw);
       if (legacySettings._tag === "Success") {
@@ -1001,6 +1028,10 @@ const make = Effect.gen(function* () {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
     }
+    protectedSettingsSecrets.set(
+      migrated,
+      new Set(forwardReferences.map(({ secretName }) => secretName)),
+    );
     return { settings: migrated, parseFailure, forwardReferences, forwardUsageModelFilter };
   });
 
@@ -1020,7 +1051,9 @@ const make = Effect.gen(function* () {
     function* (settings: ServerSettings): Effect.fn.Return<ServerSettings, ServerSettingsError> {
       const storedSecrets = new Map<string, string>();
       const pending = new Map<string, SettingsSecret>();
-      mapSettingsSecrets(settings, (secret) => {
+      const protectedSecrets = protectedSettingsSecrets.get(settings);
+      const readableSettings = mapSettingsSecrets(settings, (secret) => {
+        if (protectedSecrets?.has(secret.secretName)) return { value: "", redacted: false };
         if (secret.sensitive && secret.redacted) pending.set(secret.secretName, secret);
         return secret;
       });
@@ -1042,7 +1075,7 @@ const make = Effect.gen(function* () {
           Option.isSome(value) ? textDecoder.decode(value.value) : "",
         );
       }
-      return mapSettingsSecrets(settings, (secret) => ({
+      return mapSettingsSecrets(readableSettings, (secret) => ({
         value:
           secret.sensitive && secret.redacted
             ? (storedSecrets.get(secret.secretName) ?? "")
@@ -1254,7 +1287,9 @@ const make = Effect.gen(function* () {
             cause: parseFailure.value,
           });
         }
-        const updated = yield* update(current);
+        const candidate = yield* update(current);
+        if (hasConflictingCredentialHosts(candidate)) return yield* conflictingHostsError();
+        const updated = mapSettingsSecrets(candidate, (secret) => secret);
         if (forwardReferences.some(({ path }) => valueAtPath(updated, path) !== "")) {
           return yield* new ServerSettingsError({
             settingsPath,
@@ -1265,6 +1300,7 @@ const make = Effect.gen(function* () {
         const persisted = yield* persistSettingsSecrets(current, updated);
         const protectedSecrets = new Set(forwardReferences.map(({ secretName }) => secretName));
         const next = yield* normalizeServerSettings(persisted.settings);
+        protectedSettingsSecrets.set(next, protectedSecrets);
         const materializedNext = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
             yield* invalidateMaterialized;
