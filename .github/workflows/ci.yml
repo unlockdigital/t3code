@@ -298,7 +298,8 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
     runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    # GitHub-hosted fork runners need setup and production-boot time beyond the web suite.
+    timeout-minutes: ${{ github.repository == 'pingdotgg/t3code' && 10 || 20 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
