@@ -46,3 +46,12 @@ describe("checkDependencySecurity", () => {
     );
   });
 });
+
+it("inspects the active server SDK against the approved bundle", async () => {
+  const { checkInstalledClaudeSdk } = await import("./dependency-security.ts");
+  const sdk = await checkInstalledClaudeSdk();
+  expect(sdk.path).toContain("claude-agent-sdk");
+  expect(sdk.version).toBe(sdk.expectedVersion);
+  expect(sdk.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(sdk.violations.length).toBe(sdk.sha256 === sdk.expectedSha256 ? 0 : 1);
+});

@@ -29,6 +29,7 @@ import {
 } from "./run.ts";
 import { briefRoute, gradeDevice, shellInvocations } from "./device-grading.ts";
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
+import { RESTART_CONTINUATION_PROMPT } from "../../apps/server/src/orchestration-v2/RestartContinuation.ts";
 
 it("grades Codex shell and subagent calls with the shared rules", () => {
   const calls = [
@@ -68,6 +69,216 @@ it("accepts any tool listed as an alternative", () => {
   assert.deepEqual(failed(expect, run("list_thread_pull_requests")), [
     "calls link_pull_request|watch_pull_request",
   ]);
+});
+
+it("grades restart continuation state changes by count and verification order", () => {
+  const expect = {
+    restartContinuation: { maxStateChanges: 1, verificationBeforeStateChange: true },
+  };
+  const call = (command: string, step: number) => ({
+    step,
+    tool: "Bash",
+    input: { command },
+  });
+  const verifiedRetry = {
+    calls: [
+      call("gh release view v2.4.0", 0),
+      call("gh release create v2.4.0 --notes-file notes.md", 1),
+    ],
+    text: "Created the release after confirming it did not exist.",
+    stopReason: "end_turn",
+  };
+  assert.isTrue(gradeSample(expect, verifiedRetry).every((check) => check.pass));
+  assert.isFalse(
+    gradeSample(expect, {
+      ...verifiedRetry,
+      calls: [
+        call("gh release create v2.4.0 --notes-file notes.md", 0),
+        call("gh release view v2.4.0", 1),
+        call("gh release create v2.4.0 --notes-file notes.md", 2),
+      ],
+    }).every((check) => check.pass),
+  );
+  const compoundDuplicate = {
+    calls: [call("gh release create v2.4.0 && gh release create v2.4.0", 0)],
+    text: "Done.",
+    stopReason: "end_turn",
+  };
+  assert.isFalse(gradeSample(expect, compoundDuplicate).every((check) => check.pass));
+});
+
+it("requires a verified absent result before retrying a failed restart action", () => {
+  const expect = {
+    restartContinuation: {
+      minStateChanges: 1,
+      maxStateChanges: 1,
+      verifiedFailureBeforeRetry: true,
+    },
+  };
+  const run = (verificationOutput: string): SampleRun => ({
+    calls: [
+      {
+        step: 0,
+        tool: "Bash",
+        input: { command: "gh release view v2.4.0" },
+        output: verificationOutput,
+      },
+      {
+        step: 1,
+        tool: "Bash",
+        input: { command: "gh release create v2.4.0 --notes-file notes.md" },
+        output: "Created release v2.4.0",
+      },
+    ],
+    text: "The earlier request failed and I confirmed no release existed before retrying once.",
+    stopReason: "end_turn",
+  });
+  assert.isTrue(
+    gradeSample(expect, run("HTTP 404: release not found")).every((check) => check.pass),
+  );
+  assert.isFalse(
+    gradeSample(expect, run("Request timed out; state unknown")).every((check) => check.pass),
+  );
+  assert.isFalse(
+    gradeSample(expect, {
+      calls: [
+        {
+          step: 0,
+          tool: "Bash",
+          input: { command: "git status --short" },
+          output: "On branch main",
+        },
+        {
+          step: 1,
+          tool: "Bash",
+          input: { command: "gh release create v2.4.0 --notes-file notes.md" },
+          output: "Created release v2.4.0",
+        },
+        {
+          step: 2,
+          tool: "Bash",
+          input: { command: "gh release view v2.4.0" },
+          output: "HTTP 404: release not found",
+        },
+      ],
+      text: "Created the release.",
+      stopReason: "end_turn",
+    }).every((check) => check.pass),
+  );
+});
+
+it("requires release-specific evidence before a release retry", () => {
+  const expect = {
+    restartContinuation: { verificationRequired: true, verificationTarget: "release" },
+  } as unknown as McpToolUseCase["expect"];
+  assert.isTrue(
+    gradeSample(expect, {
+      calls: [
+        {
+          step: 0,
+          tool: "Bash",
+          input: { command: "gh release view v2.4.0" },
+          output: "HTTP 404: release not found",
+        },
+      ],
+      text: "No release exists.",
+      stopReason: "end_turn",
+    }).every((check) => check.pass),
+  );
+  assert.isFalse(
+    gradeSample(expect, {
+      calls: [
+        {
+          step: 0,
+          tool: "Bash",
+          input: { command: "git status --short" },
+          output: "On branch main; working tree clean",
+        },
+      ],
+      text: "No release exists.",
+      stopReason: "end_turn",
+    }).every((check) => check.pass),
+  );
+});
+
+it("requires a current subject query to continue an interrupted read-only task", () => {
+  const expect = {
+    restartContinuation: { maxStateChanges: 0, gitSubjectRequired: true },
+  } as unknown as McpToolUseCase["expect"];
+  assert.isTrue(
+    gradeSample(expect, {
+      calls: [
+        {
+          step: 0,
+          tool: "Bash",
+          input: { command: "git log -1 --format=%s" },
+          output: "fix: preserve Acme health checks",
+        },
+      ],
+      text: "The latest commit is fix: preserve Acme health checks.",
+      stopReason: "end_turn",
+    }).every((check) => check.pass),
+  );
+  assert.isFalse(
+    gradeSample(expect, {
+      calls: [{ step: 0, tool: "Bash", input: { command: "pwd" }, output: "/home/user/acme/app" }],
+      text: "The latest commit is fix: preserve Acme health checks.",
+      stopReason: "end_turn",
+    }).every((check) => check.pass),
+  );
+});
+
+it("accepts equivalent uncertainty wording and a known running status", () => {
+  assert.isTrue(
+    gradeSample(
+      { restartContinuation: { maxStateChanges: 0, uncertaintyRequired: true } },
+      {
+        calls: [],
+        text: "I couldn't determine whether the release request took effect, so I did not retry.",
+        stopReason: "end_turn",
+      },
+    ).every((check) => check.pass),
+  );
+  assert.isTrue(
+    gradeSample(
+      {
+        restartContinuation: {
+          maxStateChanges: 0,
+          verificationRequired: true,
+          runningStatusRequired: true,
+        },
+      },
+      {
+        calls: [
+          {
+            step: 0,
+            tool: "Bash",
+            input: { command: "pgrep -af deploy-acme.sh" },
+            output: "4821 deploy-acme.sh (still running)",
+          },
+        ],
+        text: "The staging deployment is still running; I left it alone.",
+        stopReason: "end_turn",
+      },
+    ).every((check) => check.pass),
+  );
+  assert.isFalse(
+    gradeSample(
+      { restartContinuation: { verificationRequired: true, runningStatusRequired: true } },
+      {
+        calls: [
+          {
+            step: 0,
+            tool: "Bash",
+            input: { command: "pgrep -af deploy-acme.sh" },
+            output: "No matching processes",
+          },
+        ],
+        text: "The staging deployment is still running; I left it alone.",
+        stopReason: "end_turn",
+      },
+    ).every((check) => check.pass),
+  );
 });
 
 it("runs code-mode calls without exposing host capabilities, including after await", async () => {
@@ -425,6 +636,11 @@ it("stops a sample only once a must-not check has failed", () => {
 });
 
 const decodeDeviceCase = Schema.decodeSync(Schema.fromJsonString(McpToolUseCase));
+const restartCases = () =>
+  NodeFS.readFileSync(new URL("./cases/restart-continuation.ndjson", import.meta.url), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => decodeDeviceCase(line));
 const deviceCases = () =>
   NodeFS.readFileSync(new URL("./cases/device-manager.ndjson", import.meta.url), "utf8")
     .trim()
@@ -516,6 +732,30 @@ it.each([
   ["Use device_open. Use SSH for the UI, without asking first.", "mixed"],
 ])("classifies child routing: %s", (text, route) => {
   assert.equal(briefRoute(text), route);
+});
+
+it("ends restart cases with the imported continuation after the interrupted turn", () => {
+  const base = buildBase(template, {
+    model: "claude-sonnet-5-5",
+    keepUserInstructions: false,
+  });
+  for (const testCase of restartCases()) {
+    const messages = buildMessages(makeSample(testCase, base));
+    const blocks = messages.flatMap((message) => message.content);
+    const final = blocks.at(-1);
+    assert.deepEqual(final, { type: "text", text: RESTART_CONTINUATION_PROMPT }, testCase.id);
+    assert.isTrue(
+      blocks.some(
+        (block) =>
+          typeof block.text === "string" && block.text === testCase.setup.priorTurns?.[0]?.text,
+      ),
+      testCase.id,
+    );
+    assert.isFalse(
+      blocks.some((block) => block.text === "Continue the work already in progress."),
+      testCase.id,
+    );
+  }
 });
 
 it("rejects a bypass mutation in every delegated or launched child brief", () => {
