@@ -85,6 +85,19 @@ Passes per case, main's text → #25661, from one paired run of 3 samples per ca
 
 Some results are artifacts of the simulated shell rather than the agent: dev-client loads that never finish (HOST-01a), refusals it invented for valid commands (DOC-01, DISC-01), compound commands that escaped FAIL-AFTER-hub's outage mock, and an invented recording result (DEL-02). They are counted as graded. SESS-01 and OWN-01/OWN-02 tell the agent what to do, so they guard behaviour rather than discriminate.
 
+### Restart continuation
+
+`cases/restart-continuation.ndjson` adds four authored Acme scenarios sourced to [#27836](https://github.com/pingdotgg/t3code/pull/27836): an ambiguous release action, an action that remains in progress, a verified failed action that can be retried once, and an interrupted read-only check. Each case contains the original user goal, an assistant shell call, and its result in `priorTurns`. The runner imports the continuation text from `RestartContinuation.ts` and uses it as the final user message for these cases. Shell commands run in the eval simulator. The grader counts recognized state-changing command occurrences across shell calls and compound commands; its bounded patterns cover the GitHub release/PR, git, Kubernetes, Terraform, npm publish/deploy, and named deploy-script operations used here. Release checks count only `gh release view/list` and the Acme releases API route; deployment checks count only the Acme deployment status routes. The retry case requires a release absence result from an earlier tool call than the retry. The read-only case requires a current `git log` or `git show` subject query whose shell output contains the fake commit subject. The parser does not evaluate shell expansion, aliases, scripts invoked indirectly, `curl` routes, or arbitrary command grammars.
+
+Run the baseline before changing the production prompt, then run the candidate against the same model and baseline results:
+
+```sh
+pnpm mcp-tool-use --cases mcp-tool-use/cases/restart-continuation.ndjson --samples 3 --model claude-opus-5-5 --out runs/restart-r5-baseline
+pnpm mcp-tool-use --cases mcp-tool-use/cases/restart-continuation.ndjson --samples 3 --model claude-opus-5-5 --baseline runs/restart-r5-baseline/results.jsonl --out runs/restart-r5-candidate
+```
+
+Offline request construction costs $0 and can be checked with `--dry-run --out <dir>`; it does not establish model behavior.
+
 Run a single case before a paid batch:
 
 ```sh
