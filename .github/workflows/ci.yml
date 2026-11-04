@@ -94,7 +94,7 @@ jobs:
         run: vp run check:dependency-security
 
       - name: Audit workspace dependencies for critical advisories
-        run: vp pm audit --audit-level critical
+        run: vp env exec -- pnpm audit --audit-level critical
 
       # electron's install.js (run by ensure:electron) reads this cache before it
       # downloads from GitHub. The key changes only with the Electron version.
