@@ -47,7 +47,7 @@ import {
 } from "@t3tools/contracts";
 import { AgentScope, agentScopeLauncherScript } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { normalizePreviewUrl, withoutDataPayload } from "@t3tools/shared/preview";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
@@ -597,7 +597,11 @@ const make = Effect.gen(function* () {
     if (url === "about:blank" || url.startsWith("chrome-error://")) return;
     const title = (await tab.page.title().catch(() => "")).slice(0, 512);
     if (tab.loading || tab.page.url() !== url) return;
-    report(tab, { _tag: "Success", url: url.slice(0, 2048), title });
+    report(tab, {
+      _tag: "Success",
+      url: withoutDataPayload(url).slice(0, 2048),
+      title,
+    });
   };
 
   const reportLiveTabs = () => {
@@ -892,7 +896,7 @@ const make = Effect.gen(function* () {
       tab.loading = true;
       report(tab, {
         _tag: "Loading",
-        url: ServerBrowserPage.withoutDataPayload(request.url()).slice(0, 2048),
+        url: withoutDataPayload(request.url()).slice(0, 2048),
         title: "",
       });
     });
@@ -916,7 +920,7 @@ const make = Effect.gen(function* () {
     page.on("requestfailed", (request) => {
       const errorText = request.failure()?.errorText ?? "";
       pushBounded(tab.networkEntries, {
-        url: ServerBrowserPage.withoutDataPayload(request.url()),
+        url: withoutDataPayload(request.url()),
         method: request.method(),
         status: null,
         failed: true,
@@ -947,7 +951,7 @@ const make = Effect.gen(function* () {
       const { code, description } = ServerBrowserPage.parseNetError(errorText);
       report(tab, {
         _tag: "LoadFailed",
-        url: ServerBrowserPage.withoutDataPayload(request.url()).slice(0, 2048),
+        url: withoutDataPayload(request.url()).slice(0, 2048),
         title: "",
         code,
         description,
@@ -955,7 +959,7 @@ const make = Effect.gen(function* () {
     });
     page.on("response", (response) => {
       pushBounded(tab.networkEntries, {
-        url: ServerBrowserPage.withoutDataPayload(response.url()),
+        url: withoutDataPayload(response.url()),
         method: response.request().method(),
         status: response.status(),
         failed: false,
@@ -1043,7 +1047,7 @@ const make = Effect.gen(function* () {
     }
     report(tab, {
       _tag: "LoadFailed",
-      url: ServerBrowserPage.withoutDataPayload(url).slice(0, 2048),
+      url: withoutDataPayload(url).slice(0, 2048),
       title: "",
       code: -3,
       description: "ERR_ABORTED",
@@ -1076,7 +1080,7 @@ const make = Effect.gen(function* () {
         fileName: download.suggestedFilename().slice(0, 255) || "download",
         path,
         sizeBytes: size,
-        url: ServerBrowserPage.withoutDataPayload(download.url()).slice(0, 2048),
+        url: withoutDataPayload(download.url()).slice(0, 2048),
         completedAt: new Date().toISOString(),
       };
       tab.downloads.push(saved);
@@ -1565,7 +1569,7 @@ const make = Effect.gen(function* () {
         ...profileStatus(),
       };
     }
-    const url = tab.page.url();
+    const url = withoutDataPayload(tab.page.url());
     const viewport = tab.desktop ? await layoutSize(tab) : tab.page.viewportSize();
     const status = {
       available: true,
@@ -1589,7 +1593,10 @@ const make = Effect.gen(function* () {
         .filter((candidate) => candidate.threadId === tab.threadId)
         .map((candidate) => ({
           tabId: candidate.tabId,
-          url: candidate.page.url() === "about:blank" ? null : candidate.page.url(),
+          url:
+            candidate.page.url() === "about:blank"
+              ? null
+              : withoutDataPayload(candidate.page.url()),
           ...(candidate.openerTabId === undefined ? {} : { openerTabId: candidate.openerTabId }),
           owner: tabOwner(candidate),
           ownedByCaller: candidate.control.agentId === agentSessionId,
