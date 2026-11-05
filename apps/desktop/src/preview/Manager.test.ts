@@ -734,6 +734,34 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("omits data payloads from registered webview reports", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const states: PreviewManager.PreviewTabState[] = [];
+        const dataUrl = "data:text/plain,SECRET-PAYLOAD";
+        fromId.mockReturnValue({
+          ...makeTestPreviewWebContents(async () => ({
+            toJPEG: () => Buffer.from("unused"),
+            getSize: () => ({ width: 1280, height: 720 }),
+          })),
+          getURL: () => dataUrl,
+        } as never);
+        yield* manager.subscribeStateChanges((_tabId, state) =>
+          Effect.sync(() => {
+            states.push(state);
+          }),
+        );
+        yield* manager.createTab("tab_data_report");
+        yield* manager.registerWebview("tab_data_report", 42);
+        expect(states.at(-1)?.navStatus).toMatchObject({
+          kind: "Success",
+          url: "data:text/plain,…",
+        });
+        expect(JSON.stringify(states)).not.toContain("SECRET-PAYLOAD");
+      }),
+    ),
+  );
+
   effectIt.effect("queues navigation until the webview registers", () =>
     withManager((manager) =>
       Effect.gen(function* () {

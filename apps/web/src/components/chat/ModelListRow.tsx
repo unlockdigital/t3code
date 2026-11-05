@@ -41,6 +41,10 @@ export const ModelListRow = memo(function ModelListRow(props: {
     subProvider: props.subProvider,
   };
   const modelName = getDisplayModelName(model);
+  const providerLabel =
+    props.subProvider && props.subProvider !== props.providerDisplayName
+      ? `${props.providerDisplayName} · ${props.subProvider}`
+      : props.providerDisplayName;
 
   const row = (
     <ComboboxItem
@@ -50,12 +54,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
       value={modelPickerModelKey(props.instanceId, props.slug)}
       disabled={Boolean(props.disabledReason)}
       className={cn(
-        "@container/model-option group relative w-full !min-w-0 max-w-full cursor-pointer",
+        "group relative w-full !min-w-0 max-w-full cursor-pointer",
         props.disabledReason &&
           "data-disabled:pointer-events-auto data-disabled:cursor-not-allowed",
       )}
     >
-      {/* One row shape in every tab: the logo names the provider, so Favorites needs no second line. */}
       <ProviderInstanceIcon
         driverKind={props.driverKind}
         displayName={props.providerDisplayName}
@@ -68,55 +71,40 @@ export const ModelListRow = memo(function ModelListRow(props: {
         indicatorBackground="var(--popover)"
         badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
       />
-      <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="min-w-0 flex-1 truncate text-sm font-normal leading-snug">
-                {modelName}
-                {/* The logo is decorative, so name the provider for screen readers. */}
-                <span className="sr-only">, {props.providerDisplayName}</span>
-              </div>
-            }
-          />
-          <TooltipPopup side="top" align="start">
-            {modelName}
-            <span className="block text-muted-foreground">{props.providerDisplayName}</span>
-          </TooltipPopup>
-        </Tooltip>
-        {(props.showProvider ?? props.showInstanceBadge) && (
-          <div className="mt-1 hidden min-w-0 max-w-24 shrink-0 items-center gap-1.5 @min-[18rem]/model-option:flex">
-            <ProviderInstanceIcon
-              driverKind={props.driverKind}
-              instanceId={props.instanceId}
-              displayName={props.providerDisplayName}
-              acpRegistryAgentId={props.acpRegistryAgentId}
-              acpRegistryIconUrl={props.acpRegistryIconUrl}
-              className="size-3"
-              iconClassName="size-3"
+      <div className="min-w-0 flex-1 text-left">
+        <div className="flex min-w-0 items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div className="min-w-0 flex-1 whitespace-normal text-sm font-normal leading-snug [overflow-wrap:anywhere]">
+                  {modelName}
+                  <span className="sr-only">, {props.providerDisplayName}</span>
+                </div>
+              }
             />
-            <span className="truncate text-xs font-normal leading-snug text-muted-foreground/70">
-              {props.providerDisplayName}
+            <TooltipPopup side="top" align="start">
+              {modelName}
+              <span className="block text-muted-foreground">{props.providerDisplayName}</span>
+            </TooltipPopup>
+          </Tooltip>
+          {props.showNewBadge ? (
+            <span
+              className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
+              aria-label="New model"
+            >
+              New
             </span>
+          ) : null}
+          {props.unavailable ? (
+            <Badge variant="outline" size="sm">
+              Unavailable
+            </Badge>
+          ) : null}
+        </div>
+        {(props.showProvider ?? props.showInstanceBadge) || props.subProvider ? (
+          <div className="mt-1 truncate text-xs font-normal leading-snug text-muted-foreground/70">
+            {providerLabel}
           </div>
-        )}
-        {props.subProvider ? (
-          <span className="min-w-0 shrink truncate text-xs text-muted-foreground/70">
-            {props.subProvider}
-          </span>
-        ) : null}
-        {props.showNewBadge ? (
-          <span
-            className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
-            aria-label="New model"
-          >
-            New
-          </span>
-        ) : null}
-        {props.unavailable ? (
-          <Badge variant="outline" size="sm">
-            Unavailable
-          </Badge>
         ) : null}
       </div>
 

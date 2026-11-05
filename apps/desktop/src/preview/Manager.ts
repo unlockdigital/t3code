@@ -21,7 +21,7 @@ import type {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { matchesKeybindingShortcut } from "@t3tools/shared/keybindings";
-import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { normalizePreviewUrl, withoutDataPayload } from "@t3tools/shared/preview";
 import {
   BrowserWindow,
   ClipboardItem,
@@ -822,10 +822,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
 
   const emit = Effect.fn("PreviewManager.emit")(function* (tabId: string, state: PreviewTabState) {
+    const reportedState =
+      state.navStatus.kind === "Idle"
+        ? state
+        : {
+            ...state,
+            navStatus: { ...state.navStatus, url: withoutDataPayload(state.navStatus.url) },
+          };
     const listeners = yield* Ref.get(listenersRef);
     yield* Effect.forEach(
       listeners,
-      (listener) => deliverEvent("state-change", tabId, () => listener(tabId, state)),
+      (listener) => deliverEvent("state-change", tabId, () => listener(tabId, reportedState)),
       { discard: true },
     );
   });

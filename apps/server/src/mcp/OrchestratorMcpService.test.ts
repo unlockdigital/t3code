@@ -1136,6 +1136,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       Effect.gen(function* () {
         const disabledAntigravityInstanceId = ProviderInstanceId.make("antigravity-alt");
         const disabledWithoutAdapterInstanceId = ProviderInstanceId.make("codex-without-adapter");
+        const projectDisabledInstanceId = ProviderInstanceId.make("codex-project-off");
         const forkOnlyInstanceId = ProviderInstanceId.make("forkOnly");
         const forkShadow = yield* buildUnavailableProviderSnapshot({
           driverKind: "forkOnly",
@@ -1181,6 +1182,11 @@ describe("OrchestratorMcpService provider resolution", () => {
             model: "gpt-5.4",
             enabled: false,
           }),
+          providerSnapshot({
+            instanceId: projectDisabledInstanceId,
+            driver: ProviderDriverKind.make("codex"),
+            model: "gpt-5.4",
+          }),
           forkShadow,
         ];
         const layerDependencies = Layer.mergeAll(
@@ -1188,12 +1194,34 @@ describe("OrchestratorMcpService provider resolution", () => {
           Layer.mock(ThreadManagementService.ThreadManagementService)({
             getThreadRecords: () => Effect.succeed(parentProjection([])),
           }),
-          ServerSettings.layerTest(),
+          ServerSettings.layerTest({
+            providerInstances: {
+              [ProviderInstanceId.make("pi")]: {
+                driver: ProviderDriverKind.make("pi"),
+                enabled: true,
+              },
+              [ProviderInstanceId.make("acpRegistry")]: {
+                driver: ProviderDriverKind.make("acpRegistry"),
+                enabled: true,
+              },
+              [antigravityInstanceId]: {
+                driver: ProviderDriverKind.make("antigravity"),
+                enabled: true,
+              },
+              [projectDisabledInstanceId]: { driver: ProviderDriverKind.make("codex") },
+            },
+            projectSettingsOverrides: {
+              [projectId]: {
+                providerInstances: { [projectDisabledInstanceId]: { enabled: false } },
+              },
+            },
+          }),
           Layer.mock(ProviderRegistry.ProviderRegistry)({
             getProviders: Effect.sync(() => providers),
           }),
           adapterRegistryLayer([
             codexInstanceId,
+            projectDisabledInstanceId,
             ProviderInstanceId.make("claudeAgent"),
             ProviderInstanceId.make("pi"),
             ProviderInstanceId.make("acpRegistry"),
@@ -1263,6 +1291,11 @@ describe("OrchestratorMcpService provider resolution", () => {
           assert.isFalse(disabled!.canRunChildTask);
           assert.isFalse(disabled!.canRunCrossProviderChildTask);
           assert.deepEqual(disabled!.constraints, ["Provider instance is disabled."]);
+
+          const projectDisabled = byId.get(projectDisabledInstanceId);
+          assert.isDefined(projectDisabled);
+          assert.isFalse(projectDisabled!.canRunChildTask);
+          assert.deepEqual(projectDisabled!.constraints, ["Provider instance is disabled."]);
 
           const disabledWithoutAdapter = byId.get(disabledWithoutAdapterInstanceId);
           assert.isDefined(disabledWithoutAdapter);
@@ -2691,6 +2724,96 @@ describe("OrchestratorMcpService provider resolution", () => {
           }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
         }
       }),
+  );
+
+  it.effect("accepts the inherited options it reports back as a delegate target", () =>
+    Effect.gen(function* () {
+      // t3_thread_launch keeps a model selection as given, so a thread can hold an option its model lacks.
+      const inherited = {
+        instanceId: codexInstanceId,
+        model: "gpt-5.4",
+        options: [
+          { id: "reasoningEffort", value: "low" },
+          { id: "fastMode", value: false },
+        ],
+      } as const;
+      const commands: Array<{ readonly modelSelection?: unknown }> = [];
+      const task = {
+        id: taskId,
+        threadId: parentThreadId,
+        origin: "app_owned",
+        childThreadId,
+        providerInstanceId: codexInstanceId,
+        model: inherited.model,
+        status: "running",
+        result: null,
+      };
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          hasReceipt: () => Effect.succeed(false),
+          assertProviderInstanceEnabled: () => Effect.void,
+          getThreadRecords: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? parentProjection(commands.length > 0 ? [task] : [], inherited)
+                : childProjection,
+            ),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              commands.push(command as { readonly modelSelection?: unknown });
+              return {
+                sequence: 1,
+                storedEvents: [{ event: { type: "subagent.updated", payload: task } }],
+              } as never;
+            }),
+        }),
+        ServerSettings.layerTest(),
+        providerRegistryLayer([
+          {
+            ...providerSnapshot({
+              instanceId: codexInstanceId,
+              driver: ProviderDriverKind.make("codex"),
+            }),
+            models: [
+              {
+                slug: inherited.model,
+                name: inherited.model,
+                isCustom: false,
+                capabilities: {
+                  optionDescriptors: [
+                    {
+                      id: "reasoningEffort",
+                      label: "Reasoning",
+                      type: "select",
+                      options: [{ id: "low", label: "Low" }],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ]),
+        adapterRegistryLayer([codexInstanceId]),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const { inheritedOptions } = yield* service.capabilities(scope);
+        yield* service.delegateTask(scope, {
+          task: "Review the change.",
+          target: yield* decodeTarget({ options: inheritedOptions }),
+          mode: "async",
+        });
+        assert.deepEqual(commands[0]?.modelSelection, {
+          ...inherited,
+          options: [inherited.options[0]],
+        });
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
+    }),
   );
 
   describe("resolveRuntimeMode", () => {
