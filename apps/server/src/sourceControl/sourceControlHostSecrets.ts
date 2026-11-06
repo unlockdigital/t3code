@@ -46,13 +46,19 @@ export function collectSourceControlHostSecretReferences(
 export const resolveSourceControlHostSecrets = Effect.fn("SourceControlHost.resolveSecrets")(
   function* (
     resolver: SecretResolver.SecretResolver["Service"],
-    hosts: SourceControlHostsSettings,
+    settings: Pick<ServerSettings, "sourceControlHosts" | "secretProviders">,
     kind: string,
   ) {
+    const hosts = settings.sourceControlHosts;
     const schema = sourceControlHostSettingsSchemas.get(kind);
     const fields = hosts[kind];
     if (schema === undefined || fields === undefined) return hosts;
-    const resolved = yield* resolveSettingsSecrets(resolver, schema, fields);
+    const resolved = yield* resolveSettingsSecrets(
+      resolver,
+      schema,
+      fields,
+      settings.secretProviders,
+    );
     return resolved === fields ? hosts : { ...hosts, [kind]: resolved };
   },
 );

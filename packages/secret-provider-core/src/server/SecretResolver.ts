@@ -1,6 +1,5 @@
 // Reads secrets that settings point at through a configured secret provider. Each read, including
-// a failed one, is held for the server's life so rebuilds never re-prompt an unlock; `invalidate`
-// (the Settings refresh) is the only way to read again.
+// a failed one, is cached until the provider changes or Settings refresh invalidates it.
 import type { SecretReference, ServerSettings } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -14,9 +13,10 @@ import type { SecretProviderDriver, SecretProviderDriverServices } from "./drive
 export class SecretResolver extends Context.Service<
   SecretResolver,
   {
-    /** Values in input order; `undefined` marks a reference that could not be read. */
+    /** Reads from the supplied settings snapshot when present, returning values in input order. */
     readonly read: (
       references: ReadonlyArray<SecretReference>,
+      providersSnapshot?: ServerSettings["secretProviders"],
     ) => Effect.Effect<ReadonlyArray<string | undefined>>;
     /** Forgets the given references, or every reference, so the next read asks the provider again. */
     readonly invalidate: (references?: ReadonlyArray<SecretReference>) => Effect.Effect<void>;
@@ -27,8 +27,8 @@ const cacheKey = (reference: SecretReference) =>
   `${reference.provider}\u0000${reference.reference}`;
 
 interface CachedSecret {
-  // A provider whose config changed, such as another account, reads again.
-  readonly config: string;
+  // A change to the driver or its config requires a fresh read.
+  readonly configKey: string;
   readonly value: string | undefined;
 }
 
@@ -68,11 +68,11 @@ export const make = Effect.fn("SecretResolver.make")(function* (options: {
     const config = decodeConfig(provider.config);
     return Option.isNone(config)
       ? undefined
-      : { driver, config: config.value, configKey: JSON.stringify(config.value) };
+      : { driver, config: config.value, configKey: JSON.stringify([provider.kind, config.value]) };
   };
 
   const isCached = (reference: SecretReference, plan: ReadablePlan) =>
-    cache.get(cacheKey(reference))?.config === plan.configKey;
+    cache.get(cacheKey(reference))?.configKey === plan.configKey;
 
   const answer = (
     references: ReadonlyArray<SecretReference>,
@@ -88,8 +88,9 @@ export const make = Effect.fn("SecretResolver.make")(function* (options: {
   // Cache hits answer without the lock, so a read waiting on an unlock never stalls a cached one.
   const read: SecretResolver["Service"]["read"] = Effect.fn("SecretResolver.read")(function* (
     references,
+    providersSnapshot,
   ) {
-    const providers = yield* options.secretProviders;
+    const providers = providersSnapshot ?? (yield* options.secretProviders);
     const plans = references.map((reference) => planFor(providers, reference));
     const isMissing = (reference: SecretReference, index: number) => {
       const plan = plans[index];
@@ -120,7 +121,7 @@ export const make = Effect.fn("SecretResolver.make")(function* (options: {
           const values = yield* plan.driver.read(plan.config, [...byReference.keys()]);
           [...byReference.values()].forEach((sameReference, index) => {
             for (const reference of sameReference) {
-              cache.set(cacheKey(reference), { config: plan.configKey, value: values[index] });
+              cache.set(cacheKey(reference), { configKey: plan.configKey, value: values[index] });
             }
           });
         }

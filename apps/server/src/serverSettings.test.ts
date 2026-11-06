@@ -19,6 +19,7 @@ import { assert, it, vi } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -26,6 +27,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
@@ -514,6 +516,102 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             { second: newSource, persisted: { ...newSource, managementKey: SECRET_REDACTED } },
           );
           assert.equal(capturedReads, 1);
+        }).pipe(
+          Effect.provide(
+            layerServerSettingsWithSecrets().pipe(
+              Layer.provideMerge(Layer.succeed(FileSystem.FileSystem, gatedFileSystem)),
+            ),
+          ),
+        );
+      }),
+  );
+
+  it.effect.each(["inline", "retired"] as const)(
+    "finishes a canceled cold %s migration before a settings writer can replace its token",
+    (entry) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const scope = yield* Scope.Scope;
+        const renameStarted = yield* Deferred.make<void>();
+        const finishRename = yield* Deferred.make<void>();
+        const renameFinished = yield* Deferred.make<void>();
+        const secretName = sourceControlHostSecretName({
+          kind: "bitbucket",
+          field: "accessToken",
+          serverHost: null,
+        });
+        const retiredName = "bitbucket-access-token";
+        let destination: string | undefined;
+        let paused = false;
+        const gatedFileSystem = FileSystem.FileSystem.of({
+          ...fs,
+          rename: (from, to) =>
+            Effect.gen(function* () {
+              if (to !== destination || paused) return yield* fs.rename(from, to);
+              paused = true;
+              // The dispatched rename outlives cancellation of the fiber awaiting it.
+              const rename = yield* Deferred.succeed(renameStarted, undefined).pipe(
+                Effect.andThen(Deferred.await(finishRename)),
+                Effect.andThen(fs.rename(from, to)),
+                Effect.tap(() => Deferred.succeed(renameFinished, undefined)),
+                Effect.forkIn(scope),
+              );
+              yield* Fiber.join(rename);
+            }),
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const { settingsPath, secretsDir } = yield* ServerConfig.ServerConfig;
+          const store = yield* ServerSecretStore.ServerSecretStore;
+          destination = path.join(secretsDir, `${secretName}.bin`);
+          const oldToken = "fixture-old-token";
+          const newToken = "fixture-new-token";
+          const bitbucket = {
+            email: "old@example.test",
+            accessToken: entry === "inline" ? oldToken : SECRET_REDACTED,
+          };
+          if (entry === "retired") {
+            yield* store.set(retiredName, new TextEncoder().encode(oldToken));
+          }
+          yield* fs.writeFileString(
+            settingsPath,
+            JSON.stringify(
+              entry === "inline" ? { sourceControlHosts: { bitbucket } } : { bitbucket },
+            ),
+          );
+
+          const fork = Effect.forkChild({ startImmediately: true });
+          const reader = yield* service.getSettings.pipe(fork);
+          yield* Deferred.await(renameStarted);
+          const cancellation = yield* Fiber.interrupt(reader).pipe(fork);
+          const writer = yield* service
+            .updateSettings({
+              sourceControlHosts: {
+                bitbucket: { email: "new@example.test", accessToken: newToken },
+              },
+            })
+            .pipe(fork);
+          const canceledBeforeRename = cancellation.pollUnsafe() !== undefined;
+          if (canceledBeforeRename) yield* Fiber.join(writer);
+          yield* Deferred.succeed(finishRename, undefined);
+          yield* Deferred.await(renameFinished);
+          yield* Fiber.join(cancellation);
+          yield* Fiber.join(writer);
+          const persisted = yield* decodeServerSettingsJson(yield* fs.readFileString(settingsPath));
+          const stored = yield* store.get(secretName);
+          assert.deepEqual<unknown>(
+            {
+              email: persisted.sourceControlHosts.bitbucket?.email,
+              marker: persisted.sourceControlHosts.bitbucket?.accessToken,
+              token: Option.map(stored, (value) => new TextDecoder().decode(value)),
+            },
+            { email: "new@example.test", marker: SECRET_REDACTED, token: Option.some(newToken) },
+          );
+          assert.isFalse(canceledBeforeRename);
+          assert.isTrue(Exit.hasInterrupts(yield* Fiber.await(reader)));
+          assert.isTrue(Option.isNone(yield* store.get(retiredName)));
         }).pipe(
           Effect.provide(
             layerServerSettingsWithSecrets().pipe(

@@ -29,6 +29,8 @@ const hosts = {
   github: { tokens: { "github.com": "ghp_literal" } },
 };
 
+const settings = { sourceControlHosts: hosts, secretProviders: {} };
+
 function countingResolver() {
   const reads: Array<string> = [];
   const resolver = SecretResolver.SecretResolver.of({
@@ -49,7 +51,7 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const { reads, resolver } = countingResolver();
-      const resolved = yield* resolveSourceControlHostSecrets(resolver, hosts, "bitbucket");
+      const resolved = yield* resolveSourceControlHostSecrets(resolver, settings, "bitbucket");
       assert.deepEqual(resolved, {
         ...hosts,
         bitbucket: { email: "me@example.test", accessToken: "bb_from_provider" },
@@ -61,7 +63,7 @@ it.effect(
 it.effect("treats a reference the provider cannot read as an unset credential", () =>
   Effect.gen(function* () {
     const { reads, resolver } = countingResolver();
-    const resolved = yield* resolveSourceControlHostSecrets(resolver, hosts, "gitcafe");
+    const resolved = yield* resolveSourceControlHostSecrets(resolver, settings, "gitcafe");
     assert.deepEqual(resolved.gitcafe, { token: "" });
     assert.deepEqual(reads, ["missing#token"]);
   }),
@@ -70,7 +72,7 @@ it.effect("treats a reference the provider cannot read as an unset credential", 
 it.effect("leaves the resolver unused for a kind that holds no reference", () =>
   Effect.gen(function* () {
     const { reads, resolver } = countingResolver();
-    const resolved = yield* resolveSourceControlHostSecrets(resolver, hosts, "github");
+    const resolved = yield* resolveSourceControlHostSecrets(resolver, settings, "github");
     assert.strictEqual(resolved, hosts);
     assert.deepEqual(reads, []);
   }),
@@ -79,7 +81,11 @@ it.effect("leaves the resolver unused for a kind that holds no reference", () =>
 it.effect("replaces a per-host token reference and keeps the literal beside it", () =>
   Effect.gen(function* () {
     const { reads, resolver } = countingResolver();
-    const resolved = yield* resolveSourceControlHostSecrets(resolver, perHostHosts, "github");
+    const resolved = yield* resolveSourceControlHostSecrets(
+      resolver,
+      { ...settings, sourceControlHosts: perHostHosts },
+      "github",
+    );
     assert.deepEqual(resolved, {
       github: { tokens: { "github.com": "ghp_from_provider", "ghe.acme.test": "ghp_literal" } },
     });
@@ -124,7 +130,7 @@ it.effect("reads a collected reference again once it is invalidated", () =>
           else for (const reference of references) cache.delete(reference.reference);
         }),
     });
-    const read = () => resolveSourceControlHostSecrets(resolver, hosts, "bitbucket");
+    const read = () => resolveSourceControlHostSecrets(resolver, settings, "bitbucket");
     const usageLimitSources = {
       [UsageLimitSourceId.make("referenced")]: {
         kind: "cliproxy",

@@ -1007,49 +1007,56 @@ const make = Effect.gen(function* () {
           ),
         )
       : { settings: normalized, secretMoves: [] };
-    // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
-    const legacySecretsCopied = yield* Effect.forEach(sourceControlMigration.secretMoves, (move) =>
-      secretStore.get(move.from).pipe(
-        Effect.flatMap((secret) =>
-          Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
-        ),
-        Effect.as(true),
-        Effect.catch(() =>
-          Effect.logWarning("failed to copy a source control secret to its new name", {
-            secretName: move.to,
-          }).pipe(Effect.as(false)),
-        ),
-      ),
-    ).pipe(Effect.map((copied) => copied.every(Boolean)));
-    if (!legacySecretsCopied) {
-      return {
-        settings: normalized,
-        parseFailure,
-        forwardUsageModelFilter,
-        pendingLegacySecretMigration: true,
-      };
-    }
-    const beforeMove = sourceControlMigration.settings;
-    const migrated = settingsFileTrusted
-      ? yield* moveInlineSettingsSecrets(beforeMove)
-      : beforeMove;
-    if (
-      folded !== loaded ||
-      migrated !== beforeMove ||
-      (settingsFileTrusted && legacyProviders !== undefined) ||
-      hasLegacySourceControl
-    ) {
-      yield* writeSettingsAtomically(migrated, forwardUsageModelFilter);
-      for (const move of sourceControlMigration.secretMoves) {
-        yield* secretStore.remove(move.from).pipe(Effect.ignore);
-      }
-    }
-    return {
-      settings: migrated,
-      parseFailure,
-      forwardUsageModelFilter,
-      pendingLegacySecretMigration: false,
-    };
+    // Filesystem mutations can outlive cancellation, so finish them before releasing the permit.
+    return yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
+        const legacySecretsCopied = yield* Effect.forEach(
+          sourceControlMigration.secretMoves,
+          (move) =>
+            secretStore.get(move.from).pipe(
+              Effect.flatMap((secret) =>
+                Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
+              ),
+              Effect.as(true),
+              Effect.catch(() =>
+                Effect.logWarning("failed to copy a source control secret to its new name", {
+                  secretName: move.to,
+                }).pipe(Effect.as(false)),
+              ),
+            ),
+        ).pipe(Effect.map((copied) => copied.every(Boolean)));
+        if (!legacySecretsCopied) {
+          return {
+            settings: normalized,
+            parseFailure,
+            forwardUsageModelFilter,
+            pendingLegacySecretMigration: true,
+          };
+        }
+        const beforeMove = sourceControlMigration.settings;
+        const migrated = settingsFileTrusted
+          ? yield* moveInlineSettingsSecrets(beforeMove)
+          : beforeMove;
+        if (
+          folded !== loaded ||
+          migrated !== beforeMove ||
+          (settingsFileTrusted && legacyProviders !== undefined) ||
+          hasLegacySourceControl
+        ) {
+          yield* writeSettingsAtomically(migrated, forwardUsageModelFilter);
+          for (const move of sourceControlMigration.secretMoves) {
+            yield* secretStore.remove(move.from).pipe(Effect.ignore);
+          }
+        }
+        return {
+          settings: migrated,
+          parseFailure,
+          forwardUsageModelFilter,
+          pendingLegacySecretMigration: false,
+        };
+      }),
+    );
   });
 
   const settingsCache = yield* Cache.makeWith((_key: typeof cacheKey) => loadSettingsFromDisk(), {
@@ -1057,7 +1064,7 @@ const make = Effect.gen(function* () {
     timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
   });
 
-  // Loads can rewrite both the settings file and secrets, so callers hold writeSemaphore.
+  // Cache.get interrupts and joins its abandoned loader before the caller releases the permit.
   const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
   const reloadSettings = Effect.fn("ServerSettings.reloadSettings")(function* (
     usageLimitSourcesPatch?: ServerSettingsPatch["usageLimitSources"],

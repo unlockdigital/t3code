@@ -31,12 +31,13 @@ const ref = (reference: string, provider = personal): SecretReference => ({ prov
 function fakeDriver(
   answer: (account: string, reference: string) => string | undefined,
   wait: (references: ReadonlyArray<string>) => Effect.Effect<void> = () => Effect.void,
+  kind = FAKE_KIND,
 ) {
   const reads: Array<{ readonly account: string; readonly references: ReadonlyArray<string> }> = [];
   const driver = defineSecretProviderDriver({
-    kind: FAKE_KIND,
+    kind,
     definition: defineSecretProvider({
-      kind: FAKE_KIND,
+      kind,
       label: "Fake",
       configSchema: FakeConfig,
       isReference: (reference) => reference.startsWith("fake://"),
@@ -174,6 +175,28 @@ describe("SecretResolver", () => {
         ["a", "b"],
       );
     }).pipe(Effect.provide(resolverLayer(driver, () => ({ [personal]: fake(account) }))));
+  });
+
+  it.effect("reads again when a provider switches drivers with the same config", () => {
+    const otherKind = SecretProviderKind.make("other");
+    let provider = fake("a");
+    const first = fakeDriver(() => "first-key");
+    const second = fakeDriver(() => "second-key", undefined, otherKind);
+    return Effect.gen(function* () {
+      const resolver = yield* SecretResolver.SecretResolver;
+      const token = ref("fake://openai");
+
+      assert.deepStrictEqual(yield* resolver.read([token]), ["first-key"]);
+      provider = { ...provider, kind: otherKind };
+      assert.deepStrictEqual(yield* resolver.read([token]), ["second-key"]);
+    }).pipe(
+      Effect.provide(
+        SecretResolver.layer({
+          drivers: [first.driver, second.driver],
+          secretProviders: Effect.sync(() => ({ [personal]: provider })),
+        }).pipe(Layer.provide(NodeServices.layer)),
+      ),
+    );
   });
 
   it.effect("does not call a driver for what it cannot read, and reads it later", () => {

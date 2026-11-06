@@ -1,4 +1,8 @@
-import { secretReferencesInSettings, withSettingsSecrets } from "@t3tools/contracts";
+import {
+  secretReferencesInSettings,
+  withSettingsSecrets,
+  type ServerSettings,
+} from "@t3tools/contracts";
 import type * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
@@ -9,10 +13,18 @@ import type * as Schema from "effect/Schema";
  */
 export const resolveSettingsSecrets = Effect.fn("SettingsSecrets.resolve")(function* <
   Settings extends Readonly<Record<string, unknown>>,
->(resolver: SecretResolver.SecretResolver["Service"], schema: Schema.Top, settings: Settings) {
+>(
+  resolver: SecretResolver.SecretResolver["Service"],
+  schema: Schema.Top,
+  settings: Settings,
+  providersSnapshot: ServerSettings["secretProviders"],
+) {
   const pending = secretReferencesInSettings(schema, settings);
   if (pending.length === 0) return settings;
-  const values = yield* resolver.read(pending.map(({ reference }) => reference));
+  const values = yield* resolver.read(
+    pending.map(({ reference }) => reference),
+    providersSnapshot,
+  );
   return withSettingsSecrets(
     settings,
     pending.map((slot, index) => ({ ...slot, value: values[index] ?? "" })),
