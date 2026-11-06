@@ -158,6 +158,21 @@ function mapSecretFieldValues(
   };
 }
 
+class InvalidSettingsSecretField extends Schema.TaggedError<InvalidSettingsSecretField>()(
+  "InvalidSettingsSecretField",
+  {
+    field: Schema.String,
+    expected: Schema.Literals(["credential value", "credential map with unique keys"]),
+  },
+) {
+  override get message(): string {
+    return `Expected a ${this.expected} for ${this.field}.`;
+  }
+}
+
+const ownKeyCount = (value: unknown) =>
+  value !== null && typeof value === "object" ? Object.keys(value).length : 0;
+
 function decodeSecretFields<A>(
   traverse: (mapFields: SecretFieldsMapper) => A,
   settingsPath: string,
@@ -165,14 +180,21 @@ function decodeSecretFields<A>(
   let error: ServerSettingsError | undefined;
   const decoded = traverse((fields, secretFields) => {
     const next = { ...fields };
-    for (const { name, decode } of secretFields) {
+    for (const { name, keyed, decode } of secretFields) {
       if (error !== undefined || !Object.hasOwn(fields, name)) continue;
       const result = decode(fields[name]);
-      if (Exit.isFailure(result)) {
+      if (
+        Exit.isFailure(result) ||
+        (keyed && ownKeyCount(fields[name]) !== ownKeyCount(result.value))
+      ) {
         error = new ServerSettingsError({
           settingsPath,
           operation: "unsupported-secret-reference",
-          cause: result.cause,
+          // Schema failures can contain the rejected credential.
+          cause: new InvalidSettingsSecretField({
+            field: name,
+            expected: keyed ? "credential map with unique keys" : "credential value",
+          }),
         });
       } else {
         next[name] = result.value;

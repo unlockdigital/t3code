@@ -10,11 +10,13 @@ import {
   resolveProviderInstanceEnabled,
   SecretProviderId,
   ServerSettings,
+  ServerSettingsError,
   ServerSettingsPatch,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it, vi } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -39,6 +41,7 @@ const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 const decodeServerSettingsJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
 const decodeAccountRoutingPolicy = Schema.decodeUnknownEffect(AccountRoutingPolicy);
 const decodeServerSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
+const encodeServerSettingsError = Schema.encodeEffect(ServerSettingsError);
 
 const layerServerSettings = () =>
   ServerSettingsModule.layer.pipe(
@@ -64,18 +67,6 @@ const layerServerSettingsWithSecrets = () =>
         }),
       ),
     ),
-  );
-
-const layerFailingSecretStore = (cause: ServerSecretStore.SecretStoreError) =>
-  Layer.succeed(
-    ServerSecretStore.ServerSecretStore,
-    ServerSecretStore.ServerSecretStore.of({
-      get: () => Effect.fail(cause),
-      set: () => Effect.void,
-      create: () => Effect.void,
-      getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
-      remove: () => Effect.void,
-    }),
   );
 
 const recordProviderUsage = (provider: string, instanceId: string | null = provider) =>
@@ -301,7 +292,15 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
-  it.effect.each(["alias first", "alias last", "invalid entry", "invalid map"] as const)(
+  it.effect.each([
+    "alias first",
+    "alias last",
+    "invalid entry",
+    "invalid map",
+    "retired tokens",
+    "sign-ins",
+    "retired sign-ins",
+  ] as const)(
     "rejects malformed saved credential hosts without rewriting settings (%s)",
     (fixture) =>
       Effect.gen(function* () {
@@ -309,6 +308,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const config = yield* ServerConfig.ServerConfig;
         const fs = yield* FileSystem.FileSystem;
         const store = yield* ServerSecretStore.ServerSecretStore;
+        const fixtureToken = "fixture-rejected-api-key";
         const entries = [
           [" GitHub.COM ", { provider: "personal", reference: "op://Private/First/token" }],
           ["github.com", { provider: "personal", reference: "op://Private/Second/token" }],
@@ -317,17 +317,24 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           fixture === "invalid entry"
             ? { "github.com": { provider: 42, reference: "path" } }
             : fixture === "invalid map"
-              ? "literal"
-              : Object.fromEntries(fixture === "alias first" ? entries : entries.toReversed());
-        const sourceControlHosts = { github: { tokens } };
-        const raw = JSON.stringify({ modelPrivacy: "private", sourceControlHosts });
-        const secretName = sourceControlHostSecretName({
-          kind: "github",
-          field: "tokens",
-          serverHost: "github.com",
+              ? fixtureToken
+              : fixture === "retired tokens"
+                ? { "github.com": SECRET_REDACTED, " GitHub.COM ": "inline-token" }
+                : Object.fromEntries(fixture === "alias first" ? entries : entries.toReversed());
+        const github =
+          fixture === "sign-ins" || fixture === "retired sign-ins"
+            ? {
+                signIns: { "github.com": "session-a", " GitHub.COM ": "session-b" },
+                tokens: { "github.com": SECRET_REDACTED },
+              }
+            : { tokens };
+        const raw = JSON.stringify({
+          modelPrivacy: "private",
+          ...(fixture.startsWith("retired") ? { github } : { sourceControlHosts: { github } }),
         });
-        yield* store.set(secretName, new TextEncoder().encode("stale-secret"));
         using reads = vi.spyOn(store, "get");
+        using writes = vi.spyOn(store, "set");
+        using removes = vi.spyOn(store, "remove");
         yield* fs.writeFileString(config.settingsPath, raw);
         for (const operation of [
           service.getSettings,
@@ -336,12 +343,93 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         ]) {
           const rejected = yield* Effect.flip(operation);
           assert.equal(rejected.operation, "unsupported-secret-reference");
+          if (fixture === "invalid map") {
+            const formatted = Cause.pretty(Cause.fail(rejected));
+            const loggableCause = String(rejected.cause);
+            const wire = JSON.stringify(yield* encodeServerSettingsError(rejected));
+            for (const message of [formatted, loggableCause, wire]) {
+              assert.isFalse(message.includes(fixtureToken));
+            }
+            assert.include(loggableCause, "tokens");
+            assert.include(loggableCause, "map");
+          }
           assert.equal(yield* fs.readFileString(config.settingsPath), raw);
         }
+        assert.deepEqual(reads.mock.calls, []);
+        assert.deepEqual(writes.mock.calls, []);
+        assert.deepEqual(removes.mock.calls, []);
+      }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
+  it.effect.each(["reference", "literal"] as const)(
+    "rejects a stale usage source marker for an old URL (%s)",
+    (kind) =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* ServerSecretStore.ServerSecretStore;
+        const hub = UsageLimitSourceId.make("hub");
+        const oldSource = {
+          kind: "cliproxy",
+          url: "https://old-hub.test",
+          managementKey: "fixture-old-key",
+          enabled: true,
+        } as const;
+        const initial = yield* service.updateSettings({ usageLimitSources: { [hub]: oldSource } });
+        const oldClient = ServerSettingsModule.redactServerSettingsForClient(initial, {
+          secretReferences: false,
+        }).usageLimitSources[hub]!;
+        const newKey =
+          kind === "reference"
+            ? { provider: SecretProviderId.make("personal"), reference: "op://Private/New/key" }
+            : "fixture-new-key";
+        const current = {
+          ...oldSource,
+          url: "https://new-hub.test",
+          managementKey: newKey,
+        };
+        yield* service.updateSettings({ usageLimitSources: { [hub]: current } });
+        const raw = JSON.stringify({
+          ...JSON.parse(yield* fs.readFileString(config.settingsPath)),
+          bitbucket: { accessToken: SECRET_REDACTED },
+        });
+        yield* store.set("bitbucket-access-token", new TextEncoder().encode("fixture-legacy-key"));
+        yield* fs.writeFileString(config.settingsPath, raw);
+        const changes = yield* service.subscribeChanges;
+        using reads = vi.spyOn(store, "get");
+        using writes = vi.spyOn(store, "set");
+        using removes = vi.spyOn(store, "remove");
+
+        for (const managementKey of [oldClient.managementKey, ""]) {
+          const rejected = yield* Effect.flip(
+            service.updateSettings({
+              usageLimitSources: { [hub]: { ...oldClient, managementKey } },
+            }),
+          );
+          assert.equal(rejected.operation, "unsupported-secret-reference");
+          assert.equal(yield* fs.readFileString(config.settingsPath), raw);
+        }
+        assert.deepEqual(reads.mock.calls, []);
+        assert.deepEqual(writes.mock.calls, []);
+        assert.deepEqual(removes.mock.calls, []);
+        const edited = { ...current, label: "New label", enabled: false };
+        const saved = yield* service.updateSettings({
+          usageLimitSources: { [hub]: { ...edited, managementKey: SECRET_REDACTED } },
+        });
+        assert.deepEqual(saved.usageLimitSources[hub], edited);
         assert.deepEqual(
-          reads.mock.calls.filter(([name]) => name === secretName),
-          [],
+          Option.getOrThrow(yield* Stream.runHead(changes)).usageLimitSources[hub],
+          edited,
         );
+
+        const replaced = yield* service.updateSettings({
+          usageLimitSources: { [hub]: { ...oldSource, managementKey: "fixture-replacement-key" } },
+        });
+        assert.deepEqual(replaced.usageLimitSources[hub], {
+          ...oldSource,
+          managementKey: "fixture-replacement-key",
+        });
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
@@ -1929,42 +2017,67 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
-  it.effect("keeps the retired keys for another load when a token cannot be copied", () => {
-    const cause = new ServerSecretStore.SecretStoreReadError({
-      resource: "bitbucket-access-token",
-      cause: PlatformError.systemError({
-        _tag: "PermissionDenied",
-        module: "FileSystem",
-        method: "readFile",
-        pathOrDescriptor: "bitbucket-access-token",
-        description: "Secret backend unavailable.",
-      }),
-    });
-    const layerSettings = ServerSettingsModule.layer.pipe(
-      Layer.provide(layerFailingSecretStore(cause)),
-      Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
-      Layer.provideMerge(
-        Layer.fresh(
-          ServerConfig.layerTest(process.cwd(), {
-            prefix: "t3code-server-settings-legacy-failure-test-",
+  it.effect.each([false, true])(
+    "keeps the retired keys for another load when a token cannot be copied (project fold: %s)",
+    (withProjectOverride) =>
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const secrets = yield* ServerSecretStore.ServerSecretStore;
+        const retiredName = "bitbucket-access-token";
+        const cause = new ServerSecretStore.SecretStoreReadError({
+          resource: retiredName,
+          cause: PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "readFile",
+            pathOrDescriptor: retiredName,
+            description: "Secret backend unavailable.",
           }),
-        ),
-      ),
-    );
-    return Effect.gen(function* () {
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      const legacy = JSON.stringify({
-        bitbucket: { email: "me@example.com", accessToken: "\u2022\u2022\u2022\u2022\u2022\u2022" },
-      });
-      yield* fileSystem.writeFileString(serverConfig.settingsPath, legacy);
+        });
+        const legacy = JSON.stringify({
+          bitbucket: { email: "me@example.com", accessToken: SECRET_REDACTED },
+          ...(withProjectOverride ? { projectAutoPullOverrides: { "legacy-project": true } } : {}),
+        });
+        yield* secrets.set(retiredName, new TextEncoder().encode("fixture-legacy-token"));
+        yield* fileSystem.writeFileString(serverConfig.settingsPath, legacy);
+        const get = secrets.get;
+        using reads = vi
+          .spyOn(secrets, "get")
+          .mockImplementation((name) => (name === retiredName ? Effect.fail(cause) : get(name)));
 
-      yield* Effect.exit(serverSettings.getSettings);
+        assert.equal(
+          (yield* serverSettings.getSettings).projectSettingsFolded,
+          withProjectOverride,
+        );
+        assert.equal(
+          (yield* serverSettings.getRoutingSettings).projectSettingsFolded,
+          withProjectOverride,
+        );
+        assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), legacy);
+        const rejected = yield* Effect.flip(
+          serverSettings.updateSettings({ responseStreamingMode: "turn" }),
+        );
+        assert.equal(rejected.operation, "write-file");
+        assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), legacy);
 
-      assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), legacy);
-    }).pipe(Effect.provide(layerSettings));
-  });
+        reads.mockRestore();
+        const recovered = yield* serverSettings.updateSettings({ responseStreamingMode: "turn" });
+        assert.equal(recovered.sourceControlHosts.bitbucket?.accessToken, "fixture-legacy-token");
+        assert.equal(recovered.responseStreamingMode, "turn");
+        assert.equal(recovered.projectSettingsFolded, withProjectOverride);
+        if (withProjectOverride) {
+          assert.isTrue(
+            recovered.projectSettingsOverrides[ProjectId.make("legacy-project")]?.defaultAutoPull,
+          );
+        }
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+        assert.isUndefined(JSON.parse(raw).bitbucket);
+        assert.notInclude(raw, "fixture-legacy-token");
+        assert.isTrue(Option.isNone(yield* secrets.get(retiredName)));
+      }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
 
   it.effect("moves the retired bitbucket and github keys and their secrets on load", () =>
     Effect.gen(function* () {
