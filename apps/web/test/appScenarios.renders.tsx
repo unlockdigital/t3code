@@ -13,6 +13,7 @@ import { commands, page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 
 import { AppRoot } from "~/AppRoot";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { getRouter, type AppRouter } from "~/router";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -290,7 +291,7 @@ it("app-switch-settings-section", async () => {
   ]);
 });
 
-it("side chat renders stay bounded while the main thread streams", async () => {
+it("side chat renders stay bounded during parent composer changes", async () => {
   using _clock = frozenClock();
   await using _app = (await mountApp(threadPath(A))).screen;
   await expect.element(lastAnswer(A)).toBeVisible();
@@ -303,17 +304,29 @@ it("side chat renders stay bounded while the main thread streams", async () => {
   await act(() => emitThreadEvent(A, { type: "run.created", payload: mainRun }));
   startCounting();
   for (let delta = 0; delta < 10; delta++) {
-    await act(() =>
-      emitThreadEvent(A, {
+    await act(async () => {
+      useComposerDraftStore
+        .getState()
+        .setRuntimeMode(
+          scopeThreadRef(ENVIRONMENT_ID, A),
+          delta % 2 === 0 ? "full-access" : "approval-required",
+        );
+      await emitThreadEvent(A, {
         type: "turn-item.updated",
         payload: assistantItem(
-          A, mainRun.id, "side-bound-answer", HISTORY_TURNS * 2, `main update ${delta}`, true,
+          A,
+          mainRun.id,
+          "side-bound-answer",
+          HISTORY_TURNS * 2,
+          `main update ${delta}`,
+          true,
         ),
-      }),
-    );
+      });
+    });
     await expect.element(page.getByText(`main update ${delta}`, { exact: true })).toBeVisible();
   }
   const mainChanges = stopCounting();
+  expect(mainChanges.components.ChatView ?? 0).toBeGreaterThanOrEqual(9);
   expect(mainChanges.components.SideChatPane ?? 0).toBeLessThanOrEqual(2);
 
   const sideRun = runningRun(B, "side-bound-side", HISTORY_TURNS + 1, "side-bound-side-user");
@@ -323,7 +336,12 @@ it("side chat renders stay bounded while the main thread streams", async () => {
     emitThreadEvent(B, {
       type: "turn-item.updated",
       payload: assistantItem(
-        B, sideRun.id, "side-bound-side-answer", HISTORY_TURNS * 2, "side update", true,
+        B,
+        sideRun.id,
+        "side-bound-side-answer",
+        HISTORY_TURNS * 2,
+        "side update",
+        true,
       ),
     }),
   );
