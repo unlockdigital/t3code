@@ -19,6 +19,7 @@ const decodeSdkPackage = Schema.decodeUnknownSync(SdkPackage);
 const decodePackageInfo = Schema.decodeUnknownSync(PackageInfo);
 
 const minimums: Readonly<Record<string, Readonly<Record<number, string>>>> = {
+  electron: { 44: "44.10.2" },
   undici: { 6: "6.29.1", 7: "7.30.1", 8: "8.12.2" },
   zod: { 4: "4.6.6" },
   "body-parser": { 2: "2.4.0" },

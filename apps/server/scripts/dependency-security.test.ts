@@ -18,6 +18,7 @@ describe("checkDependencySecurity", () => {
           "  /undici@8.12.2-beta.1:\n    version: 8.12.2-beta.1",
           "  /undici@6.29.1:\n    version: 6.29.1",
           "  /zod@3.25.0:\n    version: 3.25.0",
+          "  /electron@44.10.1:\n    version: 44.10.1",
         ].join("\n"),
       ),
     );
@@ -26,11 +27,13 @@ describe("checkDependencySecurity", () => {
       { name: "@modelcontextprotocol/sdk", version: "1.31.0" },
       { name: "undici", version: "8.12.2-beta.1" },
       { name: "undici", version: "6.29.1" },
+      { name: "electron", version: "44.10.1" },
     ]);
     expect(result.violations).toEqual([
       { name: "undici", version: "7.29.0", minimum: "7.30.1" },
       { name: "@modelcontextprotocol/sdk", version: "1.31.0", minimum: "1.32.0" },
       { name: "undici", version: "8.12.2-beta.1", minimum: "8.12.2" },
+      { name: "electron", version: "44.10.1", minimum: "44.10.2" },
     ]);
   });
 
