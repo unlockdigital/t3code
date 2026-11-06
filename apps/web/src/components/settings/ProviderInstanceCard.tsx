@@ -18,6 +18,7 @@ import * as Result from "effect/Result";
 import { Fragment, useState, type ReactElement, type ReactNode } from "react";
 import {
   isProviderDriverKind,
+  isSecretReference,
   resolveProviderInstanceEnabled,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
@@ -1198,8 +1199,8 @@ export function ProviderInstanceCard({
       : undefined;
   const billingConnected =
     instance.driver === "claudeAgent" &&
-    typeof consoleBilling === "string" &&
-    consoleBilling.length > 0;
+    ((typeof consoleBilling === "string" && consoleBilling.length > 0) ||
+      isSecretReference(consoleBilling));
   const runtimeFields = driverOption ? (
     <>
       <ProviderSettingsForm

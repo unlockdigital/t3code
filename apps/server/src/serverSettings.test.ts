@@ -32,6 +32,7 @@ import * as ServerConfig from "./config.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as ServerSettingsModule from "./serverSettings.ts";
+import { SECRET_REDACTED } from "./settingsSecrets.ts";
 import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.ts";
 
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
@@ -100,7 +101,7 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
 
 it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect.each(["github.com", " GitHub.COM "])(
-    "preserves future credential references and private routing through older settings saves (%s)",
+    "loads credential references and private routing without materializing stale secrets (%s)",
     (host) =>
       Effect.gen(function* () {
         const service = yield* ServerSettingsModule.ServerSettingsService;
@@ -109,8 +110,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const store = yield* ServerSecretStore.ServerSecretStore;
         const sourceId = UsageLimitSourceId.make("future-hub");
         const instanceId = ProviderInstanceId.make("private-local");
-        const reference = { provider: "personal", reference: "op://Private/GitHub/token" };
-        const usageReference = { provider: "personal", reference: "op://Private/Hub/key" };
+        const reference = {
+          provider: SecretProviderId.make("personal"),
+          reference: "op://Private/GitHub/token",
+        };
+        const usageReference = {
+          provider: SecretProviderId.make("personal"),
+          reference: "op://Private/Hub/key",
+        };
         const providerInstances = {
           [instanceId]: {
             driver: ProviderDriverKind.make("codex"),
@@ -157,8 +164,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         assert.equal(loaded.modelPrivacy, "private");
         assert.deepEqual(loaded.privateModelRoute, privateModelRoute);
         assert.deepEqual(loaded.providerInstances[instanceId], providerInstances[instanceId]);
-        assert.deepEqual(loaded.sourceControlHosts.github?.tokens, { "github.com": "" });
-        assert.equal(loaded.usageLimitSources[sourceId]?.managementKey, "");
+        assert.deepEqual(loaded.sourceControlHosts.github?.tokens, { "github.com": reference });
+        assert.deepEqual(loaded.usageLimitSources[sourceId]?.managementKey, usageReference);
         assert.notInclude(JSON.stringify(loaded), "stale-secret");
         assert.equal((yield* service.getRoutingSettings).modelPrivacy, "private");
         const saved = yield* service.updateSettings({
@@ -177,7 +184,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         assert.deepEqual(disk.usageLimitSources, fixture.usageLimitSources);
         assert.deepEqual(disk.usageModelFilter, fixture.usageModelFilter);
         for (const tokens of [
-          { "github.com": "replacement" },
           { "github.com": "", " GitHub.COM ": "replacement" },
           { "github.com": "", " GitHub.COM ": "••••••" },
         ]) {
@@ -474,7 +480,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
       assert.deepStrictEqual<unknown>(
-        ServerSettingsModule.redactServerSettingsForClient(settings).secretProviders,
+        ServerSettingsModule.redactServerSettingsForClient(settings, { secretReferences: true })
+          .secretProviders,
         {
           personal: { kind: "one_password", label: "Personal", config: { account: "my" } },
           vault: { kind: "openbao", label: "Vault" },
@@ -1524,7 +1531,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           "quota-secret",
           "expo-secret",
         ];
-        const client = ServerSettingsModule.redactServerSettingsForClient(saved);
+        const client = ServerSettingsModule.redactServerSettingsForClient(saved, {
+          secretReferences: true,
+        });
         const disk = yield* fs.readFileString(config.settingsPath);
         for (const value of values) {
           assert.include(JSON.stringify(saved), value);
@@ -1558,7 +1567,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             instance: { ...client.providerInstances[instanceId]!, config: { apiKey } },
           });
           assert.propertyVal(changed.providerInstances[instanceId]?.config, "apiKey", apiKey);
-          const redacted = ServerSettingsModule.redactServerSettingsForClient(changed);
+          const redacted = ServerSettingsModule.redactServerSettingsForClient(changed, {
+            secretReferences: true,
+          });
           assert.propertyVal(
             redacted.providerInstances[instanceId]?.config,
             "apiKey",
@@ -1607,9 +1618,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         });
         assert.isTrue(Option.isNone(yield* store.get(secretNames[1]!)));
         assert.deepEqual(
-          ServerSettingsModule.redactServerSettingsForClient(referenced).providerInstances[
-            instanceId
-          ]?.environment,
+          ServerSettingsModule.redactServerSettingsForClient(referenced, { secretReferences: true })
+            .providerInstances[instanceId]?.environment,
           [{ name: "API_TOKEN", value: secret, sensitive: true }],
         );
         yield* service.updateSettings({
@@ -1660,7 +1670,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         "serverPassword",
         "legacy-password",
       );
-      const client = ServerSettingsModule.redactServerSettingsForClient(saved);
+      const client = ServerSettingsModule.redactServerSettingsForClient(saved, {
+        secretReferences: true,
+      });
       for (const value of ["legacy-api-key", "legacy-password", "admin_synthetic_billing_key"]) {
         assert.notInclude(yield* fs.readFileString(config.settingsPath), value);
         assert.notInclude(JSON.stringify(client), value);
@@ -1705,8 +1717,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         for (const secret of ["bb-access", "ghp_dotcom", "ghp_ghe"]) assert.notInclude(raw, secret);
         assert.include(raw, "me@example.com");
 
-        const forClient =
-          ServerSettingsModule.redactServerSettingsForClient(saved).sourceControlHosts;
+        const forClient = ServerSettingsModule.redactServerSettingsForClient(saved, {
+          secretReferences: true,
+        }).sourceControlHosts;
         assert.equal(forClient.bitbucket?.email, "me@example.com");
         assert.notInclude(String(forClient.bitbucket?.accessToken), "bb-access");
         assert.isAbove(String(forClient.bitbucket?.accessToken).length, 0);
@@ -1746,20 +1759,68 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           provider: SecretProviderId.make("personal"),
           reference: "op://Private/Bitbucket/token",
         };
+        const gitHubReference = {
+          provider: SecretProviderId.make("personal"),
+          reference: "op://Private/GitHub/token",
+        };
         yield* serverSettings.updateSettings({
-          sourceControlHosts: { bitbucket: { accessToken: "bb-access" } },
+          sourceControlHosts: {
+            bitbucket: { accessToken: "bb-access" },
+            github: { tokens: { "github.com": "ghp_dotcom", "ghe.acme.test": "ghp_ghe" } },
+          },
         });
         assert.isTrue(Option.isSome(yield* stored("bitbucket", "accessToken", null)));
+        assert.isTrue(Option.isSome(yield* stored("github", "tokens", "github.com")));
         const referenced = yield* serverSettings.updateSettings({
-          sourceControlHosts: { bitbucket: { accessToken: reference } },
+          sourceControlHosts: {
+            bitbucket: { accessToken: reference },
+            github: { tokens: { "github.com": gitHubReference, "ghe.acme.test": "ghp_ghe" } },
+          },
         });
         assert.deepEqual(referenced.sourceControlHosts.bitbucket?.accessToken, reference);
         assert.isTrue(Option.isNone(yield* stored("bitbucket", "accessToken", null)));
-        assert.deepEqual(
-          ServerSettingsModule.redactServerSettingsForClient(referenced).sourceControlHosts
-            .bitbucket?.accessToken,
-          reference,
-        );
+        assert.isTrue(Option.isNone(yield* stored("github", "tokens", "github.com")));
+        assert.isTrue(Option.isSome(yield* stored("github", "tokens", "ghe.acme.test")));
+        const redacted = ServerSettingsModule.redactServerSettingsForClient(referenced, {
+          secretReferences: true,
+        }).sourceControlHosts;
+        assert.deepEqual(redacted.bitbucket?.accessToken, reference);
+        const tokens = redacted.github?.tokens as Record<string, unknown>;
+        assert.deepEqual(tokens["github.com"], gitHubReference);
+        assert.notEqual(tokens["ghe.acme.test"], "ghp_ghe");
+
+        const usageReference = {
+          provider: SecretProviderId.make("personal"),
+          reference: "op://Private/Hub/key",
+        };
+        const hub = UsageLimitSourceId.make("hub");
+        const withUsage = yield* serverSettings.updateSettings({
+          usageLimitSources: {
+            [hub]: {
+              kind: "cliproxy",
+              url: "https://hub.test",
+              managementKey: usageReference,
+              enabled: true,
+            },
+          },
+        });
+        const legacy = ServerSettingsModule.redactServerSettingsForClient(withUsage, {
+          secretReferences: false,
+        });
+        assert.notInclude(JSON.stringify(legacy), "op://");
+        assert.equal(legacy.sourceControlHosts.bitbucket?.accessToken, SECRET_REDACTED);
+        assert.equal(legacy.usageLimitSources[hub]?.managementKey, SECRET_REDACTED);
+        const echoed = yield* serverSettings.updateSettings({
+          sourceControlHosts: legacy.sourceControlHosts,
+          usageLimitSources: legacy.usageLimitSources,
+        });
+        assert.deepEqual(echoed.sourceControlHosts.bitbucket?.accessToken, reference);
+        assert.deepEqual(echoed.sourceControlHosts.github?.tokens, {
+          "github.com": gitHubReference,
+          "ghe.acme.test": "ghp_ghe",
+        });
+        assert.deepEqual(echoed.usageLimitSources[hub]?.managementKey, usageReference);
+        assert.isTrue(Option.isSome(yield* stored("github", "tokens", "ghe.acme.test")));
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
