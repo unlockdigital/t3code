@@ -167,7 +167,7 @@ it.effect("keeps the task list order when a toggle or edit rewrites updated_at",
       yield* service.upsert(yield* decodeUpsertInput({ ...edit, enabled: false }));
       expect(yield* listedIds).toEqual(order);
       const sql = yield* SqlClient.SqlClient;
-      const futureSchedule = '{"type":"once","runAt":"2026-07-02T09:00:00.000Z"}';
+      const futureSchedule = '{"type":"future_schedule","runAt":"2026-07-02T09:00:00.000Z"}';
       yield* sql`UPDATE scheduled_tasks SET schedule_json = ${futureSchedule} WHERE task_id = ${order[0]}`;
       expect(yield* listedIds).toEqual([order[1]]);
       const rows = yield* sql<{
