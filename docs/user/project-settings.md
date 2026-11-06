@@ -113,11 +113,15 @@ branch name remains.
 
 ## Scheduled tasks on mobile
 
-Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
+Open **Settings → Scheduled tasks** to create scheduled tasks or manage existing
 ones across your connected environments. Use the settings filter to narrow the
 list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
-environment's time zone, which may differ from your phone's.
+environment's time zone, which may differ from your phone's. Choose **Once**
+to run a task a single time at a date and time in your own time zone. If the
+environment is offline then, an enabled task runs once when it is back. Pause or
+delete the task to cancel its upcoming run. To re-enable a paused task after its
+time has passed, first choose a new time.
 
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.

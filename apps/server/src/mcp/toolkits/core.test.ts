@@ -738,11 +738,14 @@ it.effect("a caller cannot rewrite a scheduled task that runs above its own mode
     expect(declaredFailure(update)).toMatchObject({ code: "runtime_mode_escalation_denied" });
     const remove = yield* call("delete_scheduled_task", { scheduledTaskId: "task-full-access" });
     expect(declaredFailure(remove)).toMatchObject({ code: "runtime_mode_escalation_denied" });
+    const once = { type: "once", runAt: "2026-11-01T01:30:00-05:00" };
     const allowed = yield* call("schedule_task", {
       scheduledTaskId: "task-auto",
       enabled: false,
+      schedule: once,
     });
     expect(allowed.isError).toBe(false);
+    expect(allowed.structuredContent).toMatchObject({ schedule: once, enabled: false });
     const incomplete = yield* call("schedule_task", { prompt: "Run nightly" });
     expect(declaredFailure(incomplete)).toMatchObject({ code: "invalid_request" });
   }).pipe(
