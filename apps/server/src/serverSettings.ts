@@ -538,7 +538,7 @@ function migrateLegacySourceControlSettings(
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
-  if (legacy.bitbucket !== undefined && sourceControlHosts.bitbucket === undefined) {
+  if (legacy.bitbucket !== undefined) {
     sourceControlHosts.bitbucket = legacy.bitbucket;
     for (const [field, from] of Object.entries(LEGACY_BITBUCKET_SECRET_NAMES)) {
       if (legacy.bitbucket[field] !== SECRET_REDACTED) continue;
@@ -548,7 +548,7 @@ function migrateLegacySourceControlSettings(
       });
     }
   }
-  if (legacy.github !== undefined && sourceControlHosts.github === undefined) {
+  if (legacy.github !== undefined) {
     sourceControlHosts.github = legacy.github;
     const tokens = legacy.github.tokens;
     for (const [serverHost, value] of isSettingsObject(tokens) ? Object.entries(tokens) : []) {
@@ -792,6 +792,7 @@ const make = Effect.gen(function* () {
   const watcherScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
+  // Buffered changes carry the credentials resolved before another version can replace them.
   const emitChange = (settings: ServerSettings) =>
     PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
 
@@ -989,10 +990,21 @@ const make = Effect.gen(function* () {
     yield* validateUsageLimitDestinations(normalized, usageLimitSourcesPatch, settingsPath);
     const hasLegacySourceControl =
       settingsFileTrusted && Object.keys(legacySourceControl).length > 0;
+    const { bitbucket, github } = legacySourceControl;
     const sourceControlMigration = hasLegacySourceControl
       ? migrateLegacySourceControlSettings(
           normalized,
-          yield* normalizeSourceControlHostSecretFields(legacySourceControl, settingsPath),
+          yield* normalizeSourceControlHostSecretFields(
+            {
+              ...(bitbucket !== undefined && normalized.sourceControlHosts.bitbucket === undefined
+                ? { bitbucket }
+                : {}),
+              ...(github !== undefined && normalized.sourceControlHosts.github === undefined
+                ? { github }
+                : {}),
+            },
+            settingsPath,
+          ),
         )
       : { settings: normalized, secretMoves: [] };
     // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
@@ -1045,12 +1057,17 @@ const make = Effect.gen(function* () {
     timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
   });
 
-  const getSettingsFromCache = Cache.get(settingsCache, cacheKey).pipe(
-    Effect.map((loaded) => loaded.settings),
-  );
-  const reloadSettings = Cache.invalidate(settingsCache, cacheKey).pipe(
-    Effect.andThen(Cache.get(settingsCache, cacheKey)),
-  );
+  // Loads can rewrite both the settings file and secrets, so callers hold writeSemaphore.
+  const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
+  const reloadSettings = Effect.fn("ServerSettings.reloadSettings")(function* (
+    usageLimitSourcesPatch?: ServerSettingsPatch["usageLimitSources"],
+  ) {
+    yield* Cache.invalidate(settingsCache, cacheKey);
+    if (usageLimitSourcesPatch === undefined) return yield* getSettingsFromCache;
+    const loaded = yield* loadSettingsFromDisk(usageLimitSourcesPatch);
+    yield* Cache.set(settingsCache, cacheKey, loaded);
+    return loaded;
+  });
 
   const materializeSettingsSecrets = Effect.fn("serverSettings.materializeSettingsSecrets")(
     function* (settings: ServerSettings): Effect.fn.Return<ServerSettings, ServerSettingsError> {
@@ -1088,47 +1105,34 @@ const make = Effect.gen(function* () {
     },
   );
 
-  // Background sweeps read settings every few seconds; reading secret files each time is wasted.
-  // Every secret write rewrites the settings file, so a new cached object implies fresh secrets.
-  // A read that overlaps a secret write may see files a rollback then restores, so it is not kept.
+  // Background sweeps reuse the secrets resolved for the current cached settings.
   let materialized: { readonly source: ServerSettings; readonly value: ServerSettings } | null =
     null;
-  let secretWriteGeneration = 0;
-  const invalidateMaterialized = Effect.sync(() => {
-    secretWriteGeneration++;
-    materialized = null;
-  });
-  const getMaterializedSettings = getSettingsFromCache.pipe(
-    Effect.flatMap((source) => {
-      if (materialized?.source === source) return Effect.succeed(materialized.value);
-      const generation = secretWriteGeneration;
-      return materializeSettingsSecrets(source).pipe(
-        Effect.map(resolveTextGenerationProvider),
-        Effect.tap((value) =>
-          Effect.sync(() => {
-            if (generation === secretWriteGeneration) materialized = { source, value };
-          }),
-        ),
-      );
-    }),
+  const materializeCachedSettings = Effect.fn("ServerSettings.materializeCachedSettings")(
+    function* (source: ServerSettings) {
+      if (materialized?.source === source) return materialized.value;
+      const value = resolveTextGenerationProvider(yield* materializeSettingsSecrets(source));
+      materialized = { source, value };
+      return value;
+    },
   );
-
-  const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
-    changes.pipe(
-      Stream.mapEffect((settings) =>
-        materializeSettingsSecrets(settings).pipe(
-          Effect.catch((error: ServerSettingsError) =>
-            Effect.logWarning("failed to materialize settings secrets", {
-              operation: error.operation,
-              providerInstanceId: error.providerInstanceId,
-              environmentVariable: error.environmentVariable,
-              cause: error.cause,
-            }).pipe(Effect.as(settings)),
-          ),
-        ),
-      ),
-      Stream.map(resolveTextGenerationProvider),
-    );
+  const getMaterializedSettingsUnlocked = getSettingsFromCache.pipe(
+    Effect.flatMap(({ settings }) => materializeCachedSettings(settings)),
+  );
+  const getRoutingSettingsUnlocked = getSettingsFromCache.pipe(
+    Effect.flatMap((loaded) =>
+      Option.isSome(loaded.parseFailure)
+        ? Effect.fail(
+            new ServerSettingsError({
+              settingsPath,
+              operation: "read-file",
+              cause: loaded.parseFailure.value,
+            }),
+          )
+        : Effect.succeed(loaded.settings),
+    ),
+    Effect.map(resolveTextGenerationProvider),
+  );
 
   type SecretChange = {
     readonly secretName: string;
@@ -1288,18 +1292,12 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
         const prepared = yield* prepareSettingsPatch(patch, settingsPath);
-        const loaded =
-          prepared.usageLimitSources === undefined
-            ? yield* reloadSettings
-            : yield* loadSettingsFromDisk(prepared.usageLimitSources).pipe(
-                Effect.tap((next) => Cache.set(settingsCache, cacheKey, next)),
-              );
         const {
           settings: current,
           parseFailure,
           forwardUsageModelFilter,
           pendingLegacySecretMigration,
-        } = loaded;
+        } = yield* reloadSettings(prepared.usageLimitSources);
         if (Option.isSome(parseFailure)) {
           return yield* new ServerSettingsError({
             settingsPath,
@@ -1319,9 +1317,8 @@ const make = Effect.gen(function* () {
         const updated = yield* normalizeSettingsSecretFields(candidate, settingsPath);
         const persisted = yield* persistSettingsSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
-        const materializedNext = yield* Effect.uninterruptibleMask(() =>
+        return yield* Effect.uninterruptible(
           Effect.gen(function* () {
-            yield* invalidateMaterialized;
             const rollbackSecretChanges = yield* applySettingsSecretChanges(persisted.changes);
             const materializedExit = yield* Effect.exit(materializeSettingsSecrets(next));
             if (Exit.isFailure(materializedExit)) {
@@ -1335,29 +1332,38 @@ const make = Effect.gen(function* () {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(writeExit.cause);
             }
-            return materializedExit.value;
-          }).pipe(Effect.ensuring(invalidateMaterialized)),
+            yield* Cache.set(settingsCache, cacheKey, {
+              settings: next,
+              parseFailure: Option.none(),
+              forwardUsageModelFilter,
+              pendingLegacySecretMigration: false,
+            });
+            const resolved = resolveTextGenerationProvider(materializedExit.value);
+            materialized = { source: next, value: resolved };
+            yield* emitChange(resolved);
+            return resolved;
+          }),
         );
-        yield* Cache.set(settingsCache, cacheKey, {
-          settings: next,
-          parseFailure: Option.none(),
-          forwardUsageModelFilter,
-          pendingLegacySecretMigration: false,
-        });
-        const resolved = resolveTextGenerationProvider(materializedNext);
-        materialized = { source: next, value: resolved };
-        yield* emitChange(next);
-        return resolved;
       }),
     );
 
   const withSettingsSnapshot: ServerSettingsService["Service"]["withSettingsSnapshot"] = (use) =>
-    writeSemaphore.withPermits(1)(getMaterializedSettings.pipe(Effect.flatMap(use)));
+    writeSemaphore.withPermits(1)(getMaterializedSettingsUnlocked.pipe(Effect.flatMap(use)));
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
-      const { settings } = yield* reloadSettings;
-      yield* emitChange(settings);
+      const { settings } = yield* reloadSettings();
+      const resolved = yield* materializeCachedSettings(settings).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to materialize settings secrets", {
+            operation: error.operation,
+            providerInstanceId: error.providerInstanceId,
+            environmentVariable: error.environmentVariable,
+            cause: error.cause,
+          }).pipe(Effect.as(resolveTextGenerationProvider(settings))),
+        ),
+      );
+      yield* emitChange(resolved);
     }),
   );
 
@@ -1442,7 +1448,7 @@ const make = Effect.gen(function* () {
 
     const startup = Effect.gen(function* () {
       yield* startWatcher;
-      yield* reloadSettings;
+      yield* writeSemaphore.withPermits(1)(reloadSettings());
     });
 
     const startupExit = yield* Effect.exit(startup);
@@ -1457,31 +1463,16 @@ const make = Effect.gen(function* () {
   return {
     start,
     ready: Deferred.await(startedDeferred),
-    getRoutingSettings: Cache.get(settingsCache, cacheKey).pipe(
-      Effect.flatMap((loaded) =>
-        Option.isSome(loaded.parseFailure)
-          ? Effect.fail(
-              new ServerSettingsError({
-                settingsPath,
-                operation: "read-file",
-                cause: loaded.parseFailure.value,
-              }),
-            )
-          : Effect.succeed(loaded.settings),
-      ),
-      Effect.map(resolveTextGenerationProvider),
-    ),
-    getSettings: getMaterializedSettings,
+    getRoutingSettings: writeSemaphore.withPermits(1)(getRoutingSettingsUnlocked),
+    getSettings: writeSemaphore.withPermits(1)(getMaterializedSettingsUnlocked),
     updateSettings: (patch) => updateAndPersistSettings(patch),
     updateProviderInstance: (mutation, patch = {}) => updateAndPersistSettings(patch, mutation),
     withSettingsSnapshot,
     get streamChanges() {
-      return materializeChanges(Stream.fromPubSub(changesPubSub));
+      return Stream.fromPubSub(changesPubSub);
     },
     get subscribeChanges() {
-      return PubSub.subscribe(changesPubSub).pipe(
-        Effect.map((subscription) => materializeChanges(Stream.fromSubscription(subscription))),
-      );
+      return PubSub.subscribe(changesPubSub).pipe(Effect.map(Stream.fromSubscription));
     },
   } satisfies ServerSettingsService["Service"];
 });

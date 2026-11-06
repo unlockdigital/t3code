@@ -433,6 +433,97 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
+  it.effect.each(["writer", "reader"] as const)(
+    "serializes cold settings migration with a usage source change (%s first)",
+    (first) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const firstRead = yield* Deferred.make<void>();
+        const releaseFirst = yield* Deferred.make<void>();
+        const releaseSecond = yield* Deferred.make<void>();
+        const hub = UsageLimitSourceId.make("hub");
+        const oldSource = {
+          kind: "cliproxy",
+          url: "https://old-hub.test",
+          managementKey: "fixture-old-key",
+          enabled: true,
+        } as const;
+        const newSource = {
+          ...oldSource,
+          url: "https://new-hub.test",
+          managementKey: "fixture-new-key",
+        };
+        const raw = JSON.stringify({
+          projectAutoPullOverrides: { "legacy-project": true },
+          usageLimitSources: { [hub]: { ...oldSource, managementKey: SECRET_REDACTED } },
+        });
+        let settingsPath: string | undefined;
+        let captureReads = true;
+        let capturedReads = 0;
+        const gatedFileSystem = FileSystem.FileSystem.of({
+          ...fs,
+          exists: (path) =>
+            Effect.suspend(() => (path === settingsPath ? Effect.succeed(true) : fs.exists(path))),
+          readFileString: (path, encoding) =>
+            Effect.suspend(() => {
+              if (path !== settingsPath || !captureReads) return fs.readFileString(path, encoding);
+              capturedReads++;
+              return (
+                capturedReads === 1
+                  ? Deferred.succeed(firstRead, undefined).pipe(
+                      Effect.andThen(Deferred.await(releaseFirst)),
+                    )
+                  : Deferred.await(releaseSecond)
+              ).pipe(Effect.as(raw));
+            }),
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const config = yield* ServerConfig.ServerConfig;
+          const store = yield* ServerSecretStore.ServerSecretStore;
+          settingsPath = config.settingsPath;
+          yield* fs.writeFileString(settingsPath, raw);
+          yield* store.set(
+            `usage-limit-source-${Buffer.from(hub).toString("base64url")}`,
+            new TextEncoder().encode(oldSource.managementKey),
+          );
+
+          const write = service.updateSettings({ usageLimitSources: { [hub]: newSource } });
+          const read = service.getSettings;
+          const fork = Effect.forkChild({ startImmediately: true });
+          const firstFiber = yield* (first === "writer" ? write : read).pipe(fork);
+          yield* Deferred.await(firstRead);
+          const secondFiber = yield* (first === "writer" ? read : write).pipe(fork);
+          captureReads = false;
+          yield* Deferred.succeed(releaseFirst, undefined);
+          const firstResult = yield* Fiber.join(firstFiber);
+          yield* Deferred.succeed(releaseSecond, undefined);
+          const secondResult = yield* Fiber.join(secondFiber);
+
+          assert.deepEqual(
+            firstResult.usageLimitSources[hub],
+            first === "writer" ? newSource : oldSource,
+          );
+          const persisted = yield* decodeServerSettingsJson(yield* fs.readFileString(settingsPath));
+          assert.deepEqual(
+            {
+              second: secondResult.usageLimitSources[hub],
+              persisted: persisted.usageLimitSources[hub],
+            },
+            { second: newSource, persisted: { ...newSource, managementKey: SECRET_REDACTED } },
+          );
+          assert.equal(capturedReads, 1);
+        }).pipe(
+          Effect.provide(
+            layerServerSettingsWithSecrets().pipe(
+              Layer.provideMerge(Layer.succeed(FileSystem.FileSystem, gatedFileSystem)),
+            ),
+          ),
+        );
+      }),
+  );
+
   it.effect("persists routing against implicit and atomically created accounts", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
@@ -941,12 +1032,30 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
         const changes = yield* serverSettings.subscribeChanges;
 
+        const hub = UsageLimitSourceId.make("hub");
+        const firstSource = {
+          kind: "cliproxy",
+          url: "https://first-hub.test",
+          managementKey: "fixture-first-key",
+          enabled: true,
+        } as const;
+        const secondSource = {
+          ...firstSource,
+          url: "https://second-hub.test",
+          managementKey: "fixture-second-key",
+        };
         yield* serverSettings.updateSettings({
-          addProjectBaseDirectory: "~/next",
+          usageLimitSources: { [hub]: firstSource },
+        });
+        yield* serverSettings.updateSettings({
+          usageLimitSources: { [hub]: secondSource },
         });
 
-        const firstChange = yield* changes.pipe(Stream.runHead, Effect.timeout("1 second"));
-        assert.equal(Option.getOrUndefined(firstChange)?.addProjectBaseDirectory, "~/next");
+        const buffered = yield* changes.pipe(Stream.take(2), Stream.runCollect);
+        assert.deepEqual(
+          buffered.map((change) => change.usageLimitSources[hub]),
+          [firstSource, secondSource],
+        );
       }),
     ).pipe(Effect.provide(layerServerSettings())),
   );
@@ -2079,44 +2188,87 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
-  it.effect("moves the retired bitbucket and github keys and their secrets on load", () =>
-    Effect.gen(function* () {
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const secrets = yield* ServerSecretStore.ServerSecretStore;
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      const marker = "\u2022\u2022\u2022\u2022\u2022\u2022";
-      yield* secrets.set("bitbucket-access-token", new TextEncoder().encode("bb-saved"));
-      yield* secrets.set(
-        `github-token-${Buffer.from("github.com", "utf8").toString("base64url")}`,
-        new TextEncoder().encode("ghp_saved"),
-      );
-      yield* fileSystem.writeFileString(
-        serverConfig.settingsPath,
-        JSON.stringify({
-          bitbucket: { email: "me@example.com", accessToken: marker },
-          github: {
-            hosts: { "github.com": { account: "work" } },
-            tokens: { provider: "placeholder", reference: "placeholder", "github.com": marker },
-          },
-        }),
-      );
+  it.effect.each(["legacy", "canonical"] as const)(
+    "cleans up retired source control settings with %s GitHub tokens",
+    (githubSource) =>
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const secrets = yield* ServerSecretStore.ServerSecretStore;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const marker = "\u2022\u2022\u2022\u2022\u2022\u2022";
+        yield* secrets.set("bitbucket-access-token", new TextEncoder().encode("bb-saved"));
+        const retiredName = `github-token-${Buffer.from("github.com", "utf8").toString("base64url")}`;
+        yield* secrets.set(retiredName, new TextEncoder().encode("ghp_saved"));
+        const canonicalGithub = {
+          hosts: { "github.com": { account: "canonical" } },
+          tokens: { "github.com": "fixture-canonical-key" },
+        };
+        if (githubSource === "canonical") {
+          yield* secrets.set(
+            sourceControlHostSecretName({
+              kind: "github",
+              field: "tokens",
+              serverHost: "github.com",
+            }),
+            new TextEncoder().encode(canonicalGithub.tokens["github.com"]),
+          );
+        }
+        using reads = vi.spyOn(secrets, "get");
+        using removes = vi.spyOn(secrets, "remove");
+        yield* fileSystem.writeFileString(
+          serverConfig.settingsPath,
+          JSON.stringify({
+            ...(githubSource === "legacy" && {
+              bitbucket: { email: "me@example.com", accessToken: marker },
+            }),
+            github: {
+              hosts: { "github.com": { account: "work" } },
+              tokens: {
+                provider: "placeholder",
+                reference: "placeholder",
+                "github.com": marker,
+                ...(githubSource === "canonical" && { "GITHUB.COM": "fixture-retired-key" }),
+              },
+            },
+            ...(githubSource === "canonical" && {
+              sourceControlHosts: {
+                github: { ...canonicalGithub, tokens: { "github.com": marker } },
+              },
+            }),
+          }),
+        );
 
-      const loaded = (yield* serverSettings.getSettings).sourceControlHosts;
+        const loaded = (yield* serverSettings.getSettings).sourceControlHosts;
 
-      assert.deepEqual(loaded.bitbucket, { email: "me@example.com", accessToken: "bb-saved" });
-      assert.deepEqual(loaded.github?.tokens, {
-        provider: "placeholder",
-        reference: "placeholder",
-        "github.com": "ghp_saved",
-      });
-      assert.deepEqual(loaded.github?.hosts, { "github.com": { account: "work" } });
-      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
-      assert.notInclude(raw, '"bitbucket":{"email"');
-      assert.notInclude(raw, "placeholder");
-      assert.include(raw, "sourceControlHosts");
-      assert.isTrue(Option.isNone(yield* secrets.get("bitbucket-access-token")));
-    }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+        if (githubSource === "legacy") {
+          assert.deepEqual(loaded.bitbucket, { email: "me@example.com", accessToken: "bb-saved" });
+        }
+        assert.deepEqual(
+          loaded.github,
+          githubSource === "canonical"
+            ? canonicalGithub
+            : {
+                hosts: { "github.com": { account: "work" } },
+                tokens: {
+                  provider: "placeholder",
+                  reference: "placeholder",
+                  "github.com": "ghp_saved",
+                },
+              },
+        );
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+        assert.isUndefined(JSON.parse(raw).bitbucket);
+        assert.isUndefined(JSON.parse(raw).github);
+        assert.notInclude(raw, "placeholder");
+        assert.include(raw, "sourceControlHosts");
+        if (githubSource === "legacy") {
+          assert.isTrue(Option.isNone(yield* secrets.get("bitbucket-access-token")));
+        } else {
+          assert.isFalse(reads.mock.calls.some(([name]) => name === retiredName));
+          assert.isFalse(removes.mock.calls.some(([name]) => name === retiredName));
+        }
+      }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
   it.effect(
@@ -2213,7 +2365,13 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         });
 
         failRename = true;
-        readDuringWrite = Effect.ignore(serverSettings.getSettings);
+        const concurrentRead = yield* Deferred.make<ServerSettings, ServerSettingsError>();
+        readDuringWrite = serverSettings.getSettings.pipe(
+          Effect.exit,
+          Effect.flatMap((exit) => Deferred.done(concurrentRead, exit)),
+          Effect.forkChild({ startImmediately: true }),
+          Effect.asVoid,
+        );
         const failedUpdate = yield* serverSettings
           .updateProviderInstance({
             operation: "upsert",
@@ -2226,8 +2384,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           })
           .pipe(Effect.result);
         assert.equal(failedUpdate._tag, "Failure");
+        readDuringWrite = Effect.void;
         assert.equal(
-          (yield* serverSettings.getSettings).providerInstances[instanceId]?.environment?.[0]
+          (yield* Deferred.await(concurrentRead)).providerInstances[instanceId]?.environment?.[0]
             ?.value,
           "sk-kept",
         );
