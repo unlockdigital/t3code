@@ -1,3 +1,4 @@
+import { desktopSchemeForVersion } from "@t3tools/shared/forkIdentity";
 import type { DesktopAppBranding } from "@t3tools/contracts";
 import { formatAppDisplayName } from "./branding.logic";
 
@@ -25,4 +26,8 @@ export const APP_DISPLAY_NAME =
   injectedDesktopAppBranding?.displayName ??
   formatAppDisplayName({ baseName: APP_BASE_NAME, stageLabel: APP_STAGE_LABEL });
 export const APP_VERSION = import.meta.env.APP_VERSION || "0.0.0";
+export const APP_LINK_SCHEME =
+  typeof window !== "undefined" && window.location.protocol.startsWith("t3code")
+    ? window.location.protocol.slice(0, -1)
+    : desktopSchemeForVersion(APP_VERSION);
 export const DESKTOP_DOWNLOAD_URL = "https://t3.codes/download";

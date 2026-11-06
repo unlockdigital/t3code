@@ -1,3 +1,4 @@
+import { APP_LINK_SCHEME } from "~/branding";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -2329,6 +2330,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef === null || !isServerThread
       ? null
       : resolveThreadReferenceCopyTarget({
+          appScheme: APP_LINK_SCHEME,
           threadRef: activeThreadRef,
           title: activeThread?.title ?? "",
           openPanelPullRequestUrl,

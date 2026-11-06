@@ -1,3 +1,4 @@
+import * as Linking from "expo-linking";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { Platform } from "react-native";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -62,6 +63,7 @@ export function HardwareKeyboardCommandProvider({
       activeThreadRef === null
         ? null
         : resolveThreadReferenceCopyTarget({
+            appScheme: Linking.resolveScheme({ isSilent: true }),
             threadRef: activeThreadRef,
             title: activeThread?.title ?? "",
             pullRequests: activeThread?.pullRequests,

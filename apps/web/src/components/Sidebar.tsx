@@ -1,3 +1,4 @@
+import { APP_LINK_SCHEME } from "~/branding";
 import { SidebarHomeNavigation } from "./sidebar/SidebarHomeNavigation";
 import { attachSidebarTree, SIDEBAR_TREE_PROPS } from "../lib/sidebarTree";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
@@ -2776,7 +2777,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
             return;
           case "copy-thread":
-            void copyThreadReference(threadChipCopyTarget(threadRef, thread.title));
+            void copyThreadReference(
+              threadChipCopyTarget(threadRef, thread.title, APP_LINK_SCHEME),
+            );
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });

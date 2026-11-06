@@ -1,3 +1,4 @@
+import { APP_LINK_SCHEME } from "~/branding";
 import { HouseIcon } from "lucide-react";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -468,6 +469,7 @@ function OpenCommandPaletteDialog(props: {
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
       : resolveThreadReferenceCopyTarget({
+          appScheme: APP_LINK_SCHEME,
           threadRef: referenceThreadRef,
           title: activeThread?.title ?? "",
           openPanelPullRequestUrl,

@@ -1,3 +1,4 @@
+import * as Linking from "expo-linking";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
@@ -61,7 +62,7 @@ import {
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { appThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
 import {
   parseComposerContextHref,
@@ -2910,9 +2911,11 @@ export const ThreadFeed = memo(function ThreadFeed({
         else if (actionId === "copy-skill") copyTextWithHaptic(`$${skill.name}`);
         return;
       }
-      if (resolveLinkedThread(href)) {
+      const thread = resolveLinkedThread(href);
+      if (thread) {
         if (actionId === "open-thread") onMarkdownLinkPress(href);
-        else if (actionId === "copy-thread-link") copyTextWithHaptic(href);
+        else if (actionId === "copy-thread-link")
+          copyTextWithHaptic(appThreadLink(thread, Linking.resolveScheme({ isSilent: true })));
         return;
       }
       const target = resolveFileChipTarget(href, props.workspaceRoot);

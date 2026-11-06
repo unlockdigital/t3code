@@ -3,7 +3,7 @@ import {
   decodeComposerContextFragment,
   encodeComposerContextFragment,
 } from "@t3tools/shared/composerContextClipboard";
-import { collectComposerContextReferences } from "@t3tools/shared/composerContextReferences";
+import { threadLinkContextReferences } from "@t3tools/shared/composerContextReferences";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveThreadReferenceCopyTarget } from "./threadReference.ts";
@@ -77,11 +77,16 @@ describe("resolveThreadReferenceCopyTarget", () => {
     ).toMatchObject({ kind: "pull-request", value: "https://github.com/t3/pr/12" });
   });
 
-  it("copies a thread chip that pastes back as the same thread on its machine", () => {
-    const target = resolveThreadReferenceCopyTarget({ ...thread, linkedPullRequestUrl: null });
+  it("copies a fork app link that pastes back as the same scoped thread", () => {
+    const target = resolveThreadReferenceCopyTarget({
+      ...thread,
+      linkedPullRequestUrl: null,
+      appScheme: "t3code-unlock",
+    });
 
     expect(target).toMatchObject({
       kind: "thread",
+      value: "t3code-unlock://threads/env-1/thread-1",
       description: "Fix the login flow",
       successTitle: "Thread copied",
     });
@@ -98,13 +103,9 @@ describe("resolveThreadReferenceCopyTarget", () => {
         }),
       ],
     });
-    // A paste keeps only the records its plain text references.
-    expect(collectComposerContextReferences(target!.value)).toEqual([
-      expect.objectContaining({
-        kind: "thread",
-        contextId: pasted!.records[0]!.contextId,
-        label: "Fix the login flow",
-      }),
-    ]);
+    expect(threadLinkContextReferences(target!.value, pasted!.records, () => undefined)).toEqual({
+      text: `[Fix the login flow](t3-context://v1/thread/${pasted!.records[0]!.contextId})`,
+      records: pasted!.records,
+    });
   });
 });
