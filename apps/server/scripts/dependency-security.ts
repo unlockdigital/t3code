@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @effect-diagnostics nodeBuiltinImport:off - Offline CLI reads one lockfile without an Effect runtime.
+// @effect-diagnostics nodeBuiltinImport:off - Offline CLI inspects the lockfile and installed bundles.
 import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
 import * as NodeFSP from "node:fs/promises";
@@ -85,8 +85,14 @@ export function checkDependencySecurity(source: string): DependencySecurityResul
 }
 
 const sdkVersion = "0.3.276";
-const sdkSha256 = "7bf61ce680ce009425c2a9db2d6e54a2aff91c756bcdc970459b31b59d446348";
+const sdkSha256 = "e4c986047654f8ad29c11000fefebd7dd9202a1d1f281e7029a0d60e84541622";
 const serverRequire = NodeModule.createRequire(new URL("../package.json", import.meta.url));
+
+async function sha256File(path: string) {
+  return NodeCrypto.createHash("sha256")
+    .update(await NodeFSP.readFile(path))
+    .digest("hex");
+}
 
 export async function checkInstalledClaudeSdk() {
   try {
@@ -96,9 +102,7 @@ export async function checkInstalledClaudeSdk() {
         await NodeFSP.readFile(NodePath.join(NodePath.dirname(sdkPath), "package.json"), "utf8"),
       ) as unknown,
     );
-    const sha256 = NodeCrypto.createHash("sha256")
-      .update(await NodeFSP.readFile(sdkPath))
-      .digest("hex");
+    const sha256 = await sha256File(sdkPath);
     const violations: string[] = [];
     if (metadata.version !== sdkVersion) {
       violations.push(`Expected Claude SDK ${sdkVersion}; found ${metadata.version}.`);
@@ -130,29 +134,87 @@ export async function checkInstalledClaudeSdk() {
   }
 }
 
+const cursorSdkVersion = "1.0.38";
+const cursorSdkHashes = {
+  "dist/cjs/704.js": "92b9d8c1a4cf93fd42749085a70f6ea02f27fc9ef6167d521992f918274da4f1",
+  "dist/esm/704.js": "01c57c4234b5e09771f31edb2e664999cb3b882db3ce9c9b8b091e2a37e0cf0c",
+  "dist/bundled/index.js": "d89e8355b17cbd7f38cb3b5f76cda56bb7c249816c3438a545c1bfa427eeb65e",
+};
+
+export function resolveCursorSdkRoot() {
+  const providerEntry = import.meta.resolve("@t3tools/provider-cursor/server/CursorSdk");
+  const entry = NodeModule.createRequire(providerEntry).resolve("@cursor/sdk");
+  return NodePath.resolve(NodePath.dirname(entry), "../..");
+}
+
+export async function checkInstalledCursorSdk() {
+  try {
+    const root = resolveCursorSdkRoot();
+    const { version } = decodeSdkPackage(
+      JSON.parse(await NodeFSP.readFile(NodePath.join(root, "package.json"), "utf8")) as unknown,
+    );
+    const bundles = await Promise.all(
+      Object.entries(cursorSdkHashes).map(async ([file, expectedSha256]) => ({
+        file,
+        sha256: await sha256File(NodePath.join(root, file)),
+        expectedSha256,
+      })),
+    );
+    const violations: string[] = [];
+    if (version !== cursorSdkVersion) {
+      violations.push(`Expected Cursor SDK ${cursorSdkVersion}; found ${version}.`);
+    }
+    for (const { file, sha256, expectedSha256 } of bundles) {
+      if (sha256 !== expectedSha256) {
+        violations.push(
+          `Cursor SDK ${file} SHA-256 ${sha256} differs from approved patched ${expectedSha256}.`,
+        );
+      }
+    }
+    return { root, version, expectedVersion: cursorSdkVersion, bundles, violations };
+  } catch (error) {
+    return {
+      root: null,
+      version: null,
+      expectedVersion: cursorSdkVersion,
+      bundles: [],
+      violations: [
+        `Could not inspect active Cursor SDK: ${error instanceof Error ? error.message : String(error)}`,
+      ],
+    };
+  }
+}
+
 export async function runDependencySecurity(
   lockfilePath = NodePath.resolve("pnpm-lock.yaml"),
   json = false,
 ) {
   const result = checkDependencySecurity(await NodeFSP.readFile(lockfilePath, "utf8"));
-  const claudeSdk = await checkInstalledClaudeSdk();
+  const [claudeSdk, cursorSdk] = await Promise.all([
+    checkInstalledClaudeSdk(),
+    checkInstalledCursorSdk(),
+  ]);
+  const bundleViolations = [...claudeSdk.violations, ...cursorSdk.violations];
   if (json) {
-    process.stdout.write(`${JSON.stringify({ ...result, claudeSdk }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...result, claudeSdk, cursorSdk }, null, 2)}\n`);
   } else {
     process.stdout.write(
       `Checked ${result.packages.length} resolved packages; ${result.violations.length} below minimums.\n`,
     );
     process.stdout.write(
-      `Claude SDK embedded v4 array patch: ${claudeSdk.violations.length ? "guard failed" : "approved bundle"}.\n`,
+      `Claude SDK embedded Zod and qs patches: ${claudeSdk.violations.length ? "guard failed" : "approved bundle"}.\n`,
     );
-    for (const violation of claudeSdk.violations) process.stdout.write(`${violation}\n`);
+    process.stdout.write(
+      `Cursor SDK embedded fast-uri patch: ${cursorSdk.violations.length ? "guard failed" : "approved bundles"}.\n`,
+    );
+    for (const violation of bundleViolations) process.stdout.write(`${violation}\n`);
     for (const violation of result.violations) {
       process.stdout.write(
         `${violation.name}@${violation.version} is below ${violation.minimum}\n`,
       );
     }
   }
-  if (result.violations.length > 0 || claudeSdk.violations.length > 0) process.exitCode = 1;
+  if (result.violations.length > 0 || bundleViolations.length > 0) process.exitCode = 1;
 }
 
 if (import.meta.main) {

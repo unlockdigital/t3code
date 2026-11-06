@@ -1,5 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import { checkDependencySecurity } from "./dependency-security.ts";
+import {
+  checkDependencySecurity,
+  checkInstalledClaudeSdk,
+  checkInstalledCursorSdk,
+} from "./dependency-security.ts";
 
 const lock = (entries: string) =>
   `lockfileVersion: '9.0'\nimporters: {}\npackages:\n  /bootstrap@1.0.0:\n    version: 1.0.0\n---\nimporters:\n  apps/server: {}\n  apps/desktop: {}\npackages:\n${entries || "  {}"}`;
@@ -47,11 +51,21 @@ describe("checkDependencySecurity", () => {
   });
 });
 
-it("inspects the active server SDK against the approved bundle", async () => {
-  const { checkInstalledClaudeSdk } = await import("./dependency-security.ts");
+it("matches the active Claude SDK to the approved bundle", async () => {
   const sdk = await checkInstalledClaudeSdk();
   expect(sdk.path).toContain("claude-agent-sdk");
   expect(sdk.version).toBe(sdk.expectedVersion);
-  expect(sdk.sha256).toMatch(/^[a-f0-9]{64}$/);
-  expect(sdk.violations.length).toBe(sdk.sha256 === sdk.expectedSha256 ? 0 : 1);
+  expect(sdk.sha256).toBe(sdk.expectedSha256);
+  expect(sdk.violations).toEqual([]);
+});
+
+it("matches all active Cursor SDK entry formats to the approved bundles", async () => {
+  const sdk = await checkInstalledCursorSdk();
+  expect(sdk.version).toBe(sdk.expectedVersion);
+  expect(sdk.bundles.map(({ file }) => file)).toEqual([
+    "dist/cjs/704.js",
+    "dist/esm/704.js",
+    "dist/bundled/index.js",
+  ]);
+  expect(sdk.violations).toEqual([]);
 });
