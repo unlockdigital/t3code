@@ -2,6 +2,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
   appThreadLink,
+  formatThreadLink,
   formatThreadLinkMarkdown,
   guessThreadLinkRef,
   percentDecodedThreadLinkId,
@@ -40,7 +41,11 @@ export function MarkdownThreadLink(props: {
   return (
     <ThreadContextChip
       record={{ ...ref, title }}
-      copyMarkdown={formatThreadLinkMarkdown(appThreadLink(ref, APP_LINK_SCHEME), title)}
+      copyMarkdown={
+        APP_LINK_SCHEME === undefined
+          ? formatThreadLink(ref, title)
+          : formatThreadLinkMarkdown(appThreadLink(ref, APP_LINK_SCHEME), title)
+      }
     />
   );
 }

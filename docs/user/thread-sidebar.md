@@ -302,8 +302,8 @@ palette.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
-link when available. A copied thread link opens in the installed app with a
-connection to the thread's environment and pastes into a composer as a chip when
+link when available. A copied thread link opens in a connected T3 client, using
+the installed app's link scheme when available, and pastes into a composer as a chip when
 its agent can read that thread. To copy the thread even when it has a PR, choose
 **Copy → Thread** from its context menu, or **Copy thread** from its long-press
 menu on mobile.

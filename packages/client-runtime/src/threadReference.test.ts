@@ -77,35 +77,46 @@ describe("resolveThreadReferenceCopyTarget", () => {
     ).toMatchObject({ kind: "pull-request", value: "https://github.com/t3/pr/12" });
   });
 
-  it("copies a fork app link that pastes back as the same scoped thread", () => {
-    const target = resolveThreadReferenceCopyTarget({
-      ...thread,
-      linkedPullRequestUrl: null,
-      appScheme: "t3code-unlock",
-    });
+  it.each([
+    { appScheme: "t3code-unlock", href: "t3code-unlock://threads/env-1/thread-1" },
+    {
+      appScheme: undefined,
+      href: "[Fix the login flow](t3-thread://v2/env-1/thread-1)",
+    },
+  ])(
+    "copies a scoped thread using the available app scheme ($appScheme)",
+    ({ appScheme, href }) => {
+      const target = resolveThreadReferenceCopyTarget({
+        ...thread,
+        linkedPullRequestUrl: null,
+        appScheme,
+      });
 
-    expect(target).toMatchObject({
-      kind: "thread",
-      value: "t3code-unlock://threads/env-1/thread-1",
-      description: "Fix the login flow",
-      successTitle: "Thread copied",
-    });
-    const pasted = decodeComposerContextFragment(encodeComposerContextFragment(target!.fragment!));
-    expect(pasted).toEqual({
-      version: 1,
-      source: { environmentId: "env-1" },
-      records: [
-        expect.objectContaining({
-          kind: "thread",
-          environmentId: "env-1",
-          threadId: "thread-1",
-          title: "Fix the login flow",
-        }),
-      ],
-    });
-    expect(threadLinkContextReferences(target!.value, pasted!.records, () => undefined)).toEqual({
-      text: `[Fix the login flow](t3-context://v1/thread/${pasted!.records[0]!.contextId})`,
-      records: pasted!.records,
-    });
-  });
+      expect(target).toMatchObject({
+        kind: "thread",
+        value: href,
+        description: "Fix the login flow",
+        successTitle: "Thread copied",
+      });
+      const pasted = decodeComposerContextFragment(
+        encodeComposerContextFragment(target!.fragment!),
+      );
+      expect(pasted).toEqual({
+        version: 1,
+        source: { environmentId: "env-1" },
+        records: [
+          expect.objectContaining({
+            kind: "thread",
+            environmentId: "env-1",
+            threadId: "thread-1",
+            title: "Fix the login flow",
+          }),
+        ],
+      });
+      expect(threadLinkContextReferences(target!.value, pasted!.records, () => undefined)).toEqual({
+        text: `[Fix the login flow](t3-context://v1/thread/${pasted!.records[0]!.contextId})`,
+        records: pasted!.records,
+      });
+    },
+  );
 });

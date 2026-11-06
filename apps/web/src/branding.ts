@@ -1,4 +1,7 @@
-import { desktopSchemeForVersion } from "@t3tools/shared/forkIdentity";
+import {
+  desktopSchemeForVersion,
+  isUnlockDigitalPreviewVersion,
+} from "@t3tools/shared/forkIdentity";
 import type { DesktopAppBranding } from "@t3tools/contracts";
 import { formatAppDisplayName } from "./branding.logic";
 
@@ -29,5 +32,7 @@ export const APP_VERSION = import.meta.env.APP_VERSION || "0.0.0";
 export const APP_LINK_SCHEME =
   typeof window !== "undefined" && window.location.protocol.startsWith("t3code")
     ? window.location.protocol.slice(0, -1)
-    : desktopSchemeForVersion(APP_VERSION);
+    : isUnlockDigitalPreviewVersion(APP_VERSION)
+      ? desktopSchemeForVersion(APP_VERSION)
+      : undefined;
 export const DESKTOP_DOWNLOAD_URL = "https://t3.codes/download";
