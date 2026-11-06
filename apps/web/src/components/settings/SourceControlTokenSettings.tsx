@@ -5,6 +5,7 @@ import {
   type SettingsSecretValue,
 } from "@t3tools/contracts";
 import { ExternalLinkIcon } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -43,6 +44,10 @@ export function SourceControlTokenSettings({
   const defaultHost = definition.publicHost ?? "";
   const [host, setHost] = useState(defaultHost);
   const secretSources = useSecretSources(environmentId, "settingsSecretReferences");
+  const supportsSecretReferences = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+    (config) => config?.settingsSecretReferences === true,
+  );
   const [pending, setPending] = useState<{
     readonly key: string;
     readonly draft: string | SecretReference;
@@ -63,10 +68,13 @@ export function SourceControlTokenSettings({
     setSaving(true);
     const result = await updateSettings({
       environmentId,
-      // Send the whole map; other tokens' redaction markers preserve their values.
       input: {
         patch: {
-          sourceControlHosts: { [definition.kind]: { tokens: { ...tokens, [target]: token } } },
+          sourceControlHosts: {
+            [definition.kind]: {
+              tokens: { ...(supportsSecretReferences ? {} : tokens), [target]: token },
+            },
+          },
         },
       },
     });
