@@ -1,7 +1,6 @@
 import {
   isSecretReference,
   secretReferencesInSettings,
-  secretSettingsFields,
   type SecretReference,
   type ServerSettings,
 } from "@t3tools/contracts";
@@ -11,16 +10,6 @@ import * as Effect from "effect/Effect";
 import { resolveSettingsSecrets } from "../secrets/settingsSecretValue.ts";
 
 import { sourceControlDefinitions } from "./sourceControlDefinitions.ts";
-
-export const SOURCE_CONTROL_HOST_SECRET_FIELDS: ReadonlyMap<
-  string,
-  ReadonlyArray<string>
-> = new Map(
-  sourceControlDefinitions.definitions.flatMap((definition) => {
-    const fields = definition.settings ? secretSettingsFields(definition.settings) : [];
-    return fields.length > 0 ? [[definition.kind, fields] as const] : [];
-  }),
-);
 
 export interface SourceControlHostSecretSlot {
   readonly kind: string;
@@ -36,38 +25,9 @@ export function sourceControlHostSecretName(slot: SourceControlHostSecretSlot): 
     : `source-control-${encode(slot.kind)}-${encode(slot.field)}-${encode(slot.serverHost.trim().toLowerCase())}`;
 }
 
-export function readSecretFieldValues(
-  value: unknown,
-): ReadonlyArray<readonly [serverHost: string | null, value: string]> {
-  if (typeof value === "string") return [[null, value]];
-  if (isSecretReference(value)) return [];
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
-  return Object.entries(value).flatMap(([serverHost, entry]) =>
-    typeof entry === "string" ? [[serverHost.trim().toLowerCase(), entry] as const] : [],
-  );
-}
-
-export function writeSecretFieldValues(
-  original: unknown,
-  values: ReadonlyArray<readonly [serverHost: string | null, value: string]>,
-): unknown {
-  if (typeof original === "string") return values[0]?.[1] ?? "";
-  if (isSecretReference(original)) return original;
-  const sources =
-    original !== null && typeof original === "object" && !Array.isArray(original)
-      ? Object.entries(original).flatMap(([serverHost, entry]) =>
-          isSecretReference(entry) ? [[serverHost.trim().toLowerCase(), entry] as const] : [],
-        )
-      : [];
-  return Object.fromEntries([
-    ...sources,
-    ...values.map(([serverHost, value]) => [serverHost ?? "", value] as const),
-  ]);
-}
-
 type SourceControlHostsSettings = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
-const hostSettingsSchemas = new Map(
+export const sourceControlHostSettingsSchemas = new Map(
   sourceControlDefinitions.definitions.flatMap((definition) =>
     definition.settings ? [[definition.kind as string, definition.settings] as const] : [],
   ),
@@ -77,7 +37,7 @@ const hostSettingsSchemas = new Map(
 export function collectSourceControlHostSecretReferences(
   hosts: SourceControlHostsSettings,
 ): ReadonlyArray<SecretReference> {
-  return [...hostSettingsSchemas].flatMap(([kind, schema]) =>
+  return [...sourceControlHostSettingsSchemas].flatMap(([kind, schema]) =>
     secretReferencesInSettings(schema, hosts[kind]).map(({ reference }) => reference),
   );
 }
@@ -89,7 +49,7 @@ export const resolveSourceControlHostSecrets = Effect.fn("SourceControlHost.reso
     hosts: SourceControlHostsSettings,
     kind: string,
   ) {
-    const schema = hostSettingsSchemas.get(kind);
+    const schema = sourceControlHostSettingsSchemas.get(kind);
     const fields = hosts[kind];
     if (schema === undefined || fields === undefined) return hosts;
     const resolved = yield* resolveSettingsSecrets(resolver, schema, fields);

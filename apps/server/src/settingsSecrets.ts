@@ -5,11 +5,12 @@ import {
   EasDeviceHostConfig,
   type ProviderInstanceConfig,
   type ServerSettings,
+  ServerSettingsError,
   type SettingsSecretValue,
   SimlockDeviceHostConfig,
   UsageLimitSourceConfig,
   isSecretReference,
-  secretSettingsFields,
+  isSecretSetting,
 } from "@t3tools/contracts";
 import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
 import { cursorClient } from "@t3tools/provider-cursor/client";
@@ -17,27 +18,49 @@ import { grokClient } from "@t3tools/provider-grok/client";
 import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 import {
-  readSecretFieldValues,
-  SOURCE_CONTROL_HOST_SECRET_FIELDS,
+  sourceControlHostSettingsSchemas,
   sourceControlHostSecretName,
-  writeSecretFieldValues,
 } from "./sourceControl/sourceControlHostSecrets.ts";
 
 export const SECRET_REDACTED = "\u2022\u2022\u2022\u2022\u2022\u2022";
 
+function describeSecretFields(schema: { readonly fields: Readonly<Record<string, Schema.Top>> }) {
+  return Object.entries(schema.fields)
+    .filter(([, field]) => isSecretSetting(field))
+    .map(([name, field]) => ({
+      name,
+      keyed: SchemaAST.isObjects(field.ast) && field.ast.indexSignatures.length > 0,
+      // The registered settings schemas decode without services.
+      decode: Schema.decodeUnknownExit(field as Schema.Decoder<unknown>),
+    }));
+}
+
+type SecretField = ReturnType<typeof describeSecretFields>[number];
+
+const sourceControlSecretFields = new Map(
+  [...sourceControlHostSettingsSchemas].map(([kind, schema]) => [
+    kind,
+    describeSecretFields(schema),
+  ]),
+);
+
 const providerSecretFields = new Map([
-  ["codex", secretSettingsFields(CodexSettings)],
-  ["claudeAgent", secretSettingsFields(ClaudeSettings)],
-  ["antigravity", secretSettingsFields(AntigravitySettings)],
+  ["codex", describeSecretFields(CodexSettings)],
+  ["claudeAgent", describeSecretFields(ClaudeSettings)],
+  ["antigravity", describeSecretFields(AntigravitySettings)],
   ...[cursorClient, grokClient, museClient, openCodeClient, piClient, acpRegistryClient].map(
     (definition) =>
-      [definition.driverKind, secretSettingsFields(definition.settingsSchema)] as const,
+      [definition.driverKind, describeSecretFields(definition.settingsSchema)] as const,
   ),
 ]);
-const usageLimitSecretFields = secretSettingsFields(UsageLimitSourceConfig);
-const easDeviceHostSecretFields = secretSettingsFields(EasDeviceHostConfig);
-const simlockDeviceHostSecretFields = secretSettingsFields(SimlockDeviceHostConfig);
+const usageLimitSecretFields = describeSecretFields(UsageLimitSourceConfig);
+const easDeviceHostSecretFields = describeSecretFields(EasDeviceHostConfig);
+const simlockDeviceHostSecretFields = describeSecretFields(SimlockDeviceHostConfig);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
 
 export interface SettingsSecret {
@@ -54,7 +77,7 @@ type SecretValue = Pick<SettingsSecret, "value" | "redacted">;
 type SecretSlotName = (field: string, serverHost: string | null) => string;
 type SecretFieldsMapper = (
   fields: Readonly<Record<string, unknown>>,
-  secretFields: ReadonlyArray<string>,
+  secretFields: ReadonlyArray<SecretField>,
   name: SecretSlotName,
 ) => Record<string, unknown>;
 type ProviderEnvironment = NonNullable<ProviderInstanceConfig["environment"]>;
@@ -63,26 +86,17 @@ export function mapSettingsSecrets(
   settings: ServerSettings,
   map: (secret: SettingsSecret) => SecretValue,
 ): ServerSettings {
-  const mapFields: SecretFieldsMapper = (fields, secretFields, name) => {
-    const next = { ...fields };
-    for (const field of secretFields) {
-      if (!(field in next) || isSecretReference(next[field])) continue;
-      next[field] = writeSecretFieldValues(
-        next[field],
-        readSecretFieldValues(next[field]).map(([serverHost, value]) => {
-          const result = map({
-            secretName: name(field, serverHost),
-            kind: "field",
-            value,
-            redacted: value === SECRET_REDACTED,
-            sensitive: true,
-          });
-          return [serverHost, result.redacted ? SECRET_REDACTED : result.value] as const;
-        }),
-      );
-    }
-    return next;
-  };
+  const mapFields = mapSecretFieldValues((value, secretName) => {
+    if (typeof value !== "string") return value;
+    const result = map({
+      secretName,
+      kind: "field",
+      value,
+      redacted: value === SECRET_REDACTED,
+      sensitive: true,
+    });
+    return result.redacted ? SECRET_REDACTED : result.value;
+  });
 
   return mapSecretFieldGroups(settings, mapFields, (instanceId, environment) =>
     environment.map((variable) => {
@@ -116,28 +130,82 @@ export function mapSettingsSecretValues(
   settings: ServerSettings,
   map: (value: SettingsSecretValue, secretName: string) => SettingsSecretValue,
 ): ServerSettings {
+  return mapSecretFieldGroups(settings, mapSecretFieldValues(map));
+}
+
+function mapSecretFieldValues(
+  map: (value: SettingsSecretValue, secretName: string) => SettingsSecretValue,
+): SecretFieldsMapper {
   const mapValue = (value: unknown, secretName: string) =>
     typeof value === "string" || isSecretReference(value) ? map(value, secretName) : value;
-  return mapSecretFieldGroups(settings, (fields, secretFields, name) => {
+  return (fields, secretFields, name) => {
     const next = { ...fields };
-    for (const field of secretFields) {
-      if (!(field in next)) continue;
-      const value = next[field];
-      next[field] =
-        value !== null &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        !isSecretReference(value)
-          ? Object.fromEntries(
-              Object.entries(value).map(([serverHost, entry]) => [
-                serverHost,
-                mapValue(entry, name(field, serverHost.trim().toLowerCase())),
-              ]),
-            )
-          : mapValue(value, name(field, null));
+    for (const { name: field, keyed } of secretFields) {
+      if (!Object.hasOwn(fields, field)) continue;
+      const value = fields[field];
+      if (keyed && value !== null && typeof value === "object" && !Array.isArray(value)) {
+        next[field] = Object.fromEntries(
+          Object.entries(value).map(([host, entry]) => [
+            host,
+            mapValue(entry, name(field, host.trim().toLowerCase())),
+          ]),
+        );
+      } else if (!keyed) {
+        next[field] = mapValue(value, name(field, null));
+      }
+    }
+    return next;
+  };
+}
+
+function decodeSecretFields<A>(
+  traverse: (mapFields: SecretFieldsMapper) => A,
+  settingsPath: string,
+): Effect.Effect<A, ServerSettingsError> {
+  let error: ServerSettingsError | undefined;
+  const decoded = traverse((fields, secretFields) => {
+    const next = { ...fields };
+    for (const { name, decode } of secretFields) {
+      if (error !== undefined || !Object.hasOwn(fields, name)) continue;
+      const result = decode(fields[name]);
+      if (Exit.isFailure(result)) {
+        error = new ServerSettingsError({
+          settingsPath,
+          operation: "unsupported-secret-reference",
+          cause: result.cause,
+        });
+      } else {
+        next[name] = result.value;
+      }
     }
     return next;
   });
+  return error === undefined ? Effect.succeed(decoded) : Effect.fail(error);
+}
+
+export function normalizeSettingsSecretFields(settings: ServerSettings, settingsPath: string) {
+  return decodeSecretFields((mapFields) => mapSecretFieldGroups(settings, mapFields), settingsPath);
+}
+
+export function normalizeSourceControlHostSecretFields(
+  hosts: ServerSettings["sourceControlHosts"],
+  settingsPath: string,
+) {
+  return decodeSecretFields((mapFields) => mapSourceControlFields(hosts, mapFields), settingsPath);
+}
+
+function mapSourceControlFields(
+  hosts: ServerSettings["sourceControlHosts"],
+  mapFields: SecretFieldsMapper,
+): ServerSettings["sourceControlHosts"] {
+  return Object.fromEntries(
+    Object.entries(hosts).map(([kind, fields]) => [
+      kind,
+      mapFields(fields, sourceControlSecretFields.get(kind) ?? [], (field, serverHost) =>
+        sourceControlHostSecretName({ kind, field, serverHost }),
+      ),
+    ]),
+  );
 }
 
 function mapSecretFieldGroups(
@@ -174,14 +242,7 @@ function mapSecretFieldGroups(
     }),
   );
 
-  const sourceControlHosts = Object.fromEntries(
-    Object.entries(settings.sourceControlHosts).map(([kind, fields]) => [
-      kind,
-      mapFields(fields, SOURCE_CONTROL_HOST_SECRET_FIELDS.get(kind) ?? [], (field, serverHost) =>
-        sourceControlHostSecretName({ kind, field, serverHost }),
-      ),
-    ]),
-  ) as ServerSettings["sourceControlHosts"];
+  const sourceControlHosts = mapSourceControlFields(settings.sourceControlHosts, mapFields);
 
   const usageLimitSources = Object.fromEntries(
     Object.entries(settings.usageLimitSources).map(([id, source]) => [

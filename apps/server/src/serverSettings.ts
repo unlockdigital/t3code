@@ -55,14 +55,13 @@ import {
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import { secretProviderDefinitions } from "./secrets/secretProviderDefinitions.ts";
-import {
-  readSecretFieldValues,
-  sourceControlHostSecretName,
-} from "./sourceControl/sourceControlHostSecrets.ts";
+import { sourceControlHostSecretName } from "./sourceControl/sourceControlHostSecrets.ts";
 
 import {
   mapSettingsSecrets,
   mapSettingsSecretValues,
+  normalizeSettingsSecretFields,
+  normalizeSourceControlHostSecretFields,
   SECRET_REDACTED,
   type SettingsSecret,
 } from "./settingsSecrets.ts";
@@ -298,7 +297,19 @@ const applySettingsUpdate = Effect.fn("ServerSettings.applySettingsUpdate")(func
       operation: "unsupported-secret-reference",
       cause: "Multiple credential host keys identify the same host. Keep one entry per host.",
     });
-  const patched = applyServerSettingsPatch(current, patch);
+  const sourceControlHosts = patch.sourceControlHosts;
+  const patched = applyServerSettingsPatch(
+    current,
+    sourceControlHosts === undefined
+      ? patch
+      : {
+          ...patch,
+          sourceControlHosts: yield* normalizeSourceControlHostSecretFields(
+            sourceControlHosts,
+            settingsPath,
+          ),
+        },
+  );
   const next = mutation ? applyProviderInstanceMutation(patched, mutation) : patched;
   yield* validateAccountRoutingPatch(current, next, patch, settingsPath);
   return next;
@@ -513,8 +524,9 @@ function migrateLegacySourceControlSettings(
   }
   if (legacy.github !== undefined && sourceControlHosts.github === undefined) {
     sourceControlHosts.github = legacy.github;
-    for (const [serverHost, value] of readSecretFieldValues(legacy.github.tokens)) {
-      if (serverHost === null || value !== SECRET_REDACTED) continue;
+    const tokens = legacy.github.tokens;
+    for (const [serverHost, value] of isSettingsObject(tokens) ? Object.entries(tokens) : []) {
+      if (value !== SECRET_REDACTED) continue;
       secretMoves.push({
         from: legacyGitHubTokenSecretName(serverHost),
         to: sourceControlHostSecretName({ kind: "github", field: "tokens", serverHost }),
@@ -943,41 +955,50 @@ const make = Effect.gen(function* () {
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)
       : loaded;
-    // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
-    const legacySecretsCopied = yield* Effect.forEach(
-      settingsFileTrusted
-        ? migrateLegacySourceControlSettings(folded, legacySourceControl).secretMoves
-        : [],
-      (move) =>
-        secretStore.get(move.from).pipe(
-          Effect.flatMap((secret) =>
-            Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
-          ),
-          Effect.as(true),
-          Effect.catch(() =>
-            Effect.logWarning("failed to copy a source control secret to its new name", {
-              secretName: move.to,
-            }).pipe(Effect.as(false)),
-          ),
-        ),
-    ).pipe(Effect.map((copied) => copied.every(Boolean)));
+    const normalized = settingsFileTrusted
+      ? yield* normalizeSettingsSecretFields(folded, settingsPath)
+      : folded;
     const hasLegacySourceControl =
       settingsFileTrusted &&
-      legacySecretsCopied &&
       (legacySourceControl.bitbucket !== undefined || legacySourceControl.github !== undefined);
     const sourceControlMigration = hasLegacySourceControl
-      ? migrateLegacySourceControlSettings(folded, legacySourceControl)
-      : { settings: folded, secretMoves: [] };
+      ? migrateLegacySourceControlSettings(normalized, legacySourceControl)
+      : { settings: normalized, secretMoves: [] };
+    const withLegacy = hasLegacySourceControl
+      ? yield* normalizeSourceControlHostSecretFields(
+          sourceControlMigration.settings.sourceControlHosts,
+          settingsPath,
+        )
+      : normalized.sourceControlHosts;
+    // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
+    const legacySecretsCopied = yield* Effect.forEach(sourceControlMigration.secretMoves, (move) =>
+      secretStore.get(move.from).pipe(
+        Effect.flatMap((secret) =>
+          Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
+        ),
+        Effect.as(true),
+        Effect.catch(() =>
+          Effect.logWarning("failed to copy a source control secret to its new name", {
+            secretName: move.to,
+          }).pipe(Effect.as(false)),
+        ),
+      ),
+    ).pipe(Effect.map((copied) => copied.every(Boolean)));
+    const beforeMove =
+      legacySecretsCopied && hasLegacySourceControl
+        ? { ...normalized, sourceControlHosts: withLegacy }
+        : normalized;
     const migrated = settingsFileTrusted
-      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings)
-      : folded;
+      ? yield* moveInlineSettingsSecrets(beforeMove)
+      : beforeMove;
     if (
-      migrated !== loaded ||
+      folded !== loaded ||
+      migrated !== beforeMove ||
       (settingsFileTrusted && legacyProviders !== undefined) ||
-      hasLegacySourceControl
+      (hasLegacySourceControl && legacySecretsCopied)
     ) {
       yield* writeSettingsAtomically(migrated, forwardUsageModelFilter);
-      for (const move of sourceControlMigration.secretMoves) {
+      for (const move of legacySecretsCopied ? sourceControlMigration.secretMoves : []) {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
     }
@@ -1107,6 +1128,9 @@ const make = Effect.gen(function* () {
           return { value: secret.value, redacted: false };
         }
         const old = previous.get(secret.secretName);
+        if (secret.redacted && (!old?.sensitive || (!old.redacted && old.value.length === 0))) {
+          return { value: "", redacted: false };
+        }
         const inlineValue =
           old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
         const value = secret.redacted ? inlineValue : secret.value;
@@ -1123,7 +1147,12 @@ const make = Effect.gen(function* () {
         return { value: "", redacted: true };
       });
       for (const secret of previous.values()) {
-        if (!secret.sensitive || nextSecretNames.has(secret.secretName)) continue;
+        if (
+          !secret.sensitive ||
+          (!secret.redacted && secret.value.length === 0) ||
+          nextSecretNames.has(secret.secretName)
+        )
+          continue;
         if (changes.some((change) => change.secretName === secret.secretName)) continue;
         changes.push({
           kind: "remove",
@@ -1231,7 +1260,7 @@ const make = Effect.gen(function* () {
         }
         const candidate = yield* update(current);
         if (hasConflictingCredentialHosts(candidate)) return yield* conflictingHostsError();
-        const updated = mapSettingsSecrets(candidate, (secret) => secret);
+        const updated = yield* normalizeSettingsSecretFields(candidate, settingsPath);
         const persisted = yield* persistSettingsSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materializedNext = yield* Effect.uninterruptibleMask(() =>
