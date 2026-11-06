@@ -17,8 +17,9 @@ and modes you choose in a draft keep their permissions.
 | **Auto**              | Uses the provider's automatic review to approve routine actions and ask about others. |
 | **Full access**       | Allows commands and edits without approval prompts.                                   |
 
-Approve or reject requests in the conversation to let the agent continue. Permission modes do
-not prevent the agent from asking questions about the task.
+Approve or reject requests in the conversation to let the agent continue. Agents can ask
+questions in any permission mode. Child approvals appear in the parent conversation with the
+child thread’s title.
 
 ## Provider differences
 
