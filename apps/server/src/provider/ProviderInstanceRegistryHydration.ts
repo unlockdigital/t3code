@@ -121,19 +121,15 @@ const layerSettingsWatcher = (settingsChanges: Stream.Stream<ServerSettings>) =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const mutator = yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
-      const serverSettings = yield* Settings.ServerSettingsService;
       yield* settingsChanges.pipe(
         Stream.runForEach(() =>
-          // The subscription predates the seed read, so a queued change can be
-          // older than the seed. A failed current read must leave the registry intact.
-          serverSettings.getSettings.pipe(
-            Effect.flatMap((current) =>
-              mutator.reconcile(deriveProviderInstanceConfigMap(current)),
+          mutator
+            .reconcile()
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("ProviderInstanceRegistry reconcile failed", cause),
+              ),
             ),
-            Effect.catchCause((cause) =>
-              Effect.logError("ProviderInstanceRegistry reconcile failed", cause),
-            ),
-          ),
         ),
         Effect.forkScoped,
       );
@@ -153,17 +149,24 @@ export const layer: Layer.Layer<
     );
     // Subscribe before the seed read so saves during registry construction are queued.
     const settingsChanges = yield* serverSettings.subscribeChanges;
-    const initialSettings: ServerSettings | undefined = yield* serverSettings.getSettings.pipe(
-      Effect.orElseSucceed(() => undefined),
+    const readCurrentSnapshot = serverSettings.getSettings.pipe(
+      Effect.map((settings) => ({
+        configMap: deriveProviderInstanceConfigMap(settings),
+        secretProviders: settings.secretProviders,
+      })),
     );
-    const initialConfigMap =
-      initialSettings === undefined
-        ? ({} as ProviderInstanceConfigMap)
-        : deriveProviderInstanceConfigMap(initialSettings);
+    const snapshot = yield* readCurrentSnapshot.pipe(
+      Effect.catch((error) =>
+        Effect.logError("ProviderInstanceRegistry seed settings read failed", {
+          operation: error.operation,
+        }).pipe(Effect.as({ configMap: {}, secretProviders: {} })),
+      ),
+    );
 
     const layerMutable = ProviderInstanceRegistry.layer({
       drivers: BUILT_IN_DRIVERS,
-      configMap: initialConfigMap,
+      snapshot,
+      readCurrentSnapshot,
     }).pipe(
       Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
       Layer.provide(AcpRegistrySupport.layerFromHost),

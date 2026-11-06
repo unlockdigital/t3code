@@ -15,6 +15,9 @@ import {
   type ResolvedProviderInstanceEnvironment,
   ProviderInstanceId,
   SecretProviderId,
+  SecretProviderKind,
+  ServerSettingsError,
+  type ServerSettings as ServerSettingsValue,
   SettingsSecretValue,
   type SecretReference,
 } from "@t3tools/contracts";
@@ -31,6 +34,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
@@ -49,6 +53,7 @@ import * as ProviderOrchestrationAdapterInfrastructure from "./ProviderOrchestra
 import * as PortScanner from "../preview/PortScanner.ts";
 import * as ProviderHostLive from "./ProviderHostLive.ts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import { defineSecretProviderDriver } from "@t3tools/secret-provider-core/server/driver";
 import type { AnyProviderDriver, ProviderInstance } from "@t3tools/provider-core/server/driver";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", { spy: true });
@@ -976,4 +981,254 @@ describe("ProviderInstanceRegistry secret environment", () => {
       expect(yield* registry.listUnavailable).toEqual([]);
     }).pipe(Effect.scoped);
   });
+});
+
+describe("ProviderInstanceRegistry settings snapshots", () => {
+  const instanceId = ProviderInstanceId.make("snapshot_instance");
+  const driverKind = ProviderDriverKind.make("snapshot");
+  const provider = SecretProviderId.make("fixture");
+  const kind = SecretProviderKind.make("fixture");
+  const reference = "fixture://shared-item";
+  const configSchema = Schema.Struct({ destination: Schema.String, apiKey: SettingsSecretValue });
+  const accountSchema = Schema.Struct({ account: Schema.String });
+
+  const snapshot = (destination: string, account: string) => ({
+    configMap: {
+      [instanceId]: {
+        driver: driverKind,
+        config: { destination, apiKey: { provider, reference } },
+      },
+    } satisfies ProviderInstanceConfigMap,
+    secretProviders: {
+      [provider]: { kind, label: "Fixture vault", config: { account } },
+    } satisfies ServerSettingsValue["secretProviders"],
+  });
+  const a = snapshot("destination-A", "A");
+  const b = snapshot("destination-B", "B");
+  const empty = { ...a, configMap: {} };
+  const pair = (destination: string, account: string) => ({
+    destination,
+    apiKey: `synthetic-key-${account}`,
+  });
+  const settingsError = new ServerSettingsError({
+    settingsPath: "fixture",
+    operation: "read-file",
+  });
+
+  const setup = Effect.fn("ProviderInstanceRegistry.testSnapshots")(function* (
+    seed: typeof a,
+    gateAccount: string,
+  ) {
+    const current = yield* Ref.make(seed);
+    const entered = yield* Deferred.make<Fiber.Fiber<unknown, unknown>>();
+    const release = yield* Deferred.make<void>();
+    const reads: string[] = [];
+    const creates: unknown[] = [];
+    const sourceReads: Array<typeof a> = [];
+    const failSource = yield* Ref.make(false);
+    const readCurrentSnapshot = Effect.gen(function* () {
+      if (yield* Ref.get(failSource)) return yield* settingsError;
+      const latest = yield* Ref.get(current);
+      sourceReads.push(latest);
+      return { ...latest, configMap: { ...latest.configMap } };
+    });
+    const resolver = yield* SecretResolver.make({
+      secretProviders: Ref.get(current).pipe(Effect.map((settings) => settings.secretProviders)),
+      drivers: [
+        defineSecretProviderDriver({
+          kind,
+          definition: {
+            kind,
+            label: "Fixture vault",
+            configSchema: accountSchema,
+            isReference: (value) => value === reference,
+            referencePlaceholder: reference,
+            invalidReferenceMessage: "Enter a fixture reference.",
+          },
+          read: ({ account }, references) =>
+            Effect.withFiber((fiber) =>
+              Effect.gen(function* () {
+                reads.push(account);
+                if (account === gateAccount && (yield* Deferred.succeed(entered, fiber))) {
+                  yield* Deferred.await(release);
+                }
+                return references.map(() =>
+                  account === "unreadable" ? undefined : `synthetic-key-${account}`,
+                );
+              }),
+            ),
+        }),
+      ],
+    });
+    const driver: AnyProviderDriver = {
+      driverKind,
+      metadata: { displayName: "Snapshot fixture" },
+      configSchema,
+      defaultConfig: () => ({}),
+      create: (input) =>
+        Effect.sync(() => {
+          creates.push(input.config);
+          const instance = {
+            instanceId: input.instanceId,
+            enabled: input.enabled,
+          } as ProviderInstance;
+          return { ...instance, config: input.config };
+        }),
+    };
+    const input = { drivers: [driver], snapshot: seed, readCurrentSnapshot };
+    const built = yield* makeProviderInstanceRegistry(input).pipe(
+      Effect.provideService(SecretResolver.SecretResolver, resolver),
+    );
+    return { ...built, current, entered, release, reads, creates, sourceReads, failSource };
+  });
+
+  const test = <E>(run: Effect.Effect<void, E, Scope.Scope | NodeServices.NodeServices>) =>
+    run.pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+
+  it.effect("uses the reconciliation snapshot throughout a batched vault read", () =>
+    test(
+      Effect.gen(function* () {
+        const f = yield* setup(empty, "A");
+        const changes = yield* f.registry.subscribeChanges;
+        yield* Ref.set(f.current, a);
+        const reconciling = yield* f.mutator.reconcile(a.configMap).pipe(Effect.forkScoped);
+        yield* Deferred.await(f.entered);
+        yield* Ref.set(f.current, b);
+        yield* Deferred.succeed(f.release, undefined);
+        yield* Fiber.join(reconciling);
+        expect(yield* PubSub.takeUpTo(changes, 2)).toEqual([undefined]);
+        expect(f.creates).toEqual([pair("destination-A", "A")]);
+        expect(yield* f.registry.getInstance(instanceId)).toMatchObject({
+          config: pair("destination-A", "A"),
+        });
+        yield* f.mutator.reconcile();
+        expect(yield* PubSub.takeUpTo(changes, 2)).toEqual([undefined]);
+        expect(f.creates).toEqual([pair("destination-A", "A"), pair("destination-B", "B")]);
+        expect(yield* f.registry.getInstance(instanceId)).toMatchObject({
+          config: pair("destination-B", "B"),
+        });
+        expect(f.reads).toEqual(["A", "B"]);
+      }),
+    ),
+  );
+
+  it.effect.each([b, snapshot("destination-A", "B")])(
+    "discards startup completion if either half of the snapshot changed (%#)",
+    (latest) =>
+      test(
+        Effect.gen(function* () {
+          const f = yield* setup(a, "A");
+          const changes = yield* f.registry.subscribeChanges;
+          const startup = yield* Deferred.await(f.entered);
+          expect(yield* f.registry.listUnavailable).toMatchObject([
+            { unavailableReason: "Reading secrets…" },
+          ]);
+          yield* Ref.set(f.current, latest);
+          yield* Deferred.succeed(f.release, undefined);
+          expect(yield* Fiber.await(startup)).toEqual(Exit.void);
+          expect(f.creates).toEqual([]);
+          expect(yield* f.registry.getInstance(instanceId)).toBeUndefined();
+          expect(yield* PubSub.takeUpTo(changes, 1)).toEqual([]);
+          yield* f.mutator.reconcile();
+          expect(yield* PubSub.takeUpTo(changes, 2)).toEqual([undefined]);
+          const destination = latest === b ? "destination-B" : "destination-A";
+          expect(f.creates).toEqual([pair(destination, "B")]);
+          expect(yield* f.registry.getInstance(instanceId)).toMatchObject({
+            config: pair(destination, "B"),
+          });
+          expect(f.reads).toEqual(["A", "B"]);
+        }),
+      ),
+  );
+
+  it.effect.each(["targeted", "all", "account-only", "unreadable", "settings failure"] as const)(
+    "samples current settings on %s refresh",
+    (scenario) =>
+      test(
+        Effect.gen(function* () {
+          const f = yield* setup(a, "A");
+          const changes = yield* f.registry.subscribeChanges;
+          const startup = yield* Deferred.await(f.entered);
+          yield* Deferred.succeed(f.release, undefined);
+          expect(yield* Fiber.await(startup)).toEqual(Exit.void);
+          expect(yield* PubSub.takeUpTo(changes, 2)).toEqual([undefined]);
+          const before = yield* f.registry.getInstance(instanceId);
+          expect(before).toMatchObject({ config: pair("destination-A", "A") });
+
+          const destination = scenario === "account-only" ? "destination-A" : "destination-B";
+          yield* Ref.set(
+            f.current,
+            snapshot(destination, scenario === "unreadable" ? "unreadable" : "B"),
+          );
+          if (scenario === "account-only") {
+            yield* f.mutator.reconcile(a.configMap);
+            expect(yield* f.registry.getInstance(instanceId)).toBe(before);
+            expect(f.reads).toEqual(["A"]);
+          }
+          const reload = f.mutator.reloadSecrets(scenario === "all" ? undefined : instanceId);
+          if (scenario === "settings failure") {
+            yield* Ref.set(f.failSource, true);
+            expect(yield* Effect.result(reload)).toMatchObject({
+              _tag: "Failure",
+              failure: settingsError,
+            });
+            expect(yield* Effect.result(f.mutator.reconcile())).toMatchObject({
+              _tag: "Failure",
+              failure: settingsError,
+            });
+            expect(yield* f.registry.getInstance(instanceId)).toBe(before);
+            expect(f.creates).toEqual([pair("destination-A", "A")]);
+            expect(f.reads).toEqual(["A"]);
+            expect(yield* PubSub.takeUpTo(changes, 1)).toEqual([]);
+            return;
+          }
+          yield* reload;
+          expect(yield* PubSub.takeUpTo(changes, 2)).toEqual([undefined]);
+          if (scenario === "unreadable") {
+            expect(yield* f.registry.getInstance(instanceId)).toBeUndefined();
+            expect(yield* f.registry.listUnavailable).toMatchObject([
+              { unavailableReason: expect.stringContaining("Could not read apiKey") },
+            ]);
+            expect(f.creates).toEqual([pair("destination-A", "A")]);
+            expect(f.reads).toEqual(["A", "unreadable"]);
+            return;
+          }
+          expect(f.creates).toEqual([pair("destination-A", "A"), pair(destination, "B")]);
+          expect(yield* f.registry.getInstance(instanceId)).toMatchObject({
+            config: pair(destination, "B"),
+          });
+          expect(f.reads).toEqual(["A", "B"]);
+        }),
+      ),
+  );
+
+  it.effect(
+    "samples queued reconciliation after the preceding refresh acquires newer settings",
+    () =>
+      test(
+        Effect.gen(function* () {
+          const f = yield* setup(empty, "A");
+          yield* Ref.set(f.current, a);
+          const first = yield* f.mutator.reconcile(a.configMap).pipe(Effect.forkScoped);
+          yield* Deferred.await(f.entered);
+          const refresh = yield* f.mutator
+            .reloadSecrets()
+            .pipe(Effect.forkScoped({ startImmediately: true }));
+          const watcher = yield* f.mutator
+            .reconcile(a.configMap)
+            .pipe(Effect.forkScoped({ startImmediately: true }));
+          yield* Ref.set(f.current, b);
+          yield* Deferred.succeed(f.release, undefined);
+          yield* Fiber.join(first);
+          yield* Fiber.join(refresh);
+          yield* Fiber.join(watcher);
+          expect(yield* f.registry.getInstance(instanceId)).toMatchObject({
+            config: pair("destination-B", "B"),
+          });
+          expect(f.creates).toEqual([pair("destination-A", "A"), pair("destination-B", "B")]);
+          expect(f.sourceReads).toEqual([a, b, b]);
+          expect(f.reads).toEqual(["A", "B"]);
+        }),
+      ),
+  );
 });
