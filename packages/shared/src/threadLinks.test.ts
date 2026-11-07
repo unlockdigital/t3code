@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 
 import {
+  appThreadLink,
   formatThreadLink,
   guessThreadLinkRef,
   parseThreadLinkHref,
@@ -180,4 +181,25 @@ describe("thread links", () => {
     );
     expect(formatThreadLink(ref("e", "t1"), " ] ")).toBe("<t3-thread://v2/e/t1>");
   });
+});
+
+it("keeps copied app links exact and scoped without a network origin", () => {
+  const ref = {
+    environmentId: EnvironmentId.make("remote"),
+    threadId: ThreadId.make("folder%2Fthread"),
+  };
+  const href = appThreadLink(ref, "t3code-unlock");
+  expect(href).toBe("t3code-unlock://threads/remote/folder%252Fthread");
+  expect(parseThreadReference(href)).toEqual({ ...ref, exact: true });
+  expect(relabelThreadLinks(href, ref.environmentId, () => "Current title")).toBe(
+    `[Current title](${href})`,
+  );
+  expect(
+    threadLinkRefs(
+      `Open ${href}.
+\`${href.replace("remote", "hidden")}\``,
+      ref.environmentId,
+    ),
+  ).toEqual([ref]);
+  expect(parseThreadLinkHref("https://app.t3.codes/threads/remote/folder%252Fthread")).toBeNull();
 });

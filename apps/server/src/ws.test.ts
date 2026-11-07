@@ -673,6 +673,8 @@ it.effect(
             {},
             yield* ServerBrowser.ServerBrowser,
             () => Effect.void,
+
+            { secretReferences: true },
           ).pipe(
             Layer.provide(Layer.mock(LocalThreadHandoff.LocalThreadHandoff)({})),
             Layer.provide(UpstreamUpdates.layer),
@@ -712,8 +714,8 @@ it.effect(
         key: "mod+alt+z",
         command: "terminal.split",
       });
-      const expectedSettings = [duringDiscovery, latestSettings].map(
-        ServerSettings.redactServerSettingsForClient,
+      const expectedSettings = [duringDiscovery, latestSettings].map((value) =>
+        ServerSettings.redactServerSettingsForClient(value, { secretReferences: true }),
       );
       const expectedKeybindings = [duringAck, latestKeybindings];
       // The two sources can interleave, but each must retain its own publication order.
@@ -845,6 +847,8 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
           {},
           yield* ServerBrowser.ServerBrowser,
           () => Effect.void,
+
+          { secretReferences: true },
         ).pipe(
           Layer.provide(Layer.mock(LocalThreadHandoff.LocalThreadHandoff)({})),
           Layer.provide(UpstreamUpdates.layer),

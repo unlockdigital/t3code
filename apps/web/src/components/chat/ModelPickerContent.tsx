@@ -299,7 +299,7 @@ function ModelPickerList({
   return (
     <div
       className={cn(
-        "relative min-h-0 overflow-hidden pr-px",
+        "relative min-h-0 min-w-0 overflow-hidden pr-px",
         itemKeys.length > 0 ? "flex-1" : "h-0",
       )}
     >
@@ -840,7 +840,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           "relative flex flex-row overflow-hidden",
           props.docked
             ? "min-w-0 w-full sm:flex-1 max-sm:h-56 max-sm:min-h-0!"
-            : "w-screen max-w-90 max-h-86.5",
+            : "w-[min(22.5rem,calc(100vw-1rem))] max-h-86.5",
         )}
         style={
           isSearching
@@ -913,7 +913,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         >
           <div
             className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/40",
+              "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-muted/40",
               showSidebar && "border-l border-border/70",
             )}
           >

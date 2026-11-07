@@ -1,13 +1,16 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
+  appThreadLink,
   formatThreadLink,
+  formatThreadLinkMarkdown,
   guessThreadLinkRef,
   percentDecodedThreadLinkId,
   type ThreadLink,
   unknownThreadLinkLabel,
 } from "@t3tools/shared/threadLinks";
 
+import { APP_LINK_SCHEME } from "~/branding";
 import { useThreadRefs, useThreadShell } from "../../state/entities";
 import { UnresolvedChip } from "../contextChipParts";
 import { ThreadContextChip } from "../ThreadContextChip";
@@ -19,7 +22,7 @@ export function MarkdownThreadLink(props: {
   readonly label: string | null;
 }) {
   const environmentId = props.link.environmentId ?? props.environmentId;
-  const decodedId = percentDecodedThreadLinkId(props.link.threadId);
+  const decodedId = props.link.exact ? null : percentDecodedThreadLinkId(props.link.threadId);
   const written = useThreadShell(scopeThreadRef(environmentId, props.link.threadId));
   const decoded = useThreadShell(
     written === null && decodedId !== null ? scopeThreadRef(environmentId, decodedId) : null,
@@ -36,6 +39,13 @@ export function MarkdownThreadLink(props: {
   const ref = { environmentId: thread.environmentId, threadId: thread.id };
   const title = thread.title.trim() || props.label || "Untitled thread";
   return (
-    <ThreadContextChip record={{ ...ref, title }} copyMarkdown={formatThreadLink(ref, title)} />
+    <ThreadContextChip
+      record={{ ...ref, title }}
+      copyMarkdown={
+        APP_LINK_SCHEME === undefined
+          ? formatThreadLink(ref, title)
+          : formatThreadLinkMarkdown(appThreadLink(ref, APP_LINK_SCHEME), title)
+      }
+    />
   );
 }

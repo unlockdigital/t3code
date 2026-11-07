@@ -400,7 +400,8 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
         }),
     }),
   );
-  const entries = new Set<string>(KNOWN_SHARED_DIRECTORIES);
+  // Link the index lock before Codex creates it so both homes serialize shared index writes.
+  const entries = new Set<string>([...KNOWN_SHARED_DIRECTORIES, "session_index.jsonl.lock"]);
   for (const entryName of sharedEntryNames) {
     if (!PRIVATE_ENTRY_NAMES.has(entryName) && !SHADOW_LOCAL_ENTRY_NAMES.has(entryName)) {
       entries.add(entryName);

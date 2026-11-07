@@ -14,6 +14,16 @@ const descriptor = {
 } as const;
 
 describe("ExecutionEnvironmentDescriptor", () => {
+  it("keeps one-time schedules opt-in for older environments", () => {
+    expect(decodeDescriptor(descriptor).capabilities.oneTimeSchedules).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, oneTimeSchedules: true },
+      }).capabilities.oneTimeSchedules,
+    ).toBe(true);
+  });
+
   it("decodes old, recognized and future manual installation descriptors", () => {
     expect(decodeDescriptor(descriptor).capabilities.serverInstallation).toBeUndefined();
     for (const installation of [{ kind: "npx" }, { kind: "npm-global", prefix: "/opt/node" }]) {

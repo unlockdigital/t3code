@@ -72,7 +72,7 @@ describe("Enriched link presentation", () => {
     expect(
       threadChipTargets(
         here,
-        "See [A](t3-thread://v1/thread_a), [A again](t3-thread://v1/thread_a), [B](t3-thread://v1/thread_b) and [D](t3-thread://v2/env-there/thread_d).",
+        "See [A](t3-thread://v1/thread_a), [A again](t3-thread://v1/thread_a), [B](t3-thread://v1/thread_b) [D](t3-thread://v2/env-there/thread_d), and [E](t3code-unlock://threads/env-there/thread%252Fe).",
         [
           {
             version: 1,
@@ -92,6 +92,12 @@ describe("Enriched link presentation", () => {
         href: "t3-thread://v2/env-there/thread_d",
         environmentId: there,
         threadId: "thread_d",
+        link: true,
+      },
+      {
+        href: "t3code-unlock://threads/env-there/thread%252Fe",
+        environmentId: there,
+        threadId: "thread%2Fe",
         link: true,
       },
       {

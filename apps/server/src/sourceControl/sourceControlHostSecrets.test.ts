@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { SecretProviderId } from "@t3tools/contracts";
+import { SecretProviderId, UsageLimitSourceId } from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Effect from "effect/Effect";
 
@@ -14,13 +14,22 @@ const source = (reference: string) => ({
   reference,
 });
 
-const secretsByReference = new Map([["bitbucket#token", "bb_from_provider"]]);
+const secretsByReference = new Map([
+  ["bitbucket#token", "bb_from_provider"],
+  ["github#token", "ghp_from_provider"],
+]);
+
+const perHostHosts = {
+  github: { tokens: { "github.com": source("github#token"), "ghe.acme.test": "ghp_literal" } },
+};
 
 const hosts = {
   bitbucket: { email: "me@example.test", accessToken: source("bitbucket#token") },
   gitcafe: { token: source("missing#token") },
   github: { tokens: { "github.com": "ghp_literal" } },
 };
+
+const settings = { sourceControlHosts: hosts, secretProviders: {} };
 
 function countingResolver() {
   const reads: Array<string> = [];
@@ -42,7 +51,7 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const { reads, resolver } = countingResolver();
-      const resolved = yield* resolveSourceControlHostSecrets(resolver, hosts, "bitbucket");
+      const resolved = yield* resolveSourceControlHostSecrets(resolver, settings, "bitbucket");
       assert.deepEqual(resolved, {
         ...hosts,
         bitbucket: { email: "me@example.test", accessToken: "bb_from_provider" },
@@ -54,7 +63,7 @@ it.effect(
 it.effect("treats a reference the provider cannot read as an unset credential", () =>
   Effect.gen(function* () {
     const { reads, resolver } = countingResolver();
-    const resolved = yield* resolveSourceControlHostSecrets(resolver, hosts, "gitcafe");
+    const resolved = yield* resolveSourceControlHostSecrets(resolver, settings, "gitcafe");
     assert.deepEqual(resolved.gitcafe, { token: "" });
     assert.deepEqual(reads, ["missing#token"]);
   }),
@@ -63,9 +72,24 @@ it.effect("treats a reference the provider cannot read as an unset credential", 
 it.effect("leaves the resolver unused for a kind that holds no reference", () =>
   Effect.gen(function* () {
     const { reads, resolver } = countingResolver();
-    const resolved = yield* resolveSourceControlHostSecrets(resolver, hosts, "github");
+    const resolved = yield* resolveSourceControlHostSecrets(resolver, settings, "github");
     assert.strictEqual(resolved, hosts);
     assert.deepEqual(reads, []);
+  }),
+);
+
+it.effect("replaces a per-host token reference and keeps the literal beside it", () =>
+  Effect.gen(function* () {
+    const { reads, resolver } = countingResolver();
+    const resolved = yield* resolveSourceControlHostSecrets(
+      resolver,
+      { ...settings, sourceControlHosts: perHostHosts },
+      "github",
+    );
+    assert.deepEqual(resolved, {
+      github: { tokens: { "github.com": "ghp_from_provider", "ghe.acme.test": "ghp_literal" } },
+    });
+    assert.deepEqual(reads, ["github#token"]);
   }),
 );
 
@@ -73,6 +97,9 @@ it("collects the references held in credential fields and skips literal values",
   assert.deepEqual(collectSourceControlHostSecretReferences(hosts), [
     source("missing#token"),
     source("bitbucket#token"),
+  ]);
+  assert.deepEqual(collectSourceControlHostSecretReferences(perHostHosts), [
+    source("github#token"),
   ]);
   assert.deepEqual(
     collectSourceControlHostSecretReferences({
@@ -103,13 +130,32 @@ it.effect("reads a collected reference again once it is invalidated", () =>
           else for (const reference of references) cache.delete(reference.reference);
         }),
     });
-    const read = () => resolveSourceControlHostSecrets(resolver, hosts, "bitbucket");
+    const read = () => resolveSourceControlHostSecrets(resolver, settings, "bitbucket");
+    const usageLimitSources = {
+      [UsageLimitSourceId.make("referenced")]: {
+        kind: "cliproxy",
+        url: "https://hub.test",
+        managementKey: source("cliproxy#key"),
+        enabled: true,
+      },
+      [UsageLimitSourceId.make("literal")]: {
+        kind: "cliproxy",
+        url: "https://hub.test",
+        managementKey: "plain-key",
+        enabled: true,
+      },
+    } as const;
+    cache.set("cliproxy#key", "stale");
     assert.deepEqual((yield* read()).bitbucket, {
       email: "me@example.test",
       accessToken: "stale",
     });
     current = "rotated";
-    yield* invalidateSettingsSecrets(resolver, Effect.succeed({ sourceControlHosts: hosts }));
+    yield* invalidateSettingsSecrets(
+      resolver,
+      Effect.succeed({ sourceControlHosts: hosts, usageLimitSources }),
+    );
+    assert.isFalse(cache.has("cliproxy#key"));
     assert.deepEqual((yield* read()).bitbucket, {
       email: "me@example.test",
       accessToken: "rotated",

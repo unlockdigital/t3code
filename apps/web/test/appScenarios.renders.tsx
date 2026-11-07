@@ -3,6 +3,7 @@
 // chat and settings routes, the sidebar and the right panel, through the same stores and
 // atoms the app reads. See renderScenarios.renders.tsx for the counting rules.
 import { createMemoryHistory } from "@tanstack/react-router";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ThreadId } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
@@ -12,8 +13,10 @@ import { commands, page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 
 import { AppRoot } from "~/AppRoot";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { getRouter, type AppRouter } from "~/router";
+import { useRightPanelStore } from "~/rightPanelStore";
 import {
   ENVIRONMENT_ID,
   assistantItem,
@@ -286,4 +289,63 @@ it("app-switch-settings-section", async () => {
   await report("app-switch-settings-section", [
     await measure(openSettings(router, "/settings/appearance")),
   ]);
+});
+
+it("side chat renders stay bounded during parent composer changes", async () => {
+  using _clock = frozenClock();
+  await using _app = (await mountApp(threadPath(A))).screen;
+  await expect.element(lastAnswer(A)).toBeVisible();
+  await act(() => useRightPanelStore.getState().openSideChat(scopeThreadRef(ENVIRONMENT_ID, A), B));
+  await expect.element(lastAnswer(B)).toBeVisible();
+  expect(isThreadSubscribed(A)).toBe(true);
+  expect(isThreadSubscribed(B)).toBe(true);
+
+  const mainRun = runningRun(A, "side-bound-main", HISTORY_TURNS + 1, "side-bound-user");
+  await act(() => emitThreadEvent(A, { type: "run.created", payload: mainRun }));
+  startCounting();
+  for (let delta = 0; delta < 10; delta++) {
+    await act(async () => {
+      useComposerDraftStore
+        .getState()
+        .setRuntimeMode(
+          scopeThreadRef(ENVIRONMENT_ID, A),
+          delta % 2 === 0 ? "full-access" : "approval-required",
+        );
+      await emitThreadEvent(A, {
+        type: "turn-item.updated",
+        payload: assistantItem(
+          A,
+          mainRun.id,
+          "side-bound-answer",
+          HISTORY_TURNS * 2,
+          `main update ${delta}`,
+          true,
+        ),
+      });
+    });
+    await expect.element(page.getByText(`main update ${delta}`, { exact: true })).toBeVisible();
+  }
+  const mainChanges = stopCounting();
+  expect(mainChanges.components.ChatView ?? 0).toBeGreaterThanOrEqual(9);
+  expect(mainChanges.components.SideChatPane ?? 0).toBeLessThanOrEqual(2);
+
+  const sideRun = runningRun(B, "side-bound-side", HISTORY_TURNS + 1, "side-bound-side-user");
+  startCounting();
+  await act(() => emitThreadEvent(B, { type: "run.created", payload: sideRun }));
+  await act(() =>
+    emitThreadEvent(B, {
+      type: "turn-item.updated",
+      payload: assistantItem(
+        B,
+        sideRun.id,
+        "side-bound-side-answer",
+        HISTORY_TURNS * 2,
+        "side update",
+        true,
+      ),
+    }),
+  );
+  await expect.element(page.getByText("side update", { exact: true })).toBeVisible();
+  const sideChanges = stopCounting();
+  expect(sideChanges.components.SideChatPane ?? 0).toBeGreaterThan(0);
 });

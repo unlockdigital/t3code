@@ -16,6 +16,7 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
+  UsageLimitSourceId,
   globalIdleCompaction,
   isSecretReference,
   type SecretReference,
@@ -55,12 +56,16 @@ import {
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import { secretProviderDefinitions } from "./secrets/secretProviderDefinitions.ts";
-import {
-  readSecretFieldValues,
-  sourceControlHostSecretName,
-} from "./sourceControl/sourceControlHostSecrets.ts";
+import { sourceControlHostSecretName } from "./sourceControl/sourceControlHostSecrets.ts";
 
-import { mapSettingsSecrets, SECRET_REDACTED, type SettingsSecret } from "./settingsSecrets.ts";
+import {
+  mapSettingsSecrets,
+  mapSettingsSecretValues,
+  normalizeSettingsSecretFields,
+  normalizeSourceControlHostSecretFields,
+  SECRET_REDACTED,
+  type SettingsSecret,
+} from "./settingsSecrets.ts";
 import { DEFAULT_PROVIDER_INSTANCES } from "./provider/defaultProviderInstances.ts";
 
 export {
@@ -132,13 +137,35 @@ const normalizeServerSettings = (
     ),
   );
 
-export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
+export function redactServerSettingsForClient(
+  settings: ServerSettings,
+  client: { readonly secretReferences: boolean },
+): ServerSettings {
   const redacted = mapSettingsSecrets(settings, (secret) =>
     secret.sensitive
       ? { value: "", redacted: secret.redacted || secret.value.length > 0 }
       : { value: secret.value, redacted: false },
   );
-  return { ...redacted, secretProviders: withoutUnknownSecretProviderConfigs(redacted) };
+  // Older clients decode secret fields as strings and fail on a reference, so they see a saved secret.
+  const shaped = client.secretReferences
+    ? redacted
+    : mapSettingsSecretValues(redacted, (value) =>
+        isSecretReference(value) ? SECRET_REDACTED : value,
+      );
+  return { ...shaped, secretProviders: withoutUnknownSecretProviderConfigs(shaped) };
+}
+
+/** A client shown a reference as a saved secret sends that marker back; it keeps the reference. */
+function withEchoedSecretReferences(current: ServerSettings, next: ServerSettings): ServerSettings {
+  const references = new Map<string, SecretReference>();
+  mapSettingsSecretValues(current, (value, secretName) => {
+    if (isSecretReference(value)) references.set(secretName, value);
+    return value;
+  });
+  if (references.size === 0) return next;
+  return mapSettingsSecretValues(next, (value, secretName) =>
+    value === SECRET_REDACTED ? (references.get(secretName) ?? value) : value,
+  );
 }
 
 // A newer kind's config may hold credentials this build cannot recognize, so it never leaves the server.
@@ -258,6 +285,50 @@ function ensureProviderInstanceMutationAllowed(
   return Effect.void;
 }
 
+const prepareSettingsPatch = Effect.fn("ServerSettings.prepareSettingsPatch")(function* (
+  patch: ServerSettingsPatch,
+  settingsPath: string,
+) {
+  if (hasConflictingCredentialHosts(patch))
+    return yield* new ServerSettingsError({
+      settingsPath,
+      operation: "unsupported-secret-reference",
+      cause: "Multiple credential host keys identify the same host. Keep one entry per host.",
+    });
+  const sourceControlHosts = patch.sourceControlHosts;
+  return sourceControlHosts === undefined
+    ? patch
+    : {
+        ...patch,
+        sourceControlHosts: yield* normalizeSourceControlHostSecretFields(
+          sourceControlHosts,
+          settingsPath,
+        ),
+      };
+});
+
+const validateUsageLimitDestinations = Effect.fn("ServerSettings.validateUsageLimitDestinations")(
+  function* (
+    current: ServerSettings,
+    patch: ServerSettingsPatch["usageLimitSources"],
+    settingsPath: string,
+  ) {
+    for (const [id, source] of Object.entries(patch ?? {})) {
+      if (source === null || !Object.hasOwn(current.usageLimitSources, id)) continue;
+      const previous = current.usageLimitSources[UsageLimitSourceId.make(id)];
+      if (previous === undefined || previous.url === source.url.trim()) continue;
+      const key = source.managementKey;
+      if (typeof key === "string" && (key.trim() === "" || key.trim() === SECRET_REDACTED)) {
+        return yield* new ServerSettingsError({
+          settingsPath,
+          operation: "unsupported-secret-reference",
+          cause: "Provide a management key or secret reference when changing a usage source URL.",
+        });
+      }
+    }
+  },
+);
+
 const applySettingsUpdate = Effect.fn("ServerSettings.applySettingsUpdate")(function* (
   current: ServerSettings,
   patch: ServerSettingsPatch,
@@ -334,20 +405,22 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
       ),
     );
 
+  const applyTestPatch = (patch: ServerSettingsPatch, mutation?: ProviderInstanceMutation) =>
+    updateTestSettings((current) =>
+      Effect.gen(function* () {
+        const prepared = yield* prepareSettingsPatch(patch, "<memory>");
+        yield* validateUsageLimitDestinations(current, prepared.usageLimitSources, "<memory>");
+        return yield* applySettingsUpdate(current, prepared, "<memory>", mutation);
+      }),
+    );
+
   return {
     start: Effect.void,
     ready: Effect.void,
     getSettings,
     getRoutingSettings: getSettings,
-    updateSettings: (patch) =>
-      updateTestSettings((currentSettings) =>
-        applySettingsUpdate(currentSettings, patch, "<memory>"),
-      ),
-
-    updateProviderInstance: (mutation, patch = {}) =>
-      updateTestSettings((currentSettings) =>
-        applySettingsUpdate(currentSettings, patch, "<memory>", mutation),
-      ),
+    updateSettings: (patch) => applyTestPatch(patch),
+    updateProviderInstance: (mutation, patch = {}) => applyTestPatch(patch, mutation),
     withSettingsSnapshot: (use) =>
       writeSemaphore.withPermits(1)(getSettings.pipe(Effect.flatMap(use))),
     streamChanges: Stream.empty,
@@ -392,46 +465,8 @@ const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson
 const isSettingsObject = Schema.is(Schema.Record(Schema.String, Schema.Unknown));
 const decodeSettingsDocumentExit = Schema.decodeUnknownExit(fromLenientJson(Schema.Unknown));
 
-interface ForwardSettingsReference {
-  readonly path: ReadonlyArray<string>;
-  readonly reference: SecretReference;
-  readonly secretName: string;
-}
-
-const valueAtPath = (value: unknown, path: ReadonlyArray<string>): unknown => {
-  for (const key of path) {
-    if (!isSettingsObject(value) || !Object.hasOwn(value, key)) return undefined;
-    value = value[key];
-  }
-  return value;
-};
-
-const setAtPath = (value: Record<string, unknown>, path: ReadonlyArray<string>, next: unknown) => {
-  for (const key of path.slice(0, -1)) {
-    const child = Object.hasOwn(value, key) ? value[key] : undefined;
-    if (isSettingsObject(child)) {
-      value = child;
-    } else {
-      const created: Record<string, unknown> = {};
-      Object.defineProperty(value, key, {
-        value: created,
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
-      value = created;
-    }
-  }
-  Object.defineProperty(value, path[path.length - 1]!, {
-    value: next,
-    enumerable: true,
-    configurable: true,
-    writable: true,
-  });
-};
-
 const hasConflictingCredentialHosts = (settings: unknown) => {
-  const hosts = valueAtPath(settings, ["sourceControlHosts"]);
+  const hosts = isSettingsObject(settings) ? settings.sourceControlHosts : undefined;
   if (!isSettingsObject(hosts)) return false;
   for (const fields of Object.values(hosts)) {
     if (!isSettingsObject(fields) || !isSettingsObject(fields.tokens)) continue;
@@ -445,67 +480,38 @@ const hasConflictingCredentialHosts = (settings: unknown) => {
   return false;
 };
 
-// A rollback keeps newer credentials opaque and unavailable until a supporting server returns.
-const readForwardSettingsReferences = (raw: string) => {
-  const references: ForwardSettingsReference[] = [];
+const readSettingsCompatibility = (raw: string) => {
   const decoded = decodeSettingsDocumentExit(raw);
   if (Exit.isFailure(decoded) || !isSettingsObject(decoded.value))
-    return { raw, references, usageModelFilter: undefined, conflictingHosts: false };
+    return { raw, usageModelFilter: undefined, conflictingHosts: false };
   const document = decoded.value;
-  if (hasConflictingCredentialHosts(document)) {
-    return { raw, references, usageModelFilter: undefined, conflictingHosts: true };
-  }
-  const keepReference = (path: ReadonlyArray<string>, secretName: string) => {
-    const reference = valueAtPath(document, path);
-    if (!isSecretReference(reference)) return;
-    references.push({ path, reference, secretName });
-    setAtPath(document, path, "");
-  };
+  if (hasConflictingCredentialHosts(document))
+    return { raw, usageModelFilter: undefined, conflictingHosts: true };
   const hosts = document.sourceControlHosts;
   if (isSettingsObject(hosts)) {
-    for (const [kind, fields] of Object.entries(hosts)) {
+    for (const fields of Object.values(hosts)) {
       if (!isSettingsObject(fields) || !isSettingsObject(fields.tokens)) continue;
-      for (const [host, reference] of Object.entries(fields.tokens)) {
-        if (!isSecretReference(reference)) continue;
-        const normalizedHost = host.trim().toLowerCase();
-        Reflect.deleteProperty(fields.tokens, host);
-        const path = ["sourceControlHosts", kind, "tokens", normalizedHost];
-        setAtPath(document, path, reference);
-        keepReference(
-          path,
-          sourceControlHostSecretName({ kind, field: "tokens", serverHost: normalizedHost }),
-        );
-      }
-    }
-  }
-  const sources = document.usageLimitSources;
-  if (isSettingsObject(sources)) {
-    for (const id of Object.keys(sources)) {
-      keepReference(
-        ["usageLimitSources", id, "managementKey"],
-        `usage-limit-source-${Buffer.from(id).toString("base64url")}`,
-      );
+      Object.assign(fields, {
+        tokens: Object.fromEntries(
+          Object.entries(fields.tokens).map(([host, value]) => [host.trim().toLowerCase(), value]),
+        ),
+      });
     }
   }
   return {
-    raw: references.length > 0 ? JSON.stringify(document) : raw,
-    references,
-    usageModelFilter: document.usageModelFilter,
+    raw: JSON.stringify(document),
+    usageModelFilter: Object.hasOwn(ServerSettings.fields, "usageModelFilter")
+      ? undefined
+      : document.usageModelFilter,
     conflictingHosts: false,
   };
 };
 
-const restoreForwardSettingsReferences = (
-  raw: string,
-  references: ReadonlyArray<ForwardSettingsReference>,
-  usageModelFilter: unknown,
-) => {
-  if (references.length === 0 && usageModelFilter === undefined) return raw;
+const restoreForwardUsageModelFilter = (raw: string, usageModelFilter: unknown) => {
+  if (usageModelFilter === undefined) return raw;
   const document: unknown = JSON.parse(raw);
   if (!isSettingsObject(document)) throw new Error("Expected settings object");
-  for (const { path, reference } of references) setAtPath(document, path, reference);
-  if (usageModelFilter !== undefined) setAtPath(document, ["usageModelFilter"], usageModelFilter);
-  return JSON.stringify(document, null, 2);
+  return JSON.stringify({ ...document, usageModelFilter }, null, 2);
 };
 const LegacyProviderSettingsJson = fromLenientJson(
   Schema.Struct({
@@ -525,17 +531,14 @@ const legacyGitHubTokenSecretName = (host: string) =>
 
 function migrateLegacySourceControlSettings(
   settings: ServerSettings,
-  legacy: {
-    readonly bitbucket?: Readonly<Record<string, unknown>> | undefined;
-    readonly github?: Readonly<Record<string, unknown>> | undefined;
-  },
+  legacy: ServerSettings["sourceControlHosts"],
 ): {
   readonly settings: ServerSettings;
   readonly secretMoves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
-  if (legacy.bitbucket !== undefined && sourceControlHosts.bitbucket === undefined) {
+  if (legacy.bitbucket !== undefined) {
     sourceControlHosts.bitbucket = legacy.bitbucket;
     for (const [field, from] of Object.entries(LEGACY_BITBUCKET_SECRET_NAMES)) {
       if (legacy.bitbucket[field] !== SECRET_REDACTED) continue;
@@ -545,10 +548,11 @@ function migrateLegacySourceControlSettings(
       });
     }
   }
-  if (legacy.github !== undefined && sourceControlHosts.github === undefined) {
+  if (legacy.github !== undefined) {
     sourceControlHosts.github = legacy.github;
-    for (const [serverHost, value] of readSecretFieldValues(legacy.github.tokens)) {
-      if (serverHost === null || value !== SECRET_REDACTED) continue;
+    const tokens = legacy.github.tokens;
+    for (const [serverHost, value] of isSettingsObject(tokens) ? Object.entries(tokens) : []) {
+      if (value !== SECRET_REDACTED) continue;
       secretMoves.push({
         from: legacyGitHubTokenSecretName(serverHost),
         to: sourceControlHostSecretName({ kind: "github", field: "tokens", serverHost }),
@@ -788,6 +792,7 @@ const make = Effect.gen(function* () {
   const watcherScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
+  // Buffered changes carry the credentials resolved before another version can replace them.
   const emitChange = (settings: ServerSettings) =>
     PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
 
@@ -813,7 +818,6 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const protectedSettingsSecrets = new WeakMap<ServerSettings, ReadonlySet<string>>();
   const conflictingHostsError = () =>
     new ServerSettingsError({
       settingsPath,
@@ -822,18 +826,14 @@ const make = Effect.gen(function* () {
     });
 
   const writeSettingsAtomically = Effect.fnUntraced(
-    function* (
-      settings: ServerSettings,
-      references: ReadonlyArray<ForwardSettingsReference> = [],
-      usageModelFilter?: unknown,
-    ) {
+    function* (settings: ServerSettings, usageModelFilter?: unknown) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
         stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {},
       );
 
       return yield* writeFileStringAtomically({
         filePath: settingsPath,
-        contents: `${restoreForwardSettingsReferences(sparseSettingsJson, references, usageModelFilter)}\n`,
+        contents: `${restoreForwardUsageModelFilter(sparseSettingsJson, usageModelFilter)}\n`,
       }).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, pathService),
@@ -879,25 +879,26 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const loadSettingsFromDisk = Effect.gen(function* () {
+  const loadSettingsFromDisk = Effect.fn("ServerSettings.loadSettingsFromDisk")(function* (
+    usageLimitSourcesPatch?: ServerSettingsPatch["usageLimitSources"],
+  ) {
     let settings = DEFAULT_SERVER_SETTINGS;
     let legacyProviders: Readonly<Record<string, unknown>> | undefined;
-    let legacySourceControl: Parameters<typeof migrateLegacySourceControlSettings>[1] = {};
+    let legacySourceControl: ServerSettings["sourceControlHosts"] = {};
     let parseFailure = Option.none<unknown>();
-    let forwardReferences: ReadonlyArray<ForwardSettingsReference> = [];
     let forwardUsageModelFilter: unknown;
 
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
-      const compatible = readForwardSettingsReferences(raw);
+      const compatible = readSettingsCompatibility(raw);
       if (compatible.conflictingHosts) return yield* conflictingHostsError();
       const decoded = decodeServerSettingsJsonExit(compatible.raw);
       const legacySettings = decodeLegacyProviderSettingsJsonExit(raw);
       if (legacySettings._tag === "Success") {
         legacyProviders = legacySettings.value.providers;
         legacySourceControl = {
-          bitbucket: legacySettings.value.bitbucket,
-          github: legacySettings.value.github,
+          ...(legacySettings.value.bitbucket && { bitbucket: legacySettings.value.bitbucket }),
+          ...(legacySettings.value.github && { github: legacySettings.value.github }),
         };
       }
       if (decoded._tag === "Failure" || legacySettings._tag === "Failure") {
@@ -914,14 +915,7 @@ const make = Effect.gen(function* () {
         }
       } else {
         settings = decoded.value;
-        forwardReferences = compatible.references;
         forwardUsageModelFilter = compatible.usageModelFilter;
-        if (forwardReferences.length > 0) {
-          yield* Effect.logWarning(
-            "newer settings credentials are unavailable in this server version",
-            { count: forwardReferences.length },
-          );
-        }
       }
     }
     // Settings saved by a server that kept the mode in `compactIdleThreads` move
@@ -990,70 +984,103 @@ const make = Effect.gen(function* () {
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)
       : loaded;
-    // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
-    const legacySecretsCopied = yield* Effect.forEach(
-      settingsFileTrusted
-        ? migrateLegacySourceControlSettings(folded, legacySourceControl).secretMoves
-        : [],
-      (move) =>
-        secretStore.get(move.from).pipe(
-          Effect.flatMap((secret) =>
-            Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
-          ),
-          Effect.as(true),
-          Effect.catch(() =>
-            Effect.logWarning("failed to copy a source control secret to its new name", {
-              secretName: move.to,
-            }).pipe(Effect.as(false)),
-          ),
-        ),
-    ).pipe(Effect.map((copied) => copied.every(Boolean)));
-    const hasLegacySourceControl =
-      settingsFileTrusted &&
-      legacySecretsCopied &&
-      (legacySourceControl.bitbucket !== undefined || legacySourceControl.github !== undefined);
-    const sourceControlMigration = hasLegacySourceControl
-      ? migrateLegacySourceControlSettings(folded, legacySourceControl)
-      : { settings: folded, secretMoves: [] };
-    const migrated = settingsFileTrusted
-      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings)
+    const normalized = settingsFileTrusted
+      ? yield* normalizeSettingsSecretFields(folded, settingsPath)
       : folded;
-    if (
-      migrated !== loaded ||
-      (settingsFileTrusted && legacyProviders !== undefined) ||
-      hasLegacySourceControl
-    ) {
-      yield* writeSettingsAtomically(migrated, forwardReferences, forwardUsageModelFilter);
-      for (const move of sourceControlMigration.secretMoves) {
-        yield* secretStore.remove(move.from).pipe(Effect.ignore);
-      }
-    }
-    protectedSettingsSecrets.set(
-      migrated,
-      new Set(forwardReferences.map(({ secretName }) => secretName)),
+    yield* validateUsageLimitDestinations(normalized, usageLimitSourcesPatch, settingsPath);
+    const hasLegacySourceControl =
+      settingsFileTrusted && Object.keys(legacySourceControl).length > 0;
+    const { bitbucket, github } = legacySourceControl;
+    const sourceControlMigration = hasLegacySourceControl
+      ? migrateLegacySourceControlSettings(
+          normalized,
+          yield* normalizeSourceControlHostSecretFields(
+            {
+              ...(bitbucket !== undefined && normalized.sourceControlHosts.bitbucket === undefined
+                ? { bitbucket }
+                : {}),
+              ...(github !== undefined && normalized.sourceControlHosts.github === undefined
+                ? { github }
+                : {}),
+            },
+            settingsPath,
+          ),
+        )
+      : { settings: normalized, secretMoves: [] };
+    // Filesystem mutations can outlive cancellation, so finish them before releasing the permit.
+    return yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
+        const legacySecretsCopied = yield* Effect.forEach(
+          sourceControlMigration.secretMoves,
+          (move) =>
+            secretStore.get(move.from).pipe(
+              Effect.flatMap((secret) =>
+                Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
+              ),
+              Effect.as(true),
+              Effect.catch(() =>
+                Effect.logWarning("failed to copy a source control secret to its new name", {
+                  secretName: move.to,
+                }).pipe(Effect.as(false)),
+              ),
+            ),
+        ).pipe(Effect.map((copied) => copied.every(Boolean)));
+        if (!legacySecretsCopied) {
+          return {
+            settings: normalized,
+            parseFailure,
+            forwardUsageModelFilter,
+            pendingLegacySecretMigration: true,
+          };
+        }
+        const beforeMove = sourceControlMigration.settings;
+        const migrated = settingsFileTrusted
+          ? yield* moveInlineSettingsSecrets(beforeMove)
+          : beforeMove;
+        if (
+          folded !== loaded ||
+          migrated !== beforeMove ||
+          (settingsFileTrusted && legacyProviders !== undefined) ||
+          hasLegacySourceControl
+        ) {
+          yield* writeSettingsAtomically(migrated, forwardUsageModelFilter);
+          for (const move of sourceControlMigration.secretMoves) {
+            yield* secretStore.remove(move.from).pipe(Effect.ignore);
+          }
+        }
+        return {
+          settings: migrated,
+          parseFailure,
+          forwardUsageModelFilter,
+          pendingLegacySecretMigration: false,
+        };
+      }),
     );
-    return { settings: migrated, parseFailure, forwardReferences, forwardUsageModelFilter };
   });
 
-  const settingsCache = yield* Cache.makeWith((_key: typeof cacheKey) => loadSettingsFromDisk, {
+  const settingsCache = yield* Cache.makeWith((_key: typeof cacheKey) => loadSettingsFromDisk(), {
     capacity: 1,
     timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
   });
 
-  const getSettingsFromCache = Cache.get(settingsCache, cacheKey).pipe(
-    Effect.map((loaded) => loaded.settings),
-  );
-  const reloadSettings = Cache.invalidate(settingsCache, cacheKey).pipe(
-    Effect.andThen(Cache.get(settingsCache, cacheKey)),
-  );
+  // Cache.get interrupts and joins its abandoned loader before the caller releases the permit.
+  const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
+  const reloadSettings = Effect.fn("ServerSettings.reloadSettings")(function* (
+    usageLimitSourcesPatch?: ServerSettingsPatch["usageLimitSources"],
+  ) {
+    yield* Cache.invalidate(settingsCache, cacheKey);
+    if (usageLimitSourcesPatch === undefined) return yield* getSettingsFromCache;
+    const loaded = yield* loadSettingsFromDisk(usageLimitSourcesPatch);
+    yield* Cache.set(settingsCache, cacheKey, loaded);
+    return loaded;
+  });
 
   const materializeSettingsSecrets = Effect.fn("serverSettings.materializeSettingsSecrets")(
     function* (settings: ServerSettings): Effect.fn.Return<ServerSettings, ServerSettingsError> {
       const storedSecrets = new Map<string, string>();
       const pending = new Map<string, SettingsSecret>();
-      const protectedSecrets = protectedSettingsSecrets.get(settings);
       const readableSettings = mapSettingsSecrets(settings, (secret) => {
-        if (protectedSecrets?.has(secret.secretName)) return { value: "", redacted: false };
         if (secret.sensitive && secret.redacted) pending.set(secret.secretName, secret);
         return secret;
       });
@@ -1085,47 +1112,34 @@ const make = Effect.gen(function* () {
     },
   );
 
-  // Background sweeps read settings every few seconds; reading secret files each time is wasted.
-  // Every secret write rewrites the settings file, so a new cached object implies fresh secrets.
-  // A read that overlaps a secret write may see files a rollback then restores, so it is not kept.
+  // Background sweeps reuse the secrets resolved for the current cached settings.
   let materialized: { readonly source: ServerSettings; readonly value: ServerSettings } | null =
     null;
-  let secretWriteGeneration = 0;
-  const invalidateMaterialized = Effect.sync(() => {
-    secretWriteGeneration++;
-    materialized = null;
-  });
-  const getMaterializedSettings = getSettingsFromCache.pipe(
-    Effect.flatMap((source) => {
-      if (materialized?.source === source) return Effect.succeed(materialized.value);
-      const generation = secretWriteGeneration;
-      return materializeSettingsSecrets(source).pipe(
-        Effect.map(resolveTextGenerationProvider),
-        Effect.tap((value) =>
-          Effect.sync(() => {
-            if (generation === secretWriteGeneration) materialized = { source, value };
-          }),
-        ),
-      );
-    }),
+  const materializeCachedSettings = Effect.fn("ServerSettings.materializeCachedSettings")(
+    function* (source: ServerSettings) {
+      if (materialized?.source === source) return materialized.value;
+      const value = resolveTextGenerationProvider(yield* materializeSettingsSecrets(source));
+      materialized = { source, value };
+      return value;
+    },
   );
-
-  const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
-    changes.pipe(
-      Stream.mapEffect((settings) =>
-        materializeSettingsSecrets(settings).pipe(
-          Effect.catch((error: ServerSettingsError) =>
-            Effect.logWarning("failed to materialize settings secrets", {
-              operation: error.operation,
-              providerInstanceId: error.providerInstanceId,
-              environmentVariable: error.environmentVariable,
-              cause: error.cause,
-            }).pipe(Effect.as(settings)),
-          ),
-        ),
-      ),
-      Stream.map(resolveTextGenerationProvider),
-    );
+  const getMaterializedSettingsUnlocked = getSettingsFromCache.pipe(
+    Effect.flatMap(({ settings }) => materializeCachedSettings(settings)),
+  );
+  const getRoutingSettingsUnlocked = getSettingsFromCache.pipe(
+    Effect.flatMap((loaded) =>
+      Option.isSome(loaded.parseFailure)
+        ? Effect.fail(
+            new ServerSettingsError({
+              settingsPath,
+              operation: "read-file",
+              cause: loaded.parseFailure.value,
+            }),
+          )
+        : Effect.succeed(loaded.settings),
+    ),
+    Effect.map(resolveTextGenerationProvider),
+  );
 
   type SecretChange = {
     readonly secretName: string;
@@ -1145,7 +1159,7 @@ const make = Effect.gen(function* () {
       });
       const changes: SecretChange[] = [];
       const nextSecretNames = new Set<string>();
-      const settings = mapSettingsSecrets(next, (secret) => {
+      const settings = mapSettingsSecrets(withEchoedSecretReferences(current, next), (secret) => {
         const metadata = {
           secretName: secret.secretName,
           ...(secret.providerInstanceId !== undefined
@@ -1160,6 +1174,9 @@ const make = Effect.gen(function* () {
           return { value: secret.value, redacted: false };
         }
         const old = previous.get(secret.secretName);
+        if (secret.redacted && (!old?.sensitive || (!old.redacted && old.value.length === 0))) {
+          return { value: "", redacted: false };
+        }
         const inlineValue =
           old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
         const value = secret.redacted ? inlineValue : secret.value;
@@ -1176,7 +1193,12 @@ const make = Effect.gen(function* () {
         return { value: "", redacted: true };
       });
       for (const secret of previous.values()) {
-        if (!secret.sensitive || nextSecretNames.has(secret.secretName)) continue;
+        if (
+          !secret.sensitive ||
+          (!secret.redacted && secret.value.length === 0) ||
+          nextSecretNames.has(secret.secretName)
+        )
+          continue;
         if (changes.some((change) => change.secretName === secret.secretName)) continue;
         changes.push({
           kind: "remove",
@@ -1270,16 +1292,19 @@ const make = Effect.gen(function* () {
   };
 
   const updateAndPersistSettings = (
-    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
+    patch: ServerSettingsPatch,
+    mutation?: ProviderInstanceMutation,
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
+        yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
+        const prepared = yield* prepareSettingsPatch(patch, settingsPath);
         const {
           settings: current,
           parseFailure,
-          forwardReferences,
           forwardUsageModelFilter,
-        } = yield* reloadSettings;
+          pendingLegacySecretMigration,
+        } = yield* reloadSettings(prepared.usageLimitSources);
         if (Option.isSome(parseFailure)) {
           return yield* new ServerSettingsError({
             settingsPath,
@@ -1287,61 +1312,65 @@ const make = Effect.gen(function* () {
             cause: parseFailure.value,
           });
         }
-        const candidate = yield* update(current);
-        if (hasConflictingCredentialHosts(candidate)) return yield* conflictingHostsError();
-        const updated = mapSettingsSecrets(candidate, (secret) => secret);
-        if (forwardReferences.some(({ path }) => valueAtPath(updated, path) !== "")) {
+        if (pendingLegacySecretMigration) {
           return yield* new ServerSettingsError({
             settingsPath,
-            operation: "unsupported-secret-reference",
-            cause: "Update this credential with a server that supports secret references",
+            operation: "write-file",
+            cause: "Retry after the legacy source control secrets can be copied.",
           });
         }
+        const candidate = yield* applySettingsUpdate(current, prepared, settingsPath, mutation);
+        if (hasConflictingCredentialHosts(candidate)) return yield* conflictingHostsError();
+        const updated = yield* normalizeSettingsSecretFields(candidate, settingsPath);
         const persisted = yield* persistSettingsSecrets(current, updated);
-        const protectedSecrets = new Set(forwardReferences.map(({ secretName }) => secretName));
         const next = yield* normalizeServerSettings(persisted.settings);
-        protectedSettingsSecrets.set(next, protectedSecrets);
-        const materializedNext = yield* Effect.uninterruptibleMask(() =>
+        return yield* Effect.uninterruptible(
           Effect.gen(function* () {
-            yield* invalidateMaterialized;
-            const rollbackSecretChanges = yield* applySettingsSecretChanges(
-              persisted.changes.filter(({ secretName }) => !protectedSecrets.has(secretName)),
-            );
+            const rollbackSecretChanges = yield* applySettingsSecretChanges(persisted.changes);
             const materializedExit = yield* Effect.exit(materializeSettingsSecrets(next));
             if (Exit.isFailure(materializedExit)) {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(materializedExit.cause);
             }
             const writeExit = yield* Effect.exit(
-              writeSettingsAtomically(next, forwardReferences, forwardUsageModelFilter),
+              writeSettingsAtomically(next, forwardUsageModelFilter),
             );
             if (Exit.isFailure(writeExit)) {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(writeExit.cause);
             }
-            return materializedExit.value;
-          }).pipe(Effect.ensuring(invalidateMaterialized)),
+            yield* Cache.set(settingsCache, cacheKey, {
+              settings: next,
+              parseFailure: Option.none(),
+              forwardUsageModelFilter,
+              pendingLegacySecretMigration: false,
+            });
+            const resolved = resolveTextGenerationProvider(materializedExit.value);
+            materialized = { source: next, value: resolved };
+            yield* emitChange(resolved);
+            return resolved;
+          }),
         );
-        yield* Cache.set(settingsCache, cacheKey, {
-          settings: next,
-          parseFailure: Option.none(),
-          forwardReferences,
-          forwardUsageModelFilter,
-        });
-        const resolved = resolveTextGenerationProvider(materializedNext);
-        materialized = { source: next, value: resolved };
-        yield* emitChange(next);
-        return resolved;
       }),
     );
 
   const withSettingsSnapshot: ServerSettingsService["Service"]["withSettingsSnapshot"] = (use) =>
-    writeSemaphore.withPermits(1)(getMaterializedSettings.pipe(Effect.flatMap(use)));
+    writeSemaphore.withPermits(1)(getMaterializedSettingsUnlocked.pipe(Effect.flatMap(use)));
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
-      const { settings } = yield* reloadSettings;
-      yield* emitChange(settings);
+      const { settings } = yield* reloadSettings();
+      const resolved = yield* materializeCachedSettings(settings).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to materialize settings secrets", {
+            operation: error.operation,
+            providerInstanceId: error.providerInstanceId,
+            environmentVariable: error.environmentVariable,
+            cause: error.cause,
+          }).pipe(Effect.as(resolveTextGenerationProvider(settings))),
+        ),
+      );
+      yield* emitChange(resolved);
     }),
   );
 
@@ -1426,7 +1455,7 @@ const make = Effect.gen(function* () {
 
     const startup = Effect.gen(function* () {
       yield* startWatcher;
-      yield* reloadSettings;
+      yield* writeSemaphore.withPermits(1)(reloadSettings());
     });
 
     const startupExit = yield* Effect.exit(startup);
@@ -1441,44 +1470,16 @@ const make = Effect.gen(function* () {
   return {
     start,
     ready: Deferred.await(startedDeferred),
-    getRoutingSettings: Cache.get(settingsCache, cacheKey).pipe(
-      Effect.flatMap((loaded) =>
-        Option.isSome(loaded.parseFailure)
-          ? Effect.fail(
-              new ServerSettingsError({
-                settingsPath,
-                operation: "read-file",
-                cause: loaded.parseFailure.value,
-              }),
-            )
-          : Effect.succeed(loaded.settings),
-      ),
-      Effect.map(resolveTextGenerationProvider),
-    ),
-    getSettings: getMaterializedSettings,
-    updateSettings: (patch) =>
-      updateAndPersistSettings((current) =>
-        ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
-          Effect.andThen(applySettingsUpdate(current, patch, settingsPath)),
-        ),
-      ),
-
-    updateProviderInstance: (mutation, patch = {}) =>
-      updateAndPersistSettings((current) =>
-        Effect.gen(function* () {
-          yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
-          yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
-          return yield* applySettingsUpdate(current, patch, settingsPath, mutation);
-        }),
-      ),
+    getRoutingSettings: writeSemaphore.withPermits(1)(getRoutingSettingsUnlocked),
+    getSettings: writeSemaphore.withPermits(1)(getMaterializedSettingsUnlocked),
+    updateSettings: (patch) => updateAndPersistSettings(patch),
+    updateProviderInstance: (mutation, patch = {}) => updateAndPersistSettings(patch, mutation),
     withSettingsSnapshot,
     get streamChanges() {
-      return materializeChanges(Stream.fromPubSub(changesPubSub));
+      return Stream.fromPubSub(changesPubSub);
     },
     get subscribeChanges() {
-      return PubSub.subscribe(changesPubSub).pipe(
-        Effect.map((subscription) => materializeChanges(Stream.fromSubscription(subscription))),
-      );
+      return PubSub.subscribe(changesPubSub).pipe(Effect.map(Stream.fromSubscription));
     },
   } satisfies ServerSettingsService["Service"];
 });

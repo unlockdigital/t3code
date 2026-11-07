@@ -1,3 +1,4 @@
+import { APP_LINK_SCHEME } from "~/branding";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
@@ -297,7 +298,7 @@ export function useThreadActionMenu(input?: {
           }
           return;
         case "copy-thread":
-          void copyThreadReference(threadChipCopyTarget(threadRef, thread.title));
+          void copyThreadReference(threadChipCopyTarget(threadRef, thread.title, APP_LINK_SCHEME));
           return;
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });

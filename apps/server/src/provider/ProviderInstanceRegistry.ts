@@ -9,6 +9,10 @@ import {
   type SecretReference,
   secretReferencesInSettings,
   type ServerProvider,
+  type ServerSettings,
+  type ServerSettingsError,
+  type SettingsSecretSlot,
+  withSettingsSecrets,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -45,7 +49,7 @@ export class ProviderInstanceRegistry extends Context.Service<
 
 interface InstanceSecrets {
   readonly environment: ResolvedProviderInstanceEnvironment;
-  readonly config: Readonly<Record<string, string>>;
+  readonly config: ReadonlyArray<SettingsSecretSlot & { readonly value: string }>;
 }
 
 interface LiveEntry {
@@ -60,6 +64,24 @@ interface RegistryState {
   readonly unavailable: Ref.Ref<ReadonlyMap<ProviderInstanceId, ServerProvider>>;
   readonly changes: PubSub.PubSub<void>;
 }
+
+interface RegistrySnapshot {
+  readonly configMap: ProviderInstanceConfigMap;
+  readonly secretProviders?: ServerSettings["secretProviders"];
+}
+
+type RegistryInput<R> = {
+  readonly drivers: ReadonlyArray<AnyProviderDriver<R>>;
+} & (
+  | { readonly configMap: ProviderInstanceConfigMap }
+  | {
+      readonly snapshot: Required<RegistrySnapshot>;
+      readonly readCurrentSnapshot: Effect.Effect<Required<RegistrySnapshot>, ServerSettingsError>;
+    }
+);
+
+const configMapsEqual = (a: ProviderInstanceConfigMap, b: ProviderInstanceConfigMap): boolean =>
+  a === b || Equal.equals(Object.entries(a), Object.entries(b));
 
 const entryEqual = (a: ProviderInstanceConfig, b: ProviderInstanceConfig): boolean =>
   Equal.equals(a, b);
@@ -90,6 +112,7 @@ const withoutSecretReferences = (
 const readInstanceSecrets = Effect.fn("ProviderInstanceRegistry.readInstanceSecrets")(function* <R>(
   driver: AnyProviderDriver<R> | undefined,
   entry: ProviderInstanceConfig,
+  secretProviders: RegistrySnapshot["secretProviders"],
 ) {
   const variables = entry.environment ?? [];
   const configFields = configSecretReferences(driver, entry);
@@ -98,7 +121,9 @@ const readInstanceSecrets = Effect.fn("ProviderInstanceRegistry.readInstanceSecr
     ...configFields.map(({ reference }) => reference),
   ];
   const values =
-    references.length === 0 ? [] : yield* (yield* SecretResolver.SecretResolver).read(references);
+    references.length === 0
+      ? []
+      : yield* (yield* SecretResolver.SecretResolver).read(references, secretProviders);
   const unreadable: Array<string> = [];
   let index = 0;
   const environment: ResolvedProviderInstanceEnvironment = variables.flatMap((variable) => {
@@ -110,12 +135,12 @@ const readInstanceSecrets = Effect.fn("ProviderInstanceRegistry.readInstanceSecr
     }
     return [{ ...variable, value: secret, sensitive: true }];
   });
-  const config: Record<string, string> = {};
-  for (const { field } of configFields) {
+  const config = configFields.flatMap(({ field, key }) => {
     const secret = values[index++];
-    if (secret === undefined) unreadable.push(field);
-    else config[field] = secret;
-  }
+    if (secret !== undefined) return [{ field, key, value: secret }];
+    unreadable.push(field);
+    return [];
+  });
   const secrets: InstanceSecrets = { environment, config };
   return { secrets, unreadable };
 });
@@ -148,13 +173,22 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
   readonly rawInstanceId: string;
   readonly entry: ProviderInstanceConfig;
   readonly deferSecrets: boolean;
+  readonly secretProviders: RegistrySnapshot["secretProviders"];
 }): Effect.fn.Return<
   | { readonly kind: "live"; readonly live: LiveEntry }
   | { readonly kind: "unavailable"; readonly snapshot: ServerProvider },
   never,
   R | SecretResolver.SecretResolver
 > {
-  const { driversById, parentScope, instanceId, rawInstanceId, entry, deferSecrets } = input;
+  const {
+    driversById,
+    parentScope,
+    instanceId,
+    rawInstanceId,
+    entry,
+    deferSecrets,
+    secretProviders,
+  } = input;
   const driver = driversById.get(entry.driver);
   if (!driver) {
     return {
@@ -206,9 +240,9 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
     };
   }
   const { secrets, unreadable } = enabled
-    ? yield* readInstanceSecrets(driver, entry)
+    ? yield* readInstanceSecrets(driver, entry, secretProviders)
     : {
-        secrets: { environment: withoutSecretReferences(entry.environment ?? []), config: {} },
+        secrets: { environment: withoutSecretReferences(entry.environment ?? []), config: [] },
         unreadable: [],
       };
   // Starting with a blank credential would fail later with a less useful error, or fall back to
@@ -236,9 +270,9 @@ const buildEntry = Effect.fn("ProviderInstanceRegistry.buildEntry")(function* <R
       environment: secrets.environment,
       enabled,
       config:
-        Object.keys(secrets.config).length === 0
+        secrets.config.length === 0
           ? typedConfig
-          : { ...typedConfig, ...secrets.config },
+          : withSettingsSecrets(typedConfig, secrets.config),
     })
     .pipe(Effect.provideService(Scope.Scope, childScope), Effect.result);
   if (createResult._tag === "Failure") {
@@ -276,12 +310,12 @@ const makeReconcile = <R>(input: {
   readonly driversById: ReadonlyMap<ProviderDriverKind, AnyProviderDriver<R>>;
   readonly parentScope: Scope.Scope;
 }): ((
-  configMap: ProviderInstanceConfigMap,
+  snapshot: RegistrySnapshot,
   rebuild?: ReadonlySet<ProviderInstanceId>,
   deferSecrets?: boolean,
 ) => Effect.Effect<void, never, R | SecretResolver.SecretResolver>) => {
   const { state, driversById, parentScope } = input;
-  return (configMap, rebuild = new Set(), deferSecrets = false) =>
+  return ({ configMap, secretProviders }, rebuild = new Set(), deferSecrets = false) =>
     Effect.gen(function* () {
       const previousEntries = yield* Ref.get(state.entries);
       const previousUnavailable = yield* Ref.get(state.unavailable);
@@ -330,7 +364,7 @@ const makeReconcile = <R>(input: {
         }),
       ).pipe(Effect.map((perEntry) => perEntry.flat()));
       if (references.length > 0 && !deferSecrets) {
-        yield* (yield* SecretResolver.SecretResolver).read(references);
+        yield* (yield* SecretResolver.SecretResolver).read(references, secretProviders);
       }
 
       const builtEntries = new Map<ProviderInstanceId, LiveEntry>();
@@ -356,6 +390,7 @@ const makeReconcile = <R>(input: {
           rawInstanceId,
           entry,
           deferSecrets,
+          secretProviders,
         });
         if (result.kind === "live") {
           builtEntries.set(instanceId, result.live);
@@ -399,10 +434,7 @@ const makeReconcile = <R>(input: {
 
 export const makeProviderInstanceRegistry = Effect.fn(
   "ProviderInstanceRegistry.makeProviderInstanceRegistry",
-)(function* <R>(input: {
-  readonly drivers: ReadonlyArray<AnyProviderDriver<R>>;
-  readonly configMap: ProviderInstanceConfigMap;
-}): Effect.fn.Return<
+)(function* <R>(input: RegistryInput<R>): Effect.fn.Return<
   {
     readonly registry: ProviderInstanceRegistry["Service"];
     readonly mutator: ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutatorShape;
@@ -429,49 +461,61 @@ export const makeProviderInstanceRegistry = Effect.fn(
 
   const state: RegistryState = { entries, unavailable, changes };
   const reconcileWithR = makeReconcile({ state, driversById, parentScope });
-  const configMapRef = yield* Ref.make(input.configMap);
+  const seed: RegistrySnapshot =
+    "snapshot" in input ? input.snapshot : { configMap: input.configMap };
+  const readCurrentSnapshot = "snapshot" in input ? input.readCurrentSnapshot : undefined;
+  const snapshotRef = yield* Ref.make(seed);
   const semaphore = yield* Semaphore.make(1);
+  const applySnapshot = Effect.fn("ProviderInstanceRegistry.applySnapshot")(
+    (snapshot: RegistrySnapshot, rebuild?: ReadonlySet<ProviderInstanceId>) =>
+      Ref.set(snapshotRef, snapshot).pipe(Effect.andThen(reconcileWithR(snapshot, rebuild))),
+  );
+
   const reconcile: ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutatorShape["reconcile"] =
     (configMap) =>
       semaphore.withPermits(1)(
-        Ref.set(configMapRef, configMap).pipe(
-          Effect.andThen(reconcileWithR(configMap)),
-          Effect.provideContext(driverContext),
-        ),
+        (
+          readCurrentSnapshot ??
+          (configMap === undefined ? Ref.get(snapshotRef) : Effect.succeed({ configMap }))
+        ).pipe(Effect.flatMap(applySnapshot), Effect.provideContext(driverContext)),
       );
 
-  // Rebuilds an instance only when it was unavailable or its secrets changed, so a refresh does
-  // not restart providers whose credentials are the same.
   const reloadSecrets: ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutatorShape["reloadSecrets"] =
     Effect.fn("ProviderInstanceRegistry.reloadSecrets")(
       function* (instanceId) {
-        const configMap = yield* Ref.get(configMapRef);
+        const previous = yield* Ref.get(snapshotRef);
+        const snapshot = readCurrentSnapshot === undefined ? previous : yield* readCurrentSnapshot;
+        const { configMap, secretProviders } = snapshot;
         const targets = yield* Effect.filter(Object.entries(configMap), ([rawInstanceId, entry]) =>
           (instanceId === undefined || rawInstanceId === instanceId) &&
           secretReferencesOf(driversById, entry).length > 0
             ? isEntryEnabled(driversById, entry)
             : Effect.succeed(false),
         );
-        if (targets.length === 0) return;
+        if (targets.length === 0) {
+          if (!configMapsEqual(previous.configMap, configMap)) yield* applySnapshot(snapshot);
+          return;
+        }
         const resolver = yield* SecretResolver.SecretResolver;
         const references = targets.flatMap(([, entry]) => secretReferencesOf(driversById, entry));
         yield* resolver.invalidate(references);
-        yield* resolver.read(references);
+        yield* resolver.read(references, secretProviders);
         const live = yield* Ref.get(entries);
         const rebuild = new Set<ProviderInstanceId>();
         for (const [rawInstanceId, entry] of targets) {
           const current = live.get(ProviderInstanceId.make(rawInstanceId));
-          if (current === undefined) continue;
+          if (current === undefined || !entryEqual(current.entry, entry)) continue;
           const { secrets, unreadable } = yield* readInstanceSecrets(
             driversById.get(entry.driver),
             entry,
+            secretProviders,
           );
           // A failed re-read keeps the working instance and the value it already holds.
           if (unreadable.length === 0 && !Equal.equals(secrets, current.secrets)) {
             rebuild.add(current.instance.instanceId);
           }
         }
-        yield* reconcileWithR(configMap, rebuild);
+        yield* applySnapshot(snapshot, rebuild);
       },
       (effect) => semaphore.withPermits(1)(effect),
       Effect.provideContext(driverContext),
@@ -479,12 +523,9 @@ export const makeProviderInstanceRegistry = Effect.fn(
 
   // Reading secrets can wait on a vault unlock, so the server does not wait for it to start.
   yield* semaphore.withPermits(1)(
-    Ref.set(configMapRef, input.configMap).pipe(
-      Effect.andThen(reconcileWithR(input.configMap, new Set(), true)),
-      Effect.provideContext(driverContext),
-    ),
+    reconcileWithR(seed, new Set(), true).pipe(Effect.provideContext(driverContext)),
   );
-  const startupReferences = yield* Effect.filter(Object.entries(input.configMap), ([, entry]) =>
+  const startupReferences = yield* Effect.filter(Object.entries(seed.configMap), ([, entry]) =>
     secretReferencesOf(driversById, entry).length > 0
       ? isEntryEnabled(driversById, entry)
       : Effect.succeed(false),
@@ -492,17 +533,30 @@ export const makeProviderInstanceRegistry = Effect.fn(
     Effect.map((targets) => targets.flatMap(([, entry]) => secretReferencesOf(driversById, entry))),
   );
   if (startupReferences.length > 0) {
-    // The read waits outside the lock so other mutations are not held for a vault prompt; a
-    // configuration saved meanwhile has already reconciled itself.
     yield* Effect.gen(function* () {
-      yield* (yield* SecretResolver.SecretResolver).read(startupReferences);
+      yield* (yield* SecretResolver.SecretResolver).read(startupReferences, seed.secretProviders);
       yield* semaphore.withPermits(1)(
         Effect.gen(function* () {
-          const current = yield* Ref.get(configMapRef);
-          if (current === input.configMap) yield* reconcileWithR(current);
+          if ((yield* Ref.get(snapshotRef)) !== seed) return;
+          // A save can commit before the settings watcher acquires the registry permit.
+          const current = readCurrentSnapshot === undefined ? seed : yield* readCurrentSnapshot;
+          if (
+            configMapsEqual(seed.configMap, current.configMap) &&
+            Equal.equals(seed.secretProviders, current.secretProviders)
+          ) {
+            yield* reconcileWithR(seed);
+          }
         }),
       );
-    }).pipe(Effect.provideContext(driverContext), Effect.forkScoped);
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logError("ProviderInstanceRegistry startup settings read failed", {
+          operation: error.operation,
+        }),
+      ),
+      Effect.provideContext(driverContext),
+      Effect.forkScoped,
+    );
   }
 
   const registry: ProviderInstanceRegistry["Service"] = {
@@ -532,10 +586,9 @@ export const makeProviderInstanceRegistry = Effect.fn(
   return { registry, mutator };
 });
 
-export const layer = <R>(input: {
-  readonly drivers: ReadonlyArray<AnyProviderDriver<R>>;
-  readonly configMap: ProviderInstanceConfigMap;
-}): Layer.Layer<
+export const layer = <R>(
+  input: RegistryInput<R>,
+): Layer.Layer<
   ProviderInstanceRegistry | ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator,
   never,
   R | SecretResolver.SecretResolver

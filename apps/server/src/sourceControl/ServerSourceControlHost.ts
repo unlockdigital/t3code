@@ -24,7 +24,7 @@ export const layer = Layer.effect(
         getWithSecrets: (kind) =>
           serverSettings.getSettings.pipe(
             Effect.flatMap((settings) =>
-              resolveSourceControlHostSecrets(secrets, settings.sourceControlHosts, kind).pipe(
+              resolveSourceControlHostSecrets(secrets, settings, kind).pipe(
                 Effect.map((sourceControlHosts) =>
                   sourceControlHosts === settings.sourceControlHosts
                     ? settings

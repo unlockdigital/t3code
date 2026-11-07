@@ -67,7 +67,11 @@ it.effect(
       });
       assert.notInclude(JSON.stringify(result), "admin_synthetic_key");
       assert.notInclude(
-        JSON.stringify(ServerSettings.redactServerSettingsForClient(yield* settings.getSettings)),
+        JSON.stringify(
+          ServerSettings.redactServerSettingsForClient(yield* settings.getSettings, {
+            secretReferences: true,
+          }),
+        ),
         "admin_synthetic_key",
       );
     }).pipe(Effect.provide(fixture("admin_synthetic_key"))),
@@ -168,7 +172,11 @@ it.effect(
         consoleBilling: encodeClaudeConsoleBillingConnection(connection),
       });
       assert.notInclude(
-        JSON.stringify(ServerSettings.redactServerSettingsForClient(yield* settings.getSettings)),
+        JSON.stringify(
+          ServerSettings.redactServerSettingsForClient(yield* settings.getSettings, {
+            secretReferences: true,
+          }),
+        ),
         connection.organizationId,
       );
     }).pipe(Effect.provide(claudeFixture())),

@@ -221,6 +221,7 @@ vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
 }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
+vi.mock("expo-linking", () => ({ resolveScheme: () => "t3code-unlock" }));
 vi.mock("expo-image", () => ({}));
 vi.mock("uniwind", () => ({}));
 vi.mock("../components/ui/Dialog", () => ({}));
@@ -268,7 +269,7 @@ vi.mock("./openExternalUrl", () => ({}));
 vi.mock("./attachmentDownload", () => ({}));
 vi.mock("./uuid", () => ({}));
 vi.mock("../features/threads/thread-context-divider", () => ({}));
-vi.mock("../features/threads/thread-handoff-row", () => ({}));
+vi.mock("../features/threads/thread-handoff-row", () => ({ ThreadModelSwitchDivider: () => null }));
 vi.mock("../features/threads/ThreadGuestShareBar", () => ({ useThreadGuestShare: () => null }));
 vi.mock("../features/threads/SecretRequestCard", () => ({}));
 vi.mock("../features/threads/LinkRequestCard", () => ({ LinkRequestCard: () => null }));

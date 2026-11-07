@@ -170,7 +170,7 @@ minimumReleaseAgeExclude:
   - expo-sharing@58.0.19
   - expo-sqlite@58.0.13
   - expo-symbols@58.0.4
-  - electron@44.10.1
+  - electron@44.10.2
   - undici@8.12.2
   - undici@7.30.1
   - undici@6.29.1
@@ -383,7 +383,10 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
+  # Embedded Zod array bounds and qs comma coercion (GHSA-6pq8-jhm2-2vcw).
   "@anthropic-ai/claude-agent-sdk@0.3.276": patches/@anthropic-ai__claude-agent-sdk@0.3.276.patch
+  # Embedded fast-uri raw scheme validation (GHSA-w74x-v6f9-j3xg).
+  "@cursor/sdk@1.0.38": patches/@cursor__sdk@1.0.38.patch
   react-native-image-viewing@0.2.2: patches/react-native-image-viewing@0.2.2.patch
   mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
   micromark-extension-llm-math@3.1.0: patches/micromark-extension-llm-math@3.1.0.patch

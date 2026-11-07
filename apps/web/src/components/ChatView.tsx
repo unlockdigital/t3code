@@ -1,3 +1,5 @@
+import { APP_LINK_SCHEME } from "~/branding";
+import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -234,7 +236,7 @@ import {
   primaryServerKeybindingsAtom,
   serverEnvironment,
 } from "../state/server";
-import { threadEnvironment, useThreadFamily } from "../state/threads";
+import { threadEnvironment } from "../state/threads";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
 import {
@@ -483,14 +485,6 @@ export default function ChatView(props: ChatViewProps) {
   });
   const serverThreadProjection = useQuietThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
-  // Subagent rows, an open child's own row and its ancestors come from the family when the shell
-  // leaves idle children out. Every source agrees on the root, so the key never flips.
-  useThreadFamily(
-    routeKind === "server" ? environmentId : null,
-    serverThreadShell?.lineage.rootThreadId ??
-      serverProjection?.thread.lineage.rootThreadId ??
-      null,
-  );
   // Only the shell-less fallback needs these; with a shell, the shell carries them.
   const fallbackDetailRef = serverThreadShell === null ? routeThreadDetailRef : null;
   const fallbackUpdatedAt = useThreadUpdatedAt(fallbackDetailRef);
@@ -2336,6 +2330,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef === null || !isServerThread
       ? null
       : resolveThreadReferenceCopyTarget({
+          appScheme: APP_LINK_SCHEME,
           threadRef: activeThreadRef,
           title: activeThread?.title ?? "",
           openPanelPullRequestUrl,
@@ -3194,6 +3189,11 @@ export default function ChatView(props: ChatViewProps) {
     (folders: Parameters<ChatComposerHandle["addDroppedFolders"]>[0]) =>
       composerRef.current?.addDroppedFolders(folders),
   );
+  // Above the early return, where React Compiler can cache it for the side chat pane.
+  const sideChatParentPanel = {
+    openToolDiff: onOpenToolDiffStable,
+    runShellCommand: runSideChatShellCommandStable,
+  };
 
   if (!activeThread) {
     return embedded ? null : <NoActiveThreadState />;
@@ -3213,10 +3213,7 @@ export default function ChatView(props: ChatViewProps) {
       getShortcutContext={getShortcutContextStable}
       onSendAnnotation={sendPreviewAnnotationStable}
       onCloseSurface={closeRightPanelSurface}
-      sideChatParentPanel={{
-        openToolDiff: onOpenToolDiffStable,
-        runShellCommand: runSideChatShellCommandStable,
-      }}
+      sideChatParentPanel={sideChatParentPanel}
       terminal={{
         launchContext: activeTerminalLaunchContext ?? null,
         keybindings,
@@ -3554,6 +3551,7 @@ export default function ChatView(props: ChatViewProps) {
                         : undefined
                     }
                   >
+                    <ChildThreadApprovals threadRef={activeThreadRef} />
                     <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                       <ComposerSurface.Host
                         inert={queuedRunEdit.isSaving}

@@ -157,6 +157,9 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
 
           expect(sessionsTarget).toBe(path.join(sharedHome, "sessions"));
           expect(configTarget).toBe(path.join(sharedHome, "config.toml"));
+          expect(
+            yield* fileSystem.readLink(path.join(shadowHome, "session_index.jsonl.lock")),
+          ).toBe(path.join(sharedHome, "session_index.jsonl.lock"));
           expect(mcpOauthLocksTarget).toBe(path.join(sharedHome, "mcp-oauth-locks"));
           expect(modelsCacheExists).toBe(false);
           expect(authLinkResult._tag).toBe("Failure");

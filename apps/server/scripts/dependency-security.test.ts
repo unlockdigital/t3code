@@ -1,5 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import { checkDependencySecurity } from "./dependency-security.ts";
+import {
+  checkDependencySecurity,
+  checkInstalledClaudeSdk,
+  checkInstalledCursorSdk,
+} from "./dependency-security.ts";
 
 const lock = (entries: string) =>
   `lockfileVersion: '9.0'\nimporters: {}\npackages:\n  /bootstrap@1.0.0:\n    version: 1.0.0\n---\nimporters:\n  apps/server: {}\n  apps/desktop: {}\npackages:\n${entries || "  {}"}`;
@@ -14,6 +18,7 @@ describe("checkDependencySecurity", () => {
           "  /undici@8.12.2-beta.1:\n    version: 8.12.2-beta.1",
           "  /undici@6.29.1:\n    version: 6.29.1",
           "  /zod@3.25.0:\n    version: 3.25.0",
+          "  /electron@44.10.1:\n    version: 44.10.1",
         ].join("\n"),
       ),
     );
@@ -22,11 +27,13 @@ describe("checkDependencySecurity", () => {
       { name: "@modelcontextprotocol/sdk", version: "1.31.0" },
       { name: "undici", version: "8.12.2-beta.1" },
       { name: "undici", version: "6.29.1" },
+      { name: "electron", version: "44.10.1" },
     ]);
     expect(result.violations).toEqual([
       { name: "undici", version: "7.29.0", minimum: "7.30.1" },
       { name: "@modelcontextprotocol/sdk", version: "1.31.0", minimum: "1.32.0" },
       { name: "undici", version: "8.12.2-beta.1", minimum: "8.12.2" },
+      { name: "electron", version: "44.10.1", minimum: "44.10.2" },
     ]);
   });
 
@@ -47,11 +54,21 @@ describe("checkDependencySecurity", () => {
   });
 });
 
-it("inspects the active server SDK against the approved bundle", async () => {
-  const { checkInstalledClaudeSdk } = await import("./dependency-security.ts");
+it("matches the active Claude SDK to the approved bundle", async () => {
   const sdk = await checkInstalledClaudeSdk();
   expect(sdk.path).toContain("claude-agent-sdk");
   expect(sdk.version).toBe(sdk.expectedVersion);
-  expect(sdk.sha256).toMatch(/^[a-f0-9]{64}$/);
-  expect(sdk.violations.length).toBe(sdk.sha256 === sdk.expectedSha256 ? 0 : 1);
+  expect(sdk.sha256).toBe(sdk.expectedSha256);
+  expect(sdk.violations).toEqual([]);
+});
+
+it("matches all active Cursor SDK entry formats to the approved bundles", async () => {
+  const sdk = await checkInstalledCursorSdk();
+  expect(sdk.version).toBe(sdk.expectedVersion);
+  expect(sdk.bundles.map(({ file }) => file)).toEqual([
+    "dist/cjs/704.js",
+    "dist/esm/704.js",
+    "dist/bundled/index.js",
+  ]);
+  expect(sdk.violations).toEqual([]);
 });
