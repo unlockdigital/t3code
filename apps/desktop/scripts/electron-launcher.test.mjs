@@ -8,6 +8,7 @@ import * as NodeVM from "node:vm";
 import { assert, describe, it } from "vite-plus/test";
 
 import {
+  buildMacNativeLauncher,
   makeDevelopmentEnvironmentScript,
   makeDevelopmentLauncherScript,
   resolveElectronBinaryPath,
@@ -16,6 +17,30 @@ import {
 } from "./electron-launcher.mjs";
 
 describe("electron development launcher", () => {
+  // oxlint-disable-next-line t3code/no-global-process-runtime -- The native launcher uses macOS executable APIs.
+  it.skipIf(NodeOS.platform() !== "darwin")(
+    "forwards arguments and exit status through the native app entry point",
+    () => {
+      const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-native-launcher-"));
+      try {
+        const executableDirectory = NodePath.join(directory, "T3 Code's App.app/Contents/MacOS");
+        const resourcesDirectory = NodePath.join(executableDirectory, "../Resources");
+        NodeFS.mkdirSync(executableDirectory, { recursive: true });
+        NodeFS.mkdirSync(resourcesDirectory);
+        const executable = NodePath.join(executableDirectory, "Launcher");
+        const script = NodePath.join(resourcesDirectory, "dev-launcher.sh");
+        buildMacNativeLauncher(executable);
+        NodeFS.writeFileSync(script, '#!/bin/sh\nprintf "%s\\n" "$@"\nexit 37\n');
+        const arguments_ = ["t3code-dev://thread/example?label=two words", "a'b", "日本語"];
+        const result = NodeChildProcess.spawnSync(executable, arguments_, { encoding: "utf8" });
+        assert.equal(result.status, 37, result.stderr);
+        assert.equal(result.stdout, `${arguments_.join("\n")}\n`);
+      } finally {
+        NodeFS.rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("uses captured values only as fallbacks for a live runner environment", () => {
     const environmentScript = makeDevelopmentEnvironmentScript({
       VITE_DEV_SERVER_URL: "http://127.0.0.1:8526",
@@ -55,9 +80,9 @@ describe("electron development launcher", () => {
   });
 
   // oxlint-disable-next-line t3code/no-global-process-runtime -- The generated macOS launcher requires a POSIX shell.
-  it.skipIf(NodeOS.platform() === "win32")(
+  it.skipIf(NodeOS.platform() === "win32").each([false, true])(
     "boots the configured development stack when opened outside its runner",
-    () => {
+    (captureLaunchScript) => {
       const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-dock-launcher-"));
       try {
         const stackPath = NodePath.join(directory, "start stack's services");
@@ -74,15 +99,15 @@ describe("electron development launcher", () => {
           environmentPath,
           makeDevelopmentEnvironmentScript({ T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT: stackPath }),
         );
-        NodeFS.writeFileSync(
-          launcherPath,
-          makeDevelopmentLauncherScript({
-            electronBinaryPath: electronPath,
-            mainEntryPath: "/repo/main.cjs",
-            desktopRoot: "/repo/apps/desktop",
-            environmentFilePath: environmentPath,
-          }),
-        );
+        const launcher = makeDevelopmentLauncherScript({
+          electronBinaryPath: electronPath,
+          mainEntryPath: "/repo/main.cjs",
+          desktopRoot: "/repo/apps/desktop",
+          environmentFilePath: environmentPath,
+          launchScriptPath: captureLaunchScript ? stackPath : undefined,
+        });
+        assert.notInclude(launcher, "/usr/bin/open");
+        NodeFS.writeFileSync(launcherPath, launcher);
         const environment = { ...process.env };
         delete environment.T3CODE_DESKTOP_DEV_LAUNCH_SCRIPT;
         delete environment.T3CODE_DESKTOP_DEV_LAUNCH_ACTIVE;
@@ -104,6 +129,13 @@ describe("electron development launcher", () => {
           managed.stdout,
           `electron\n--t3code-dev-root=/repo/apps/desktop\n/repo/main.cjs\n${deepLink}\n`,
         );
+
+        NodeFS.writeFileSync(stackPath, "#!/bin/sh\nexit 37\n", { mode: 0o755 });
+        const failed = NodeChildProcess.spawnSync("/bin/sh", [launcherPath], {
+          env: environment,
+          encoding: "utf8",
+        });
+        assert.equal(failed.status, 37, failed.stderr);
       } finally {
         NodeFS.rmSync(directory, { recursive: true, force: true });
       }
