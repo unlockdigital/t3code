@@ -18,7 +18,8 @@ const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
-const LAUNCHER_VERSION = 20;
+const LAUNCHER_VERSION = 21;
+const macLauncherSourcePath = NodePath.join(__dirname, "macos-development-launcher.c");
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,
   "assets",
@@ -137,11 +138,11 @@ export function makeDevelopmentLauncherScript({
 }) {
   return [
     "#!/bin/sh",
-    // Terminal supplies Documents access before the environment file is sourced.
+    // Finder/Dock launches hand service ownership to the configured supervisor.
     ...(launchScriptPath
       ? [
           'if [ "${T3CODE_DESKTOP_DEV_LAUNCH_ACTIVE:-}" != "1" ]; then',
-          `  exec /usr/bin/open -a Terminal ${shellSingleQuote(launchScriptPath)}`,
+          `  exec ${shellSingleQuote(launchScriptPath)} "$@"`,
           "fi",
         ]
       : []),
@@ -186,6 +187,28 @@ export function writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryP
   }
   NodeFS.writeFileSync(targetBinaryPath, script);
   NodeFS.chmodSync(targetBinaryPath, 0o755);
+  return true;
+}
+
+export function buildMacNativeLauncher(targetBinaryPath) {
+  runChecked("clang", [
+    "-Os",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    macLauncherSourcePath,
+    "-o",
+    targetBinaryPath,
+  ]);
+}
+
+function writeMacDevelopmentLauncher(targetBinaryPath, electronBinaryPath) {
+  const scriptPath = NodePath.resolve(targetBinaryPath, "../../Resources/dev-launcher.sh");
+  const scriptChanged = writeDevelopmentLauncherScript(scriptPath, electronBinaryPath);
+  if (NodeFS.existsSync(targetBinaryPath)) {
+    return scriptChanged;
+  }
+  buildMacNativeLauncher(targetBinaryPath);
   return true;
 }
 
@@ -377,6 +400,7 @@ function buildMacLauncher(electronBinaryPath) {
     iconMtimeMs: NodeFS.statSync(iconPath).mtimeMs,
     appBundleId: APP_BUNDLE_ID,
     appProtocolSchemes: APP_PROTOCOL_SCHEMES,
+    nativeLauncherMtimeMs: isDevelopment ? NodeFS.statSync(macLauncherSourcePath).mtimeMs : null,
   };
 
   const currentMetadata = readJson(metadataPath);
@@ -389,7 +413,7 @@ function buildMacLauncher(electronBinaryPath) {
     if (isDevelopment) {
       // Protocol activations bypass the dev runner, so refresh the fallback environment on every launch.
       writeDevelopmentEnvironmentScript();
-      if (writeDevelopmentLauncherScript(launcherBinaryPath, runtimeElectronBinaryPath)) {
+      if (writeMacDevelopmentLauncher(launcherBinaryPath, runtimeElectronBinaryPath)) {
         signMacLauncherBundle(targetAppBundlePath);
       }
     }
@@ -412,7 +436,7 @@ function buildMacLauncher(electronBinaryPath) {
   if (isDevelopment) {
     // Electron.app's executable name keeps default-app mode active without making app.isPackaged true.
     writeDevelopmentEnvironmentScript();
-    writeDevelopmentLauncherScript(launcherBinaryPath, runtimeElectronBinaryPath);
+    writeMacDevelopmentLauncher(launcherBinaryPath, runtimeElectronBinaryPath);
   }
   signMacLauncherBundle(targetAppBundlePath);
   NodeFS.writeFileSync(metadataPath, `${JSON.stringify(expectedMetadata, null, 2)}\n`);
