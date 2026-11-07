@@ -673,7 +673,10 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
             windows: [],
             unavailable: { reason: "probeFailed" },
           });
-          expect((yield* harness.provider.snapshot.refresh).usageLimits).toEqual(limits);
+          expect((yield* harness.provider.snapshot.refresh).usageLimits).toEqual({
+            ...limits,
+            unavailable: { reason: "probeFailed" },
+          });
           yield* harness.provider.onSignedOut;
           expect((yield* harness.provider.snapshot.getSnapshot).usageLimits).toBeUndefined();
           yield* Ref.set(usage, {

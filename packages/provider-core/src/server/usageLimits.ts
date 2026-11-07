@@ -121,7 +121,7 @@ export function resolveUsageLimitsAfterProbe(input: {
   if (
     probed?.unavailable?.reason === "probeFailed" &&
     published &&
-    published.unavailable?.reason !== "unsupported"
+    (published.prepaidBalance !== undefined || published.unavailable === undefined)
   ) {
     return { ...published, unavailable: probed.unavailable };
   }

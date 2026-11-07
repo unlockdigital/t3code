@@ -156,7 +156,7 @@ describe("resolveUsageLimitsAfterProbe", () => {
     const unsupported = { checkedAt, windows: [], unavailable: { reason: "unsupported" as const } };
     const stale = resolveUsageLimitsAfterProbe({ published, probed: failed });
     expect(stale).toEqual({ ...published, unavailable: failed.unavailable });
-    expect(resolveUsageLimitsAfterProbe({ published: stale, probed: failed })).toEqual(stale);
+    expect(resolveUsageLimitsAfterProbe({ published: stale, probed: failed })).toBe(failed);
     expect(resolveUsageLimitsAfterProbe({ published: stale, probed: published })).toEqual(
       published,
     );
