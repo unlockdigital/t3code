@@ -123,12 +123,11 @@ Provider billing links give account-wide charges and prepaid balances; standard 
 keys provide inference access, while organization billing APIs require administrative access.
 
 Codex cards show provider-reported usage credits separately from quota-reset credits when available. A provider can report that credits exist
-without disclosing their balance. Google cards show each Gemini model's reported allowance and
+without disclosing their balance; the card shows **Available** with that explanation. Google cards show each Gemini model's reported allowance and
 reset independently of the shared Claude/GPT allowance. Expand additional quotas to see every model.
 
 GitHub Copilot connections report account-wide AI credit or premium-request allowances through
-the signed-in Copilot CLI, including remaining credits and reported reset times. Chat and
-completion entitlements marked unlimited stay labeled **Unlimited**. Refresh Limits after
+the signed-in Copilot CLI, including remaining credits and reported reset times. Unlimited chat and completion entitlements are excluded from premium credit percentages. Refresh Limits after
 signing in or switching accounts to fetch the current account's allowance. These account quotas
 are separate from the recorded token and estimated-cost history under **Cost** and **Tokens**.
 

@@ -222,3 +222,36 @@ it("cancels a drop when a refresh removes a snapshot account", async () => {
   expect(labels(screen.container)).toEqual(["Work", "Research"]);
   expect(readUsagePagePreferences().accountOrder).toBeUndefined();
 });
+
+it("explains undisclosed credits and unsupported usage on each account", async () => {
+  const accounts: UsageAccount[] = [
+    {
+      ...samples[0]!,
+      label: "Lab",
+      limits: {
+        ...samples[0]!.limits!,
+        creditBalance: { hasCredits: true, unlimited: false },
+      },
+    },
+    { ...samples[1]!, label: "Local agent", limits: undefined },
+  ];
+  await using screen = await render(<Harness accounts={accounts} />);
+  await expect
+    .element(
+      screen
+        .getByRole("button", { name: "Credit details for Lab" })
+        .getByText("Available", { exact: true }),
+    )
+    .toBeVisible();
+  await expect
+    .element(
+      screen.getByText(
+        "Codex confirms credits are available; the account balance is not disclosed.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(screen.getByText("This connection has not reported account usage.", { exact: true }))
+    .toBeVisible();
+});

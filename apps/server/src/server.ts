@@ -459,6 +459,15 @@ const layerPreview = Layer.empty.pipe(
   Layer.provideMerge(layerPortScanner),
 );
 
+// Billing readers must be available when provider instances capture their services.
+const layerServerBrowser = ServerBrowser.layer.pipe(
+  Layer.provideMerge(DesktopBrowserChannel.layer),
+  Layer.provideMerge(PreviewBrowser.layer),
+  Layer.provideMerge(PreviewAutomationBroker.layer),
+  Layer.provideMerge(PreviewAgentActivity.layer),
+  Layer.provide(PreviewManager.layer),
+);
+
 const layerDevice = DeviceService.layer.pipe(
   Layer.provide(layerServerSettings),
   Layer.provide(ProcessRunner.layer),
@@ -685,6 +694,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(Layer.mergeAll(NativeAppIconResolver.layer, layerProjectFaviconResolver)),
   Layer.provideMerge(layerRepositoryIdentityResolver),
   Layer.provideMerge(CodexManagedTokenBroker.layer),
+  Layer.provideMerge(layerServerBrowser),
   Layer.provideMerge(layerServerEnvironment),
   Layer.provideMerge(layerAuth),
   Layer.provideMerge(ServerSecretStore.layer),
@@ -763,12 +773,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
   Layer.provide(layerPullRequestService),
-  // The same activity instance RunExecutionService reports to, by layer memoization.
-  Layer.provide(
-    ServerBrowser.layer.pipe(
-      Layer.provide(Layer.merge(DesktopBrowserChannel.layer, PreviewAgentActivity.layer)),
-    ),
-  ),
+  Layer.provide(layerServerBrowser),
   Layer.provide(PreviewBrowser.layer),
   // Links to other environments, shared by Settings (WebSocket) and agents (/mcp).
   Layer.provide(

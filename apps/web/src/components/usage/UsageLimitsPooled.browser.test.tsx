@@ -35,8 +35,8 @@ function managedChatGpt(instanceId: string, displayName: string): ServerProvider
   };
 }
 
-describe("UsageLimitsPooled ChatGPT usage card", () => {
-  it("names the managed connections it covers", async () => {
+describe("UsageLimitsPooled billing links", () => {
+  it("keeps billing links in account details without duplicate billing cards", async () => {
     const presentations = new Map([
       [
         EnvironmentId.make("desk"),
@@ -63,11 +63,17 @@ describe("UsageLimitsPooled ChatGPT usage card", () => {
       />,
     );
 
+    await expect.element(screen.getByRole("article", { name: "ChatGPT Work" })).toBeVisible();
     await expect
       .element(screen.getByText("ChatGPT Work on Desk, ChatGPT Personal on Desk"))
-      .toBeVisible();
+      .not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "Details for ChatGPT Work" }).click();
     await expect
-      .element(screen.getByText("View usage in ChatGPT with your connected account."))
+      .element(
+        screen.getByRole("button", {
+          name: "Open ChatGPT usage for ChatGPT Work",
+        }),
+      )
       .toBeVisible();
   });
 });
