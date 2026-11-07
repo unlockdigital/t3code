@@ -1697,6 +1697,39 @@ describe("usage account coverage", () => {
 });
 
 describe("external usage settings", () => {
+  it("keeps a connected Copilot account and its failed quota notice visible with a billing link", () => {
+    const message = "Copilot did not report premium usage.";
+    const copilot = provider({
+      instanceId: ProviderInstanceId.make("copilot"),
+      driver: ProviderDriverKind.make("acpRegistry"),
+      displayName: "Copilot account",
+      auth: { status: "authenticated" },
+      usageLimits: {
+        checkedAt: "2026-09-03T11:00:00.000Z",
+        windows: [],
+        unavailable: { reason: "probeFailed", message },
+        externalUsage: {
+          label: "GitHub Copilot usage",
+          url: "https://github.com/settings/copilot",
+        },
+      },
+    });
+    const presentations = new Map([
+      [
+        EnvironmentId.make("local"),
+        {
+          entry: { target: { label: "Local" } },
+          serverConfig: { providers: [copilot] },
+        },
+      ],
+    ]);
+    expect(collectUsageAccounts(presentations)).toMatchObject([
+      { label: "Copilot account", status: "Connected" },
+    ]);
+    expect(collectLimitNotices(presentations)).toEqual([`Copilot account: ${message}`]);
+    expect(collectLimitAccounts(presentations)).toEqual([]);
+  });
+
   it("deduplicates destinations across accounts and environments without inventing quota pools", () => {
     const managed = provider({
       usageLimits: {

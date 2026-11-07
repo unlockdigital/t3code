@@ -118,11 +118,12 @@ export function resolveUsageLimitsAfterProbe(input: {
   readonly probed: ServerProviderUsageLimits | undefined;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
-  if (probed?.unavailable?.reason === "probeFailed" && published?.prepaidBalance) {
+  if (
+    probed?.unavailable?.reason === "probeFailed" &&
+    published &&
+    published.unavailable?.reason !== "unsupported"
+  ) {
     return { ...published, unavailable: probed.unavailable };
-  }
-  if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
-    return published;
   }
   if (
     published &&

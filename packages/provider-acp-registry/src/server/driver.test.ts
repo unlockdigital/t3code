@@ -68,7 +68,7 @@ describe("acpRegistrySnapshotReadiness", () => {
           const result = { quotaSnapshots: { premium_interactions: {
             entitlementRequests: 1500, usedRequests: 6, remainingPercentage: 99.6,
             isUnlimitedEntitlement: false, tokenBasedBilling: true, hasQuota: true,
-            resetDate: '2026-11-01T00:00:00Z'
+            resetDate: null
           } } };
           const body = JSON.stringify({ jsonrpc: '2.0', id: request.id, result });
           process.stdout.write('Content-Length: ' + Buffer.byteLength(body) + '\\r\\n\\r\\n' + body);
@@ -109,7 +109,6 @@ describe("acpRegistrySnapshotReadiness", () => {
           kind: "monthly",
           label: "AI credits · 6 / 1,500",
           usedPercent: expect.closeTo(0.4, 5),
-          resetsAt: "2026-11-01T00:00:00.000Z",
         },
       ]);
       expect(provider.usageLimits?.creditBalance).toEqual({

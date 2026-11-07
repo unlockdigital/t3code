@@ -104,7 +104,7 @@ function AccountRow({
     : credits?.balance !== undefined
       ? Number(credits.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
       : credits?.hasCredits
-        ? "Unknown"
+        ? "Available"
         : "0";
   const summaryLimit = credits || isApi ? 2 : 3;
   const summaryWindows =
@@ -261,6 +261,12 @@ function AccountRow({
                   <span className="block text-lg font-semibold tabular-nums wrap-anywhere">
                     {creditValue}
                   </span>
+                  {credits.hasCredits && !credits.unlimited && credits.balance === undefined ? (
+                    <span className="block text-xs text-muted-foreground wrap-anywhere">
+                      {providerLabel} confirms credits are available; the account balance is not
+                      disclosed.
+                    </span>
+                  ) : null}
                 </button>
               </dd>
             </div>
@@ -272,7 +278,7 @@ function AccountRow({
                 {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
               </dt>
               <dd className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tabular-nums">
-                {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "Unknown"}
+                {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "Unavailable"}
                 {creditPercent !== null ? (
                   <span className="text-xs font-normal text-muted-foreground">
                     {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}% left
@@ -307,7 +313,10 @@ function AccountRow({
                 </div>
               ) : null}
               {!prepaidBalance ? (
-                <p className="text-xs text-muted-foreground">Balance unavailable</p>
+                <p className="text-xs text-muted-foreground">
+                  {limits?.unavailable?.message ??
+                    "Connect account billing access to read the balance."}
+                </p>
               ) : null}
             </div>
           ) : null}
@@ -315,9 +324,10 @@ function AccountRow({
             <div>
               <dt className="sr-only">Usage status</dt>
               <dd className="text-xs text-muted-foreground">
-                {limits?.unavailable?.reason === "probeFailed"
-                  ? "Refresh to retry usage"
-                  : "Usage unavailable"}
+                {limits?.unavailable?.message ??
+                  (limits?.unavailable?.reason === "probeFailed"
+                    ? "Usage could not be refreshed. Check this connection’s sign-in."
+                    : "This connection has not reported account usage.")}
               </dd>
             </div>
           ) : null}

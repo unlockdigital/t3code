@@ -34,7 +34,7 @@ describe("Copilot account usage", () => {
     expect(limits.creditBalance).toBeUndefined();
   });
 
-  it("preserves unlimited entitlement flags and the legacy -1 sentinel", () => {
+  it("keeps unlimited chat and completions separate from premium quota availability", () => {
     const limits = copilotUsageLimits(
       {
         quotaSnapshots: {
@@ -44,11 +44,55 @@ describe("Copilot account usage", () => {
       },
       checkedAt,
     );
+    expect(limits.unavailable?.reason).toBe("probeFailed");
+    expect(limits.windows).toEqual([]);
+  });
+
+  it("preserves unlimited premium credit entitlements", () => {
+    for (const fields of [
+      { entitlementRequests: 0, isUnlimitedEntitlement: true },
+      { entitlementRequests: -1 },
+    ]) {
+      const limits = copilotUsageLimits(
+        {
+          quotaSnapshots: {
+            premium_interactions: quota({ ...fields, tokenBasedBilling: true }),
+          },
+        },
+        checkedAt,
+      );
+      expect(limits.unavailable).toBeUndefined();
+      expect(limits.creditBalance).toEqual({ hasCredits: true, unlimited: true });
+    }
+  });
+
+  it("reports exhausted AI credits even when Copilot marks hasQuota false", () => {
+    const limits = copilotUsageLimits(
+      {
+        quotaSnapshots: {
+          premium_interactions: quota({
+            entitlementRequests: 1500,
+            usedRequests: 1500,
+            hasQuota: false,
+            tokenBasedBilling: true,
+            resetDate: checkedAt,
+          }),
+          chat: quota({ entitlementRequests: 0, usedRequests: 0, isUnlimitedEntitlement: true }),
+          completions: quota({ entitlementRequests: -1, usedRequests: 0 }),
+        },
+      },
+      checkedAt,
+    );
     expect(limits.unavailable).toBeUndefined();
-    expect(limits.windows.map((w) => [w.label, w.usedPercent, w.resetsAt])).toEqual([
-      ["Chat · Unlimited", 0, undefined],
-      ["Completions · Unlimited", 0, undefined],
+    expect(limits.windows).toEqual([
+      {
+        id: "copilot_premium_interactions",
+        kind: "monthly",
+        label: "AI credits · 1,500 / 1,500",
+        usedPercent: 100,
+      },
     ]);
+    expect(limits.creditBalance).toEqual({ hasCredits: false, unlimited: false, balance: "0" });
   });
 
   it("clamps exhausted credits and leaves a malformed reset unknown", () => {
