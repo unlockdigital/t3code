@@ -596,7 +596,12 @@ export function collectLimitNotices(presentations: LimitPresentations): readonly
     const environmentLabel = presentation.entry.target.label;
     for (const provider of presentation.serverConfig?.providers ?? []) {
       if (!provider.enabled || !provider.installed || !isProviderAvailable(provider)) continue;
-      if (provider.usageLimits?.externalUsage && provider.auth.status === "authenticated") continue;
+      if (
+        provider.usageLimits?.externalUsage &&
+        provider.auth.status === "authenticated" &&
+        provider.usageLimits.unavailable?.reason !== "probeFailed"
+      )
+        continue;
       const notice = provider.usageLimits
         ? limitsNotice(provider.usageLimits)
         : "Subscription limits are unavailable for this provider.";

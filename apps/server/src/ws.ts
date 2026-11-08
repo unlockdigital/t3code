@@ -573,6 +573,7 @@ const CoreWsRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.n2itionStatus,
   WS_METHODS.n2itionControl,
   WS_METHODS.n2itionRefresh,
+  WS_METHODS.n2itionReconnect,
   WS_METHODS.projectsGetBrief,
   WS_METHODS.projectsGenerateBrief,
   WS_METHODS.projectsClearBrief,
@@ -3381,6 +3382,13 @@ export const layerWsRpc = (
         ServerWsRpcGroup.toLayerHandler(
           WS_METHODS.n2itionRefresh,
           Effect.map(N2itionContext.N2itionContext, (service) => () => service.refresh),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionReconnect,
+          Effect.map(
+            N2itionContext.N2itionContext,
+            (service) => (input) => service.reconnect(input),
+          ),
         ),
       ),
     ),

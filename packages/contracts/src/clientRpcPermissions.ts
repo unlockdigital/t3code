@@ -26,6 +26,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.n2itionStatus]: AuthSettingsWriteScope,
   [WS_METHODS.n2itionControl]: AuthSettingsWriteScope,
   [WS_METHODS.n2itionRefresh]: AuthSettingsWriteScope,
+  [WS_METHODS.n2itionReconnect]: AuthSettingsWriteScope,
   [WS_METHODS.accountRoutingPreview]: AuthOrchestrationReadScope,
   [WS_METHODS.privacyGetHelperState]: AuthOrchestrationReadScope,
   [WS_METHODS.privacyDecideHelper]: AuthOrchestrationOperateScope,

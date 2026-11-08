@@ -1,6 +1,7 @@
 // @effect-diagnostics globalDate:off -- All dates derive from the injected Effect Clock for calendar projection and status serialization.
 import {
   decodeN2itionSnapshot,
+  type OrchestrationV2AppThread,
   type N2itionSnapshot,
   type ServerSettings,
 } from "@t3tools/contracts";
@@ -9,6 +10,7 @@ import {
   N2itionGrant,
   N2itionStatus,
   type N2itionControlInput,
+  type N2itionReconnectInput,
 } from "@t3tools/contracts/n2itionConnection";
 import * as DateTime from "effect/DateTime";
 import * as Clock from "effect/Clock";
@@ -32,11 +34,15 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as GrantStore from "./N2itionGrantStore.ts";
 import * as Transport from "./N2itionTransport.ts";
 import * as Settings from "../serverSettings.ts";
+import { providerConfigurationHash } from "@t3tools/shared/providerConfigurationHash";
+import { assertPrivateModelSelection } from "../privacy/modelRoutingPolicy.ts";
 import {
-  assertPrivateModelSelection,
-  isPrivateInferenceSelection,
-} from "../privacy/modelRoutingPolicy.ts";
-import { n2itionRouteBinding, n2itionSourceCredentialHash } from "./routeConsent.ts";
+  n2itionResolvedModel,
+  n2itionRouteBinding,
+  n2itionSourceCredentialHash,
+  n2itionVerifiedRouteBinding,
+} from "./routeConsent.ts";
+import * as RouteIdentity from "./N2itionRouteIdentity.ts";
 import {
   selectN2itionContext,
   type N2itionContextInput,
@@ -71,6 +77,9 @@ export class N2itionContext extends Context.Service<
     readonly control: (
       input: N2itionControlInput,
     ) => Effect.Effect<N2itionStatus, N2itionConnectionError>;
+    readonly reconnect: (
+      input: N2itionReconnectInput,
+    ) => Effect.Effect<N2itionStatus, N2itionConnectionError>;
     readonly refresh: Effect.Effect<N2itionStatus, N2itionConnectionError>;
     readonly sweep: Effect.Effect<void>;
   }
@@ -84,6 +93,7 @@ export const make = Effect.gen(function* () {
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const settingsService = yield* Settings.ServerSettingsService;
+  const routeIdentity = yield* Effect.serviceOption(RouteIdentity.N2itionRouteIdentity);
   const crypto = yield* Crypto.Crypto;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -169,6 +179,18 @@ export const make = Effect.gen(function* () {
       });
     return bytes.value;
   });
+  const inspect = Effect.fn("N2itionContext.inspectRoute")(function* (
+    thread: Pick<OrchestrationV2AppThread, "id" | "projectId" | "modelSelection">,
+    settings: ServerSettings,
+  ) {
+    if (Option.isNone(routeIdentity))
+      return yield* new N2itionConnectionError({ reason: "identity_unverified" });
+    const proofThread = { ...thread, threadId: thread.id };
+    const proof = yield* routeIdentity.value.inspect(proofThread, settings);
+    if (!Number.isFinite(proof.expiresAt) || proof.expiresAt <= (yield* Clock.currentTimeMillis))
+      return yield* new N2itionConnectionError({ reason: "identity_unverified" });
+    return proof;
+  });
   const authorize = Effect.fn("N2itionContext.authorize")(function* (
     scope?: McpInvocationScope,
     effectiveSnapshot?: ServerSettings,
@@ -193,7 +215,11 @@ export const make = Effect.gen(function* () {
         scope.n2itionGrantEpoch !== grant.epoch)
     )
       return yield* new N2itionConnectionError({ reason: "unauthorized" });
-    yield* grants.checkRouteFiles(grant);
+    const verifiedBinding =
+      grant.routeBinding && "version" in grant.routeBinding ? grant.routeBinding : undefined;
+    if (grant.source === "live" && (grant.model === "default" || grant.model === "auto"))
+      return yield* new N2itionConnectionError({ reason: "enrollment_required" });
+    if (!verifiedBinding) yield* grants.checkRouteFiles(grant);
     const thread = yield* threads
       .getThreadShell(grant.threadId)
       .pipe(Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })));
@@ -203,16 +229,14 @@ export const make = Effect.gen(function* () {
       thread.archivedAt !== null ||
       thread.providerInstanceId !== grant.providerInstanceId ||
       thread.modelSelection.instanceId !== grant.providerInstanceId ||
-      thread.modelSelection.model !== grant.model
+      (!verifiedBinding && thread.modelSelection.model !== grant.model)
     )
       return yield* new N2itionConnectionError({ reason: "route_changed" });
+    let proof: RouteIdentity.InferenceProof | undefined;
     if (grant.source === "live") {
       const settings = yield* settingsService.getRoutingSettings.pipe(
         Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })),
       );
-      // The approved isolated OpenCode/Tinfoil route is the qualified live path.
-      if (!isPrivateInferenceSelection(settings, thread.modelSelection))
-        return yield* new N2itionConnectionError({ reason: "route_changed" });
       yield* assertPrivateModelSelection(settings, thread, thread.modelSelection).pipe(
         Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })),
       );
@@ -221,7 +245,23 @@ export const make = Effect.gen(function* () {
         (yield* settingsService.getSettings.pipe(
           Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })),
         ));
-      const binding = n2itionRouteBinding(effective, thread, grant.routeFiles);
+      if (verifiedBinding) {
+        proof = yield* inspect(thread, effective);
+        if (
+          n2itionResolvedModel(thread.modelSelection.model, proof.identity) !== grant.model ||
+          providerConfigurationHash(proof.identity) !==
+            providerConfigurationHash(verifiedBinding.identity)
+        )
+          return yield* new N2itionConnectionError({ reason: "route_changed" });
+      }
+      const binding = proof
+        ? n2itionVerifiedRouteBinding(
+            effective,
+            thread,
+            proof.identity,
+            proof.routeFiles.map((file) => file.path),
+          )
+        : n2itionRouteBinding(effective, thread, grant.routeFiles);
       if (
         binding.providerConfigHash !== grant.routeBinding?.providerConfigHash ||
         binding.accountRouteHash !== grant.routeBinding?.accountRouteHash
@@ -229,7 +269,7 @@ export const make = Effect.gen(function* () {
         return yield* new N2itionConnectionError({ reason: "route_changed" });
       yield* readCredential(grant);
     }
-    return { grant, thread };
+    return { grant, thread, proof };
   });
   const withAuthorization = Effect.fn("N2itionContext.withAuthorization")(function* <A, E, R>(
     expected: N2itionGrant,
@@ -244,10 +284,10 @@ export const make = Effect.gen(function* () {
       settingsService
         .withSettingsSnapshot((effective) =>
           Effect.gen(function* () {
-            yield* authorize(scope, effective);
+            const { proof } = yield* authorize(scope, effective);
             if (!grants.withConsent)
               return yield* new N2itionConnectionError({ reason: "route_changed" });
-            return yield* grants.withConsent(expected, use);
+            return yield* grants.withConsent(expected, use, proof);
           }),
         )
         .pipe(
@@ -457,6 +497,81 @@ export const make = Effect.gen(function* () {
     lastError = null;
     return yield* status;
   });
+  const reconnect = Effect.fn("N2itionContext.reconnect")(function* (input: N2itionReconnectInput) {
+    const captured = yield* grants.read;
+    if (!captured) return yield* new N2itionConnectionError({ reason: "disabled" });
+    yield* threadDispatch
+      .withLock(
+        captured.threadId,
+        settingsService.withSettingsSnapshot((effective) =>
+          Effect.gen(function* () {
+            const grant = yield* grants.read;
+            if (!grant) return yield* new N2itionConnectionError({ reason: "disabled" });
+            if (grant.epoch !== input.expectedEpoch || grant.threadId !== captured.threadId)
+              return yield* new N2itionConnectionError({ reason: "changed" });
+            if (grant.environmentId !== (yield* environment.getEnvironmentId))
+              return yield* new N2itionConnectionError({ reason: "unauthorized" });
+            if (grant.mode === "revoked")
+              return yield* new N2itionConnectionError({ reason: "revoked" });
+            if (grant.source !== "live" || !grant.sourceCredentialHash)
+              return yield* new N2itionConnectionError({ reason: "enrollment_required" });
+            if (!grant.privacyVerified || !grant.sharedProcessAccepted)
+              return yield* new N2itionConnectionError({ reason: "privacy_required" });
+            if (Date.parse(grant.expiresAt) <= (yield* Clock.currentTimeMillis))
+              return yield* new N2itionConnectionError({ reason: "expired" });
+            const thread = yield* threads
+              .getThreadShell(grant.threadId)
+              .pipe(Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })));
+            if (
+              !thread ||
+              thread.deletedAt !== null ||
+              thread.archivedAt !== null ||
+              thread.providerInstanceId !== grant.providerInstanceId ||
+              thread.modelSelection.instanceId !== grant.providerInstanceId
+            )
+              return yield* new N2itionConnectionError({ reason: "route_changed" });
+            if (thread.modelSelection.model === "default" || thread.modelSelection.model === "auto")
+              return yield* new N2itionConnectionError({ reason: "enrollment_required" });
+            yield* assertPrivateModelSelection(effective, thread, thread.modelSelection).pipe(
+              Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })),
+            );
+            yield* readCredential(grant);
+            const proof = yield* inspect(thread, effective);
+            const model = n2itionResolvedModel(thread.modelSelection.model, proof.identity);
+            if (!model) return yield* new N2itionConnectionError({ reason: "route_changed" });
+            if (!grants.reenroll)
+              return yield* new N2itionConnectionError({ reason: "enrollment_required" });
+            yield* grants.reenroll(
+              {
+                ...grant,
+                model,
+                routeFiles: proof.routeFiles,
+                routeBinding: n2itionVerifiedRouteBinding(
+                  effective,
+                  thread,
+                  proof.identity,
+                  proof.routeFiles.map((file) => file.path),
+                ),
+              },
+              input.expectedEpoch,
+              proof,
+            );
+            cache = null;
+            cacheGrant = "";
+            nextCheckAt = 0;
+            lastError = null;
+          }),
+        ),
+      )
+      .pipe(
+        Effect.mapError((error) =>
+          isConnectionError(error)
+            ? error
+            : new N2itionConnectionError({ reason: "route_changed" }),
+        ),
+      );
+    return yield* status;
+  });
   const callerStatus = Effect.fn("N2itionContext.callerStatus")(function* (
     scope: McpInvocationScope,
   ) {
@@ -475,7 +590,7 @@ export const make = Effect.gen(function* () {
       return yield* new N2itionConnectionError({ reason: "unauthorized" });
     return yield* status;
   });
-  return N2itionContext.of({ status, read, callerStatus, control, refresh, sweep });
+  return N2itionContext.of({ status, read, callerStatus, control, reconnect, refresh, sweep });
 });
 export const layer = Layer.effect(
   N2itionContext,

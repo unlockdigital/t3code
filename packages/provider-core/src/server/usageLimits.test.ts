@@ -61,6 +61,8 @@ describe("applyUsageLimitsUpdate", () => {
   });
 
   it("returns the published object itself when no window moved", () => {
+    // Codex repeats the same numbers beside every token-usage tick; the
+    // ingestion path relies on identity to skip the publish.
     const next = applyUsageLimitsUpdate({
       previous: published,
       checkedAt: "2026-09-03T12:00:05.000Z",
@@ -154,7 +156,12 @@ describe("resolveUsageLimitsAfterProbe", () => {
   it("keeps the last good windows through a failed probe but not an unsupported one", () => {
     const failed = { checkedAt, windows: [], unavailable: { reason: "probeFailed" as const } };
     const unsupported = { checkedAt, windows: [], unavailable: { reason: "unsupported" as const } };
-    expect(resolveUsageLimitsAfterProbe({ published, probed: failed })).toBe(published);
+    const stale = resolveUsageLimitsAfterProbe({ published, probed: failed });
+    expect(stale).toEqual({ ...published, unavailable: failed.unavailable });
+    expect(resolveUsageLimitsAfterProbe({ published: stale, probed: failed })).toEqual(stale);
+    expect(resolveUsageLimitsAfterProbe({ published: stale, probed: published })).toEqual(
+      published,
+    );
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
   });

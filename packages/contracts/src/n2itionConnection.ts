@@ -18,6 +18,8 @@ export class N2itionConnectionError extends Schema.TaggedError<N2itionConnection
       "invalid_data",
       "rate_limited",
       "changed",
+      "identity_unverified",
+      "enrollment_required",
     ]),
   },
 ) {
@@ -27,6 +29,29 @@ export class N2itionConnectionError extends Schema.TaggedError<N2itionConnection
     return `N2ITION context: ${this.reason}.`;
   }
 }
+const Digest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+const BoundString = TrimmedNonEmptyString.check(Schema.isMaxLength(1024));
+export const N2itionInferenceIdentity = Schema.Struct({
+  version: Schema.Literal(1),
+  upstreamProvider: Schema.Literal("openai-codex"),
+  upstreamModel: BoundString,
+  endpoint: Schema.Literal("https://chatgpt.com/backend-api/codex"),
+  profileHome: BoundString,
+  credentialSource: BoundString,
+  accountHash: Digest,
+  runtimePolicyHash: Digest,
+});
+export type N2itionInferenceIdentity = typeof N2itionInferenceIdentity.Type;
+const LegacyRouteBinding = Schema.Struct({
+  providerConfigHash: Digest,
+  accountRouteHash: Digest,
+});
+const VerifiedRouteBinding = Schema.Struct({
+  version: Schema.Literal(2),
+  providerConfigHash: Digest,
+  accountRouteHash: Digest,
+  identity: N2itionInferenceIdentity,
+});
 export const N2itionGrant = Schema.Struct({
   version: Schema.Literal(1),
   environmentId: EnvironmentId,
@@ -42,12 +67,7 @@ export const N2itionGrant = Schema.Struct({
   privacyVerified: Schema.Boolean,
   sharedProcessAccepted: Schema.Boolean,
   // Optional decoding preserves owner controls for legacy grants; live reads require this binding.
-  routeBinding: Schema.optionalKey(
-    Schema.Struct({
-      providerConfigHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
-      accountRouteHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
-    }),
-  ),
+  routeBinding: Schema.optionalKey(Schema.Union([VerifiedRouteBinding, LegacyRouteBinding])),
   // Credential rotation requires explicit re-enrollment; optional decoding retains legacy controls.
   sourceCredentialHash: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
   // Metadata detects ordinary account/config changes; it provides no account attestation.
@@ -61,6 +81,10 @@ export const N2itionControlInput = Schema.Struct({
   expectedEpoch: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 export type N2itionControlInput = typeof N2itionControlInput.Type;
+export const N2itionReconnectInput = Schema.Struct({
+  expectedEpoch: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type N2itionReconnectInput = typeof N2itionReconnectInput.Type;
 export class N2itionStatus extends Schema.Class<N2itionStatus>("N2itionStatus")({
   localMode: Schema.NullOr(Schema.Literals(["active", "paused", "revoked"])),
   state: Schema.String,

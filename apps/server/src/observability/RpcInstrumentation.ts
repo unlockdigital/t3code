@@ -68,6 +68,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.n2itionStatus]: "n2ition",
   [WS_METHODS.n2itionControl]: "n2ition",
   [WS_METHODS.n2itionRefresh]: "n2ition",
+  [WS_METHODS.n2itionReconnect]: "n2ition",
   [WS_METHODS.serverGetSettings]: "server",
   [WS_METHODS.accountRoutingPreview]: "server",
   [WS_METHODS.peerLinksList]: "peerLinks",

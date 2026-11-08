@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Synthetic credential binding fixtures.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePath from "@effect/platform-node/NodePath";
@@ -12,6 +13,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
+  type ModelSelection,
   type ServerSettings,
 } from "@t3tools/contracts";
 import {
@@ -32,6 +34,7 @@ import * as Settings from "../serverSettings.ts";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -41,7 +44,8 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as N2itionContext from "./N2itionContext.ts";
 import * as GrantStore from "./N2itionGrantStore.ts";
 import * as Transport from "./N2itionTransport.ts";
-import { n2itionSourceCredentialHash } from "./routeConsent.ts";
+import * as RouteIdentity from "./N2itionRouteIdentity.ts";
+import { n2itionSourceCredentialHash, n2itionVerifiedRouteBinding } from "./routeConsent.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 
 const environmentId = EnvironmentId.make("synthetic-environment");
@@ -89,13 +93,17 @@ const iso = (millis: number) => DateTime.formatIso(DateTime.makeUnsafe(millis));
 type FixtureOptions = {
   grant?: Partial<N2itionGrant>;
   live?: boolean;
+  route?: "codex" | "hermes";
   legacy?: boolean;
   missingBoundary?: boolean;
+  verified?: boolean;
+  realStore?: boolean;
+  missingVerifier?: boolean;
   thread?: {
     deletedAt: string | null;
     archivedAt: string | null;
     providerInstanceId: typeof providerInstanceId;
-    modelSelection: { instanceId: typeof providerInstanceId; model: string };
+    modelSelection: ModelSelection;
     activeRunId: string | null;
   };
   transportEffect?: (
@@ -105,32 +113,74 @@ type FixtureOptions = {
 };
 
 const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: FixtureOptions = {}) {
+  const route = options.route ?? (options.verified ? "codex" : undefined);
   const now = yield* DateTime.now;
   const nowMillis = DateTime.toEpochMillis(now);
   const selection = {
     instanceId: providerInstanceId,
-    model: options.live ? "tinfoil/synthetic-model" : model,
+    model: options.live
+      ? route === "hermes"
+        ? "openai-codex:gpt-6.1-sol"
+        : route === "codex"
+          ? "gpt-6.1-sol"
+          : "tinfoil/synthetic-model"
+      : model,
   };
   const projectId = ProjectId.make("synthetic-project");
   let currentSettings: ServerSettings = {
     ...DEFAULT_SERVER_SETTINGS,
     providerInstances: {
       [providerInstanceId]: {
-        driver: ProviderDriverKind.make("opencode"),
+        driver: ProviderDriverKind.make(
+          route === "hermes" ? "acpRegistry" : route === "codex" ? "codex" : "opencode",
+        ),
         enabled: true,
-        config: { privateInference: "tinfoil", serverUrl: "", binaryPath: "synthetic-opencode" },
+        config: route
+          ? { binaryPath: "synthetic-codex", homeDir: "/synthetic/account" }
+          : { privateInference: "tinfoil", serverUrl: "", binaryPath: "synthetic-opencode" },
       },
     },
   };
   currentSettings = {
     ...currentSettings,
-    privateModelRoute: {
-      modelSelection: selection,
-      providerConfigHash: privateProviderConfigHash(currentSettings, selection),
-    },
+    privateModelRoute: route
+      ? null
+      : {
+          modelSelection: selection,
+          providerConfigHash: privateProviderConfigHash(currentSettings, selection),
+        },
   };
   let effectiveSettings: ServerSettings | undefined;
-  const routeFiles = [{ path: "/synthetic/account-route.json", fingerprint: "1:10:1000" }];
+  let routeFiles = [{ path: "/synthetic/account-route.json", fingerprint: "1:10:1000" }];
+  if (options.realStore) {
+    routeFiles = yield* Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "n2ition-proof-test-" });
+      const directory = NodeFS.realpathSync(temporary);
+      const path = `${directory}/auth.json`;
+      yield* fs.writeFileString(path, "synthetic verified account metadata");
+      return [
+        {
+          path,
+          fingerprint: RouteIdentity.inferenceFileFingerprint(path),
+        },
+      ];
+    }).pipe(Effect.provide(NodeServices.layer));
+  }
+  let proof: RouteIdentity.InferenceProof = {
+    identity: {
+      version: 1,
+      upstreamProvider: "openai-codex",
+      upstreamModel: "gpt-6.1-sol",
+      endpoint: "https://chatgpt.com/backend-api/codex",
+      profileHome: "/synthetic/account",
+      credentialSource: "auth.json",
+      accountHash: "d".repeat(64),
+      runtimePolicyHash: "e".repeat(64),
+    },
+    expiresAt: nowMillis + 25000,
+    routeFiles,
+  };
   const grant: N2itionGrant = {
     version: 1,
     environmentId,
@@ -185,16 +235,29 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
               }),
         }
       : {}),
+    ...(options.verified
+      ? {
+          model: proof.identity.upstreamModel,
+          routeBinding: n2itionVerifiedRouteBinding(
+            currentSettings,
+            { projectId, modelSelection: selection },
+            proof.identity,
+            routeFiles.map((file) => file.path),
+          ),
+        }
+      : {}),
     ...options.grant,
   };
   let currentGrant = grant;
-  let currentThread = options.thread ?? {
+  let currentThread = {
+    id: threadId,
     projectId,
     deletedAt: null,
     archivedAt: null,
     providerInstanceId,
     modelSelection: selection,
     activeRunId: "synthetic-run",
+    ...options.thread,
   };
   let remote = options.transportEffect;
   const calls: Array<Parameters<Transport.N2itionTransport["Service"]["snapshot"]>[0]> = [];
@@ -214,8 +277,10 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
   let routeValid = true;
   let currentToken: Uint8Array | null = token;
   let tokenReadHook = Effect.void;
+  let inspectHook = Effect.void;
   const grantService = GrantStore.N2itionGrantStore.of({
     read: Effect.sync(() => currentGrant),
+    reenroll: () => Effect.die("Reconnect fixtures use the real grant store"),
     control: (control: N2itionControlInput) =>
       Effect.sync(() => {
         currentGrant = {
@@ -311,6 +376,28 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
     }),
   ).pipe(Layer.provideMerge(platform));
   const { withConsent: _boundary, ...legacyGrantService } = grantService;
+  const configLayer = ServerConfig.layerTest(process.cwd(), {
+    prefix: "n2ition-context-test-",
+  }).pipe(Layer.provideMerge(hookedPlatform));
+  const seededConfig = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(
+        `${config.stateDir}/n2ition-connection.json`,
+        JSON.stringify(grant),
+        { mode: 0o600 },
+      );
+      yield* fs.makeDirectory(config.secretsDir, { recursive: true });
+      yield* fs.writeFile(`${config.secretsDir}/n2ition-read-token.bin`, token, { mode: 0o600 });
+    }),
+  ).pipe(Layer.provideMerge(configLayer));
+  const storeDependency = options.realStore
+    ? GrantStore.layer.pipe(Layer.provideMerge(seededConfig))
+    : Layer.succeed(
+        GrantStore.N2itionGrantStore,
+        options.missingBoundary ? legacyGrantService : grantService,
+      );
   const dependencies = Layer.mergeAll(
     ThreadCommandExecutor.layer,
     Layer.mock(Settings.ServerSettingsService)({
@@ -323,20 +410,27 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
         return captured;
       }),
     }),
-    Layer.succeed(
-      GrantStore.N2itionGrantStore,
-      options.missingBoundary ? legacyGrantService : grantService,
-    ),
+    storeDependency,
+    ...(options.missingVerifier
+      ? []
+      : [
+          Layer.succeed(RouteIdentity.N2itionRouteIdentity, {
+            inspect: () =>
+              Effect.gen(function* () {
+                const captured = proof;
+                yield* inspectHook;
+                return captured;
+              }),
+          }),
+        ]),
     Layer.succeed(Transport.N2itionTransport, transportService),
     Layer.succeed(ThreadManagement.ThreadManagementService, threadService),
     Layer.succeed(ServerSecretStore.ServerSecretStore, secretService),
     Layer.succeed(ServerEnvironment.ServerEnvironment, environment),
-    ServerConfig.layerTest(process.cwd(), { prefix: "n2ition-context-test-" }).pipe(
-      Layer.provideMerge(hookedPlatform),
-    ),
+    configLayer,
   );
   const layer = Layer.effect(N2itionContext.N2itionContext, N2itionContext.make).pipe(
-    Layer.provide(dependencies),
+    Layer.provideMerge(dependencies),
   );
   const scope = (overrides: Partial<McpInvocationScope> = {}): McpInvocationScope => ({
     environmentId,
@@ -350,6 +444,22 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
   });
   return {
     layer,
+    getProof: () => proof,
+    setProof: (next: RouteIdentity.InferenceProof) => {
+      proof = next;
+    },
+    setInspectHook: (next: Effect.Effect<void>) => {
+      inspectHook = next;
+    },
+    setModel: (model: string, options?: ModelSelection["options"]) => {
+      currentThread = {
+        ...currentThread,
+        modelSelection: { instanceId: providerInstanceId, model, ...(options ? { options } : {}) },
+      };
+    },
+    changeProject: () => {
+      currentThread = { ...currentThread, projectId: ProjectId.make("other-project") };
+    },
     calls,
     scope,
     setUsageWriteHook: (hook: Effect.Effect<void>) => {
@@ -696,6 +806,67 @@ const changeProviderConfiguration = (f: {
   });
 };
 
+it.effect("reads live context through an explicitly approved Codex or Hermes route", () =>
+  Effect.gen(function* () {
+    for (const route of ["codex", "hermes"] as const) {
+      const f = yield* fixture({ live: true, route });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const page = yield* service.read(f.scope(), input);
+        expect(page.tasks.map((task) => task.id)).toEqual([task.id]);
+        expect(f.calls).toHaveLength(1);
+      }).pipe(Effect.provide(f.layer));
+    }
+  }),
+);
+
+it.effect("keeps private projects closed to approved Codex and Hermes routes", () =>
+  Effect.gen(function* () {
+    for (const route of ["codex", "hermes"] as const) {
+      const f = yield* fixture({ live: true, route });
+      f.setSettings({ ...f.getSettings(), modelPrivacy: "private" });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe("route_changed");
+        expect(f.calls).toHaveLength(0);
+      }).pipe(Effect.provide(f.layer));
+    }
+  }),
+);
+
+it.effect("requires privacy consent and exact account binding for Codex routes", () =>
+  Effect.gen(function* () {
+    for (const condition of ["legacy", "privacy", "account"] as const) {
+      const f = yield* fixture({
+        live: true,
+        route: "codex",
+        legacy: condition === "legacy",
+        ...(condition === "privacy" ? { grant: { privacyVerified: false } } : {}),
+      });
+      if (condition === "account") {
+        const settings = f.getSettings();
+        f.setSettings({
+          ...settings,
+          providerInstances: {
+            ...settings.providerInstances,
+            [providerInstanceId]: {
+              ...settings.providerInstances[providerInstanceId]!,
+              environment: [{ name: "ACCOUNT_ROUTE", value: "changed", sensitive: false }],
+            },
+          },
+        });
+      }
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
+          condition === "privacy" ? "privacy_required" : "route_changed",
+        );
+        expect(f.calls).toHaveLength(0);
+      }).pipe(Effect.provide(f.layer));
+    }
+  }),
+);
+
 it.effect("rejects a live same-instance/model configuration change before fetching", () =>
   Effect.gen(function* () {
     const f = yield* fixture({ live: true });
@@ -988,6 +1159,370 @@ it.effect("fails closed when a legacy grant-store stub lacks the atomic consent 
       expect((yield* readError(service.read(f.scope(), input))).reason).toBe("route_changed");
       expect(f.calls).toHaveLength(0);
       expect((yield* service.status).state).toBe("paused");
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect(
+  "requires explicit reconnect for legacy default grants and retires the old MCP epoch",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        live: true,
+        route: "hermes",
+        realStore: true,
+        grant: { model: "default" },
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const store = yield* GrantStore.N2itionGrantStore;
+        const before = yield* store.read;
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
+          "enrollment_required",
+        );
+        expect(yield* store.read).toEqual(before);
+        expect((yield* service.reconnect({ expectedEpoch: 4 })).epoch).toBe(5);
+        const next = yield* store.read;
+        expect(next).toMatchObject({
+          model: "gpt-6.1-sol",
+          epoch: 5,
+          routeBinding: { version: 2, identity: f.getProof().identity },
+        });
+        expect(next?.sourceCredentialHash).toBe(before?.sourceCredentialHash);
+        expect(next?.expiresAt).toBe(before?.expiresAt);
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe("unauthorized");
+        expect((yield* service.read(f.scope({ n2itionGrantEpoch: 5 }), input)).tasks).toHaveLength(
+          1,
+        );
+        expect((yield* readError(service.reconnect({ expectedEpoch: 4 }))).reason).toBe("changed");
+        expect(f.calls).toHaveLength(1);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect.each(["paused", "revoked"] as const)("preserves %s mode during reconnect", (mode) =>
+  Effect.gen(function* () {
+    const f = yield* fixture({
+      live: true,
+      route: "codex",
+      realStore: true,
+      grant: { mode, model: "default" },
+    });
+    yield* Effect.gen(function* () {
+      const service = yield* N2itionContext.N2itionContext;
+      if (mode === "revoked")
+        expect((yield* readError(service.reconnect({ expectedEpoch: 4 }))).reason).toBe("revoked");
+      else
+        expect(yield* service.reconnect({ expectedEpoch: 4 })).toMatchObject({
+          localMode: "paused",
+          epoch: 5,
+        });
+      expect(f.calls).toHaveLength(0);
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect.each([
+  "default",
+  "auto",
+  "mismatch",
+  "privacy",
+  "source",
+  "expired",
+  "environment",
+  "archived",
+  "provider",
+  "verifier",
+  "credential",
+] as const)("refuses reconnect with %s and preserves the enrolled grant", (condition) =>
+  Effect.gen(function* () {
+    const f = yield* fixture({
+      live: true,
+      route: "codex",
+      realStore: true,
+      missingVerifier: condition === "verifier",
+      ...(condition === "environment"
+        ? { serverEnvironmentId: EnvironmentId.make("other-environment") }
+        : {}),
+      grant: {
+        ...(condition === "privacy" ? { privacyVerified: false } : {}),
+        ...(condition === "source"
+          ? { source: "synthetic" as const, origin: "http://127.0.0.1/" }
+          : {}),
+        ...(condition === "expired" ? { expiresAt: iso(0) } : {}),
+      },
+      ...(condition === "archived" || condition === "provider"
+        ? {
+            thread: {
+              deletedAt: null,
+              archivedAt: condition === "archived" ? iso(0) : null,
+              providerInstanceId:
+                condition === "provider"
+                  ? ProviderInstanceId.make("other-provider")
+                  : providerInstanceId,
+              modelSelection: { instanceId: providerInstanceId, model: "gpt-6.1-sol" },
+              activeRunId: null,
+            },
+          }
+        : {}),
+    });
+    if (condition === "default" || condition === "auto") f.setModel(condition);
+    if (condition === "mismatch") f.setModel("different-model");
+    if (condition === "credential") f.setToken(new Uint8Array(32).fill(9));
+    yield* Effect.gen(function* () {
+      const service = yield* N2itionContext.N2itionContext;
+      const store = yield* GrantStore.N2itionGrantStore;
+      const before = yield* store.read;
+      const denied = yield* readError(service.reconnect({ expectedEpoch: 4 }));
+      expect(denied.reason).toBe(
+        condition === "environment"
+          ? "unauthorized"
+          : condition === "privacy"
+            ? "privacy_required"
+            : condition === "source"
+              ? "enrollment_required"
+              : condition === "expired"
+                ? "expired"
+                : condition === "verifier"
+                  ? "identity_unverified"
+                  : condition === "default" || condition === "auto"
+                    ? "enrollment_required"
+                    : "route_changed",
+      );
+      expect(yield* store.read).toEqual(before);
+      expect(f.calls).toHaveLength(0);
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect(
+  "renews verified metadata and model aliases without rewriting consent or losing the digest",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture({ live: true, verified: true, realStore: true });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const store = yield* GrantStore.N2itionGrantStore;
+        const fs = yield* FileSystem.FileSystem;
+        const before = yield* store.read;
+        yield* service.read(f.scope(), input);
+        const path = f.getProof().routeFiles[0]!.path;
+        yield* fs.writeFileString(path, "renewed credential from the same verified account");
+        f.setProof({
+          ...f.getProof(),
+          routeFiles: [
+            {
+              path,
+              fingerprint: RouteIdentity.inferenceFileFingerprint(path),
+            },
+          ],
+        });
+        f.setModel("openai-codex:gpt-6.1-sol");
+        yield* service.read(f.scope(), input);
+        expect(f.calls[1]?.digest).toBe(digest);
+        expect(yield* store.read).toEqual(before);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect("accepts a known reasoningEffort option change on a verified route", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture({ live: true, verified: true, realStore: true });
+    f.setModel("gpt-6.1-sol", [{ id: "reasoningEffort", value: "max" }]);
+    yield* Effect.gen(function* () {
+      const service = yield* N2itionContext.N2itionContext;
+      expect((yield* service.read(f.scope(), input)).tasks).toHaveLength(1);
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect.each([
+  "accountHash",
+  "runtimePolicyHash",
+  "profileHome",
+  "credentialSource",
+  "endpoint",
+  "project",
+  "config",
+  "policy",
+  "options",
+  "private",
+  "missing",
+  "stale",
+] as const)("rejects verified %s changes before transport without rewriting consent", (condition) =>
+  Effect.gen(function* () {
+    const f = yield* fixture({
+      live: true,
+      verified: true,
+      realStore: true,
+      missingVerifier: condition === "missing",
+    });
+    if (condition === "project") f.changeProject();
+    else if (condition === "config")
+      f.setEffectiveSettings({
+        ...f.getSettings(),
+        providerInstances: {
+          [providerInstanceId]: {
+            ...f.getSettings().providerInstances[providerInstanceId]!,
+            config: { binaryPath: "different-codex" },
+          },
+        },
+      });
+    else if (condition === "policy")
+      f.setSettings({ ...f.getSettings(), accountRouting: accountRoutingPolicy });
+    else if (condition === "options")
+      f.setModel("gpt-6.1-sol", [{ id: "unknownOption", value: true }]);
+    else if (condition === "private")
+      f.setSettings({ ...f.getSettings(), modelPrivacy: "private" });
+    else if (condition === "stale") f.setProof({ ...f.getProof(), expiresAt: f.nowMillis });
+    else if (condition !== "missing")
+      f.setProof({
+        ...f.getProof(),
+        identity: {
+          ...f.getProof().identity,
+          [condition]: condition.endsWith("Hash") ? "f".repeat(64) : "changed",
+        },
+      });
+    yield* Effect.gen(function* () {
+      const service = yield* N2itionContext.N2itionContext;
+      const store = yield* GrantStore.N2itionGrantStore;
+      const before = yield* store.read;
+      expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
+        condition === "missing" || condition === "stale" ? "identity_unverified" : "route_changed",
+      );
+      expect(f.calls).toHaveLength(0);
+      expect(yield* store.read).toEqual(before);
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect.each(["file", "lease"] as const)(
+  "discards verified context after %s changes during fetch",
+  (condition) =>
+    Effect.gen(function* () {
+      const f = yield* fixture({ live: true, verified: true, realStore: true });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const fs = yield* FileSystem.FileSystem;
+        f.setTransport(() =>
+          Effect.gen(function* () {
+            if (condition === "file")
+              yield* fs.writeFileString(
+                f.getProof().routeFiles[0]!.path,
+                "changed after verification",
+              );
+            else yield* TestClock.adjust("1 minute");
+            return f.defaultSnapshot;
+          }).pipe(Effect.orDie),
+        );
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
+          condition === "file" ? "route_changed" : "identity_unverified",
+        );
+        expect(f.calls).toHaveLength(1);
+        expect((yield* service.status).taskCount).toBe(0);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect("reconnect qualifies the current account and project and clears the prior digest", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture({ live: true, verified: true, realStore: true });
+    yield* Effect.gen(function* () {
+      const service = yield* N2itionContext.N2itionContext;
+      const store = yield* GrantStore.N2itionGrantStore;
+      yield* service.read(f.scope(), input);
+      const before = yield* store.read;
+      f.changeProject();
+      f.setProof({
+        ...f.getProof(),
+        identity: { ...f.getProof().identity, accountHash: "f".repeat(64) },
+      });
+      expect((yield* readError(service.read(f.scope(), input))).reason).toBe("route_changed");
+      expect(yield* store.read).toEqual(before);
+      expect(yield* service.reconnect({ expectedEpoch: 4 })).toMatchObject({
+        epoch: 5,
+        taskCount: 0,
+        state: "awaiting_connection",
+      });
+      const next = yield* store.read;
+      expect(next?.routeBinding?.accountRouteHash).not.toBe(before?.routeBinding?.accountRouteHash);
+      expect(next?.sourceCredentialHash).toBe(before?.sourceCredentialHash);
+      yield* service.read(f.scope({ n2itionGrantEpoch: 5 }), input);
+      expect(f.calls[1]?.digest).toBeUndefined();
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect.each(["pause", "revoke"] as const)(
+  "preserves %s completed during reconnect verification",
+  (action) =>
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const f = yield* fixture({ live: true, route: "codex", realStore: true });
+      f.setInspectHook(
+        Effect.gen(function* () {
+          f.setInspectHook(Effect.void);
+          yield* Deferred.succeed(entered, undefined);
+          yield* Deferred.await(release);
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const store = yield* GrantStore.N2itionGrantStore;
+        const running = yield* Effect.forkChild(service.reconnect({ expectedEpoch: 4 }));
+        yield* Deferred.await(entered);
+        yield* service.control({ action, expectedEpoch: 4 });
+        const controlled = yield* store.read;
+        yield* Deferred.succeed(release, undefined);
+        expect((yield* readError(Fiber.join(running))).reason).toBe("changed");
+        expect(yield* store.read).toEqual(controlled);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect.each(["file", "lease", "credential"] as const)(
+  "rechecks verified %s after telemetry before model release",
+  (condition) =>
+    Effect.gen(function* () {
+      const f = yield* fixture({ live: true, verified: true, realStore: true });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const fs = yield* FileSystem.FileSystem;
+        const config = yield* ServerConfig.ServerConfig;
+        let writes = 0;
+        f.setUsageWriteHook(
+          Effect.gen(function* () {
+            if (++writes !== 2) return;
+            f.setUsageWriteHook(Effect.void);
+            if (condition === "file")
+              yield* fs.writeFileString(
+                f.getProof().routeFiles[0]!.path,
+                "changed during telemetry",
+              );
+            else if (condition === "credential")
+              yield* fs.writeFile(
+                `${config.secretsDir}/n2ition-read-token.bin`,
+                new Uint8Array(32).fill(9),
+              );
+            else yield* TestClock.adjust("1 minute");
+          }).pipe(Effect.orDie),
+        );
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
+          condition === "lease" ? "identity_unverified" : "route_changed",
+        );
+        expect(f.calls).toHaveLength(1);
+        expect((yield* service.status).taskCount).toBe(0);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect("keeps qualified legacy routes available without the verifier port", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture({ live: true, route: "codex", missingVerifier: true });
+    yield* Effect.gen(function* () {
+      const service = yield* N2itionContext.N2itionContext;
+      expect((yield* service.read(f.scope(), input)).tasks).toHaveLength(1);
     }).pipe(Effect.provide(f.layer));
   }),
 );

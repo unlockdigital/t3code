@@ -1591,6 +1591,11 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.n2itionRefresh,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
+    n2itionReconnect: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:n2ition:reconnect",
+      tag: WS_METHODS.n2itionReconnect,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     getPrivateHelperState: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:privacy:helper-state",
       tag: WS_METHODS.privacyGetHelperState,

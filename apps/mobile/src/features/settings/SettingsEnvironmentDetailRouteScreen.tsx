@@ -1,4 +1,5 @@
 import { UpstreamUpdatesSection } from "./UpstreamUpdatesSection";
+import { N2itionConnectionSection } from "./components/N2itionConnectionSection";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
@@ -287,6 +288,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 {config.environment.capabilities.upstreamUpdates === true && (
                   <UpstreamUpdatesSection key={environmentId} environmentId={environmentId} />
                 )}
+                <N2itionConnectionSection key={environmentId} environmentId={environmentId} />
                 <SettingsSection title="Providers">
                   <SettingsActionRow
                     icon="arrow.clockwise"

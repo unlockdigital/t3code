@@ -1,7 +1,12 @@
 import { TextGenerationError } from "./git.ts";
 import { ProjectId } from "./baseSchemas.ts";
 import { ProjectBriefState, ProjectBriefError } from "./project.ts";
-import { N2itionStatus, N2itionControlInput, N2itionConnectionError } from "./n2itionConnection.ts";
+import {
+  N2itionStatus,
+  N2itionControlInput,
+  N2itionReconnectInput,
+  N2itionConnectionError,
+} from "./n2itionConnection.ts";
 import {
   ProviderConnectTinfoilBillingInput,
   ProviderConfigureClaudeBillingInput,
@@ -548,6 +553,7 @@ export const WS_METHODS = {
   n2itionStatus: "n2ition.status",
   n2itionControl: "n2ition.control",
   n2itionRefresh: "n2ition.refresh",
+  n2itionReconnect: "n2ition.reconnect",
   serverGetSettings: "server.getSettings",
   accountRoutingPreview: "accountRouting.preview",
   peerLinksList: "peerLinks.list",
@@ -894,6 +900,12 @@ const WsN2itionRefreshRpc = Rpc.make(WS_METHODS.n2itionRefresh, {
   success: N2itionStatus,
   error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
 });
+const WsN2itionReconnectRpc = Rpc.make(WS_METHODS.n2itionReconnect, {
+  payload: N2itionReconnectInput,
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+
 const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
@@ -2160,6 +2172,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsN2itionStatusRpc,
   WsN2itionControlRpc,
   WsN2itionRefreshRpc,
+  WsN2itionReconnectRpc,
   WsServerGetSettingsRpc,
   WsAccountRoutingPreviewRpc,
   WsServerUpdateSettingsRpc,

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Server-only consent fingerprints use the connector credential as the HMAC key.
 import * as NodeCrypto from "node:crypto";
 import type { OrchestrationV2AppThread, ServerSettings } from "@t3tools/contracts";
-import type { N2itionGrant } from "@t3tools/contracts/n2itionConnection";
+import type { N2itionGrant, N2itionInferenceIdentity } from "@t3tools/contracts/n2itionConnection";
 import { providerConfigurationHash } from "@t3tools/shared/providerConfigurationHash";
 import {
   isPrivateInferenceSelection,
@@ -45,4 +45,41 @@ export function n2itionSourceCredentialHash(
   return NodeCrypto.createHmac("sha256", credential)
     .update(JSON.stringify(["n2ition-source-v1", grant.environmentId, grant.origin]))
     .digest("hex");
+}
+
+export function n2itionResolvedModel(selected: string, identity: N2itionInferenceIdentity) {
+  if (!selected || selected === "default" || selected === "auto") return null;
+  return selected === identity.upstreamModel ||
+    selected === `${identity.upstreamProvider}:${identity.upstreamModel}`
+    ? identity.upstreamModel
+    : null;
+}
+
+export function n2itionVerifiedRouteBinding(
+  settings: ServerSettings,
+  thread: Pick<OrchestrationV2AppThread, "projectId" | "modelSelection" | "privateModelRoute">,
+  identity: N2itionInferenceIdentity,
+  sourcePaths: ReadonlyArray<string>,
+) {
+  const required = requiredPrivateRoute(settings, thread);
+  const options = (thread.modelSelection.options ?? []).filter(
+    (option) => option.id !== "reasoningEffort",
+  );
+  return {
+    version: 2 as const,
+    identity,
+    providerConfigHash: providerConfigurationHash(
+      settings.providerInstances[thread.modelSelection.instanceId] ?? null,
+    ),
+    accountRouteHash: providerConfigurationHash({
+      projectId: thread.projectId,
+      instanceId: thread.modelSelection.instanceId,
+      model: n2itionResolvedModel(thread.modelSelection.model, identity),
+      options,
+      identity,
+      privateRoute: required,
+      accountRouting: settings.accountRouting,
+      sourcePaths: [...sourcePaths].sort(),
+    }),
+  };
 }

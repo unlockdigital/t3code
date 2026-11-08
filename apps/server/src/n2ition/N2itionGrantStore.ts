@@ -18,6 +18,8 @@ import * as Semaphore from "effect/Semaphore";
 import * as ServerConfig from "../config.ts";
 import { providerConfigurationHash } from "@t3tools/shared/providerConfigurationHash";
 import { n2itionSourceCredentialHash } from "./routeConsent.ts";
+import type { InferenceProof } from "./N2itionRouteIdentity.ts";
+import { inferenceFileFingerprint } from "./N2itionRouteIdentity.ts";
 
 const grantCodec = Schema.fromJsonString(N2itionGrant);
 const decodeGrant = Schema.decodeUnknownEffect(grantCodec, { onExcessProperty: "error" });
@@ -32,12 +34,18 @@ export class N2itionGrantStore extends Context.Service<
     readonly control: (
       input: N2itionControlInput,
     ) => Effect.Effect<N2itionGrant, N2itionConnectionError>;
+    readonly reenroll?: (
+      prepared: N2itionGrant,
+      expectedEpoch: number,
+      proof: InferenceProof,
+    ) => Effect.Effect<N2itionGrant, N2itionConnectionError>;
     // The continuation starts transport or commits a local result and finishes
     // before waiting on any network response. Controls share this boundary.
     // Read-only legacy adapters can omit it; context then fails closed.
     readonly withConsent?: <A, E, R>(
       expected: N2itionGrant,
       use: (credential: Uint8Array) => Effect.Effect<A, E, R>,
+      proof?: InferenceProof,
     ) => Effect.Effect<A, E | N2itionConnectionError, R>;
     readonly checkRouteFiles: (grant: N2itionGrant) => Effect.Effect<void, N2itionConnectionError>;
   }
@@ -76,7 +84,7 @@ const make = Effect.gen(function* () {
   const read = Effect.gen(function* () {
     if (!(yield* fs.exists(filename))) return null;
     const stat = yield* fs.stat(filename);
-    if (Number(stat.size) > 8192 || (stat.mode & 0o077) !== 0)
+    if (stat.type !== "File" || Number(stat.size) > 8192 || (stat.mode & 0o077) !== 0)
       return yield* new N2itionConnectionError({ reason: "invalid_data" });
     const text = yield* fs.readFileString(filename);
     return yield* decodeGrant(text);
@@ -129,6 +137,9 @@ const make = Effect.gen(function* () {
   const checkRouteFiles = Effect.fn("N2itionGrantStore.checkRouteFiles")(function* (
     grant: N2itionGrant,
   ) {
+    // Session issuance may use this preliminary check. Verified routes bind fresh
+    // proof metadata at withConsent, so enrollment fingerprints can age safely.
+    if (grant.routeBinding && "version" in grant.routeBinding) return;
     for (const file of grant.routeFiles) {
       const stat = yield* fs
         .stat(file.path)
@@ -140,7 +151,10 @@ const make = Effect.gen(function* () {
   });
   // A single bounded read of the opened file also avoids stat/read path swaps.
   const readBounded = (filename: string, limit: number, privateMode = false) => {
-    const fd = NodeFS.openSync(filename, "r");
+    const fd = NodeFS.openSync(
+      filename,
+      NodeFS.constants.O_RDONLY | NodeFS.constants.O_NOFOLLOW | NodeFS.constants.O_NONBLOCK,
+    );
     try {
       const stat = NodeFS.fstatSync(fd);
       if (!stat.isFile() || stat.size > limit || (privateMode && (stat.mode & 0o077) !== 0))
@@ -153,7 +167,69 @@ const make = Effect.gen(function* () {
       NodeFS.closeSync(fd);
     }
   };
-  const withConsent: NonNullable<N2itionGrantStore["Service"]["withConsent"]> = (expected, use) =>
+  const checkBoundaryFiles = (grant: N2itionGrant, now: number, proof?: InferenceProof) => {
+    let files = grant.routeFiles;
+    if (grant.routeBinding && "version" in grant.routeBinding) {
+      if (!proof || !Number.isFinite(proof.expiresAt) || proof.expiresAt <= now)
+        throw new N2itionConnectionError({ reason: "identity_unverified" });
+      if (
+        providerConfigurationHash(proof.identity) !==
+          providerConfigurationHash(grant.routeBinding.identity) ||
+        providerConfigurationHash(proof.routeFiles.map((file) => file.path).sort()) !==
+          providerConfigurationHash(grant.routeFiles.map((file) => file.path).sort())
+      )
+        throw new N2itionConnectionError({ reason: "route_changed" });
+      files = proof.routeFiles;
+    }
+    for (const file of files) {
+      if (grant.routeBinding && "version" in grant.routeBinding) {
+        if (
+          !/^sha256:[a-f0-9]{64}$/.test(file.fingerprint) ||
+          inferenceFileFingerprint(file.path) !== file.fingerprint
+        )
+          throw new N2itionConnectionError({ reason: "route_changed" });
+        continue;
+      }
+      const fd = NodeFS.openSync(
+        file.path,
+        NodeFS.constants.O_RDONLY | NodeFS.constants.O_NOFOLLOW | NodeFS.constants.O_NONBLOCK,
+      );
+      try {
+        const stat = NodeFS.fstatSync(fd);
+        if (
+          !stat.isFile() ||
+          `${stat.ino}:${stat.size}:${Math.trunc(stat.mtimeMs)}` !== file.fingerprint
+        )
+          throw new N2itionConnectionError({ reason: "route_changed" });
+      } finally {
+        NodeFS.closeSync(fd);
+      }
+    }
+  };
+  const readBoundaryCredential = (current: N2itionGrant) => {
+    let token: Uint8Array;
+    try {
+      token = readBounded(path.join(config.secretsDir, "n2ition-read-token.bin"), 512);
+    } catch {
+      throw new N2itionConnectionError({
+        reason: current.source === "live" ? "route_changed" : "unavailable",
+      });
+    }
+    if (
+      token.length < 32 ||
+      (current.source === "live" &&
+        n2itionSourceCredentialHash(token, current) !== current.sourceCredentialHash)
+    )
+      throw new N2itionConnectionError({
+        reason: current.source === "live" ? "route_changed" : "unavailable",
+      });
+    return token;
+  };
+  const withConsent: NonNullable<N2itionGrantStore["Service"]["withConsent"]> = (
+    expected,
+    use,
+    proof,
+  ) =>
     lock.withPermits(1)(
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
@@ -163,28 +239,8 @@ const make = Effect.gen(function* () {
             validateGrant(current, now);
             if (providerConfigurationHash(current) !== providerConfigurationHash(expected))
               throw new N2itionConnectionError({ reason: "changed" });
-            for (const file of current.routeFiles) {
-              const stat = NodeFS.statSync(file.path);
-              if (`${stat.ino}:${stat.size}:${Math.trunc(stat.mtimeMs)}` !== file.fingerprint)
-                throw new N2itionConnectionError({ reason: "route_changed" });
-            }
-            let token: Uint8Array;
-            try {
-              token = readBounded(path.join(config.secretsDir, "n2ition-read-token.bin"), 512);
-            } catch {
-              throw new N2itionConnectionError({
-                reason: current.source === "live" ? "route_changed" : "unavailable",
-              });
-            }
-            if (
-              token.length < 32 ||
-              (current.source === "live" &&
-                n2itionSourceCredentialHash(token, current) !== current.sourceCredentialHash)
-            )
-              throw new N2itionConnectionError({
-                reason: current.source === "live" ? "route_changed" : "unavailable",
-              });
-            return token;
+            checkBoundaryFiles(current, now, proof);
+            return readBoundaryCredential(current);
           },
           catch: (error) =>
             isConnectionError(error)
@@ -194,6 +250,80 @@ const make = Effect.gen(function* () {
         return yield* use(credential);
       }).pipe(Effect.provideService(References.PreventSchedulerYield, true)),
     );
-  return N2itionGrantStore.of({ read, control, checkRouteFiles, withConsent });
+  const reenroll = Effect.fn("N2itionGrantStore.reenroll")(function* (
+    prepared: N2itionGrant,
+    expectedEpoch: number,
+    proof: InferenceProof,
+  ) {
+    return yield* lock
+      .withPermits(1)(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const current = yield* read;
+            if (!current) return yield* new N2itionConnectionError({ reason: "disabled" });
+            if (current.epoch !== expectedEpoch)
+              return yield* new N2itionConnectionError({ reason: "changed" });
+            if (current.mode === "revoked")
+              return yield* new N2itionConnectionError({ reason: "revoked" });
+            if (
+              current.source !== "live" ||
+              !prepared.routeBinding ||
+              !("version" in prepared.routeBinding)
+            )
+              return yield* new N2itionConnectionError({ reason: "route_changed" });
+            // Only the qualified inference binding changes. Source consent and controls
+            // retain their original scope and expiry, including a paused local mode.
+            const next = {
+              ...current,
+              model: prepared.model,
+              routeBinding: prepared.routeBinding,
+              routeFiles: prepared.routeFiles,
+              epoch: current.epoch + 1,
+            };
+            if (
+              prepared.model !== proof.identity.upstreamModel ||
+              providerConfigurationHash({ ...next, epoch: current.epoch }) !==
+                providerConfigurationHash(prepared)
+            )
+              return yield* new N2itionConnectionError({ reason: "route_changed" });
+            const directory = yield* fs.makeTempDirectoryScoped({
+              directory: config.stateDir,
+              prefix: "n2ition-reconnect-",
+            });
+            const temporary = path.join(directory, "grant.json");
+            const contents = yield* encodeGrant(next);
+            // Later pause/revoke writes need room for mode and epoch growth.
+            if (Buffer.byteLength(contents, "utf8") > 8192 - 64)
+              return yield* new N2itionConnectionError({ reason: "too_large" });
+            yield* fs.writeFileString(temporary, contents, { mode: 0o600 });
+            const now = yield* Clock.currentTimeMillis;
+            yield* Effect.try({
+              try: () => {
+                const latest = decodeBoundaryGrant(
+                  readBounded(filename, 8192, true).toString("utf8"),
+                );
+                if (providerConfigurationHash(latest) !== providerConfigurationHash(current))
+                  throw new N2itionConnectionError({ reason: "changed" });
+                validateGrant({ ...next, mode: "active" }, now);
+                checkBoundaryFiles(next, now, proof);
+                readBoundaryCredential(current);
+                NodeFS.renameSync(temporary, filename);
+              },
+              catch: (error) =>
+                isConnectionError(error)
+                  ? error
+                  : new N2itionConnectionError({ reason: "route_changed" }),
+            }).pipe(Effect.provideService(References.PreventSchedulerYield, true));
+            return next;
+          }),
+        ),
+      )
+      .pipe(
+        Effect.mapError((error) =>
+          isConnectionError(error) ? error : new N2itionConnectionError({ reason: "unavailable" }),
+        ),
+      );
+  });
+  return N2itionGrantStore.of({ read, control, reenroll, checkRouteFiles, withConsent });
 });
 export const layer = Layer.effect(N2itionGrantStore, make);

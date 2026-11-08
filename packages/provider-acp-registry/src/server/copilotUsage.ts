@@ -68,10 +68,15 @@ export function copilotUsageLimits(payload: unknown, checkedAt: string): ServerP
     ["completions", "Completions"],
   ] as const) {
     const parsed = decodeQuota(response.value.quotaSnapshots[id]);
-    if (Option.isNone(parsed) || parsed.value.hasQuota === false) continue;
+    if (Option.isNone(parsed)) continue;
     const quota = parsed.value;
     const unlimited = quota.isUnlimitedEntitlement === true || quota.entitlementRequests === -1;
     if (!unlimited && (quota.entitlementRequests <= 0 || quota.usedRequests < 0)) continue;
+    // Copilot uses hasQuota=false when the remaining allowance is exhausted.
+    if (quota.hasQuota === false && (unlimited || quota.usedRequests < quota.entitlementRequests))
+      continue;
+    // Unlimited chat/completions do not establish remaining premium credits.
+    if (unlimited && id !== "premium_interactions") continue;
     const credits = id === "premium_interactions" && quota.tokenBasedBilling === true;
     const reset = quota.resetDate ? DateTime.make(quota.resetDate) : Option.none();
     windows.push({
@@ -83,7 +88,11 @@ export function copilotUsageLimits(payload: unknown, checkedAt: string): ServerP
       usedPercent: unlimited
         ? 0
         : clampPercent((quota.usedRequests / quota.entitlementRequests) * 100),
-      ...(Option.isSome(reset) && !unlimited ? { resetsAt: DateTime.formatIso(reset.value) } : {}),
+      ...(Option.isSome(reset) &&
+      !unlimited &&
+      DateTime.toEpochMillis(reset.value) > Date.parse(checkedAt)
+        ? { resetsAt: DateTime.formatIso(reset.value) }
+        : {}),
     });
     if (credits) {
       const remaining = Math.max(0, quota.entitlementRequests - quota.usedRequests);
@@ -107,6 +116,15 @@ export function copilotUsageLimits(payload: unknown, checkedAt: string): ServerP
   return {
     ...makeUsageLimits({ checkedAt, windows }),
     ...(creditBalance ? { creditBalance } : {}),
+    ...(!windows.some((window) => window.id === "copilot_premium_interactions")
+      ? {
+          unavailable: {
+            reason: "probeFailed" as const,
+            message:
+              "Copilot did not report premium usage. Check GitHub Copilot usage for remaining requests or credits.",
+          },
+        }
+      : {}),
     externalUsage,
   };
 }

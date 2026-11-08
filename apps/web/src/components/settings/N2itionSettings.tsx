@@ -24,6 +24,7 @@ function N2itionConnection() {
   const getStatus = useAtomCommand(serverEnvironment.n2itionStatus, { reportFailure: false });
   const control = useAtomCommand(serverEnvironment.n2itionControl, { reportFailure: false });
   const refresh = useAtomCommand(serverEnvironment.n2itionRefresh, { reportFailure: false });
+  const reconnect = useAtomCommand(serverEnvironment.n2itionReconnect, { reportFailure: false });
   const [status, setStatus] = useState<N2itionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,7 +53,7 @@ function N2itionConnection() {
     const timer = setInterval(() => void check(), 30000);
     return () => clearInterval(timer);
   }, [allowed]);
-  const act = async (action: "pause" | "resume" | "revoke" | "refresh") => {
+  const act = async (action: "pause" | "resume" | "revoke" | "refresh" | "reconnect") => {
     if (!status || status.epoch === null) return;
     setBusy(true);
     setError(null);
@@ -60,7 +61,9 @@ function N2itionConnection() {
       const result =
         action === "refresh"
           ? await refresh({ environmentId, input: {} })
-          : await control({ environmentId, input: { action, expectedEpoch: status.epoch } });
+          : action === "reconnect"
+            ? await reconnect({ environmentId, input: { expectedEpoch: status.epoch } })
+            : await control({ environmentId, input: { action, expectedEpoch: status.epoch } });
       if (result._tag === "Success") {
         setStatus((previous) =>
           previous?.epoch !== null &&
@@ -104,7 +107,7 @@ function N2itionConnection() {
               {status.lastCheckedAt
                 ? new Date(status.lastCheckedAt).toLocaleString()
                 : "No successful reads yet"}
-              . Tasks: {status.taskCount}.
+              . Tasks: {status.state === "connected" ? status.taskCount : "unverified"}.
             </p>
             {status.cadenceHours && (
               <p>
@@ -138,6 +141,13 @@ function N2itionConnection() {
               </Button>
               <Button variant="outline" disabled={busy} onClick={() => void check()}>
                 Check status
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || status.epoch === null || status.localMode === "revoked"}
+                onClick={() => void act("reconnect")}
+              >
+                Verify and reconnect
               </Button>
               <Button
                 variant="destructive"

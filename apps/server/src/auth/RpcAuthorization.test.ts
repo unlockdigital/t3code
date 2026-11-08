@@ -34,6 +34,12 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 import { selectAccountRouting } from "@t3tools/shared/accountRouting";
 
 describe("RPC authorization scopes", () => {
+  it("keeps N2ITION re-enrollment behind destination owner settings permission", () => {
+    expect(clientRpcRequiredScopes(WS_METHODS.n2itionReconnect, { expectedEpoch: 19 })).toEqual([
+      AuthSettingsWriteScope,
+    ]);
+    expect(requiredScopeForRpcMethod(WS_METHODS.n2itionReconnect)).toBe(AuthSettingsWriteScope);
+  });
   it("separates saved project briefs from source-reading generation and edits", () => {
     expect(clientRpcRequiredScopes(WS_METHODS.projectsGetBrief, {})).toEqual([
       AuthOrchestrationReadScope,
