@@ -94,6 +94,7 @@ type FixtureOptions = {
   grant?: Partial<N2itionGrant>;
   live?: boolean;
   route?: "codex" | "hermes";
+  selectedModel?: string;
   legacy?: boolean;
   missingBoundary?: boolean;
   verified?: boolean;
@@ -118,13 +119,15 @@ const fixture = Effect.fn("N2itionContext.test.fixture")(function* (options: Fix
   const nowMillis = DateTime.toEpochMillis(now);
   const selection = {
     instanceId: providerInstanceId,
-    model: options.live
-      ? route === "hermes"
-        ? "openai-codex:gpt-6.1-sol"
-        : route === "codex"
-          ? "gpt-6.1-sol"
-          : "tinfoil/synthetic-model"
-      : model,
+    model:
+      options.selectedModel ??
+      (options.live
+        ? route === "hermes"
+          ? "openai-codex:gpt-6.1-sol"
+          : route === "codex"
+            ? "gpt-6.1-sol"
+            : "tinfoil/synthetic-model"
+        : model),
   };
   const projectId = ProjectId.make("synthetic-project");
   let currentSettings: ServerSettings = {
@@ -1163,15 +1166,20 @@ it.effect("fails closed when a legacy grant-store stub lacks the atomic consent 
   }),
 );
 
-it.effect(
-  "requires explicit reconnect for legacy default grants and retires the old MCP epoch",
-  () =>
+it.effect.each(["gpt-6.1-sol", "gpt-6-luna"])(
+  "re-enrolls a legacy grant and Default Hermes selection as verified %s and retires the old MCP epoch",
+  (upstreamModel) =>
     Effect.gen(function* () {
       const f = yield* fixture({
         live: true,
         route: "hermes",
+        selectedModel: "default",
         realStore: true,
         grant: { model: "default" },
+      });
+      f.setProof({
+        ...f.getProof(),
+        identity: { ...f.getProof().identity, upstreamModel },
       });
       yield* Effect.gen(function* () {
         const service = yield* N2itionContext.N2itionContext;
@@ -1184,7 +1192,7 @@ it.effect(
         expect((yield* service.reconnect({ expectedEpoch: 4 })).epoch).toBe(5);
         const next = yield* store.read;
         expect(next).toMatchObject({
-          model: "gpt-6.1-sol",
+          model: upstreamModel,
           epoch: 5,
           routeBinding: { version: 2, identity: f.getProof().identity },
         });
@@ -1223,7 +1231,6 @@ it.effect.each(["paused", "revoked"] as const)("preserves %s mode during reconne
 );
 
 it.effect.each([
-  "default",
   "auto",
   "mismatch",
   "privacy",
@@ -1266,7 +1273,7 @@ it.effect.each([
           }
         : {}),
     });
-    if (condition === "default" || condition === "auto") f.setModel(condition);
+    if (condition === "auto") f.setModel(condition);
     if (condition === "mismatch") f.setModel("different-model");
     if (condition === "credential") f.setToken(new Uint8Array(32).fill(9));
     yield* Effect.gen(function* () {
@@ -1285,7 +1292,7 @@ it.effect.each([
                 ? "expired"
                 : condition === "verifier"
                   ? "identity_unverified"
-                  : condition === "default" || condition === "auto"
+                  : condition === "auto"
                     ? "enrollment_required"
                     : "route_changed",
       );
@@ -1293,6 +1300,66 @@ it.effect.each([
       expect(f.calls).toHaveLength(0);
     }).pipe(Effect.provide(f.layer));
   }),
+);
+
+it.effect.each(["missing", "stale", "", "default", "auto"] as const)(
+  "preserves legacy Default consent when reconnect proof is %j",
+  (condition) =>
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        live: true,
+        route: "hermes",
+        selectedModel: "default",
+        realStore: true,
+        missingVerifier: condition === "missing",
+        grant: { model: "default" },
+      });
+      if (condition === "stale") f.setProof({ ...f.getProof(), expiresAt: f.nowMillis });
+      else if (condition !== "missing")
+        f.setProof({
+          ...f.getProof(),
+          identity: { ...f.getProof().identity, upstreamModel: condition },
+        });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const store = yield* GrantStore.N2itionGrantStore;
+        const before = yield* store.read;
+        expect((yield* readError(service.reconnect({ expectedEpoch: 4 }))).reason).toBe(
+          condition === "missing" || condition === "stale"
+            ? "identity_unverified"
+            : "route_changed",
+        );
+        expect(yield* store.read).toEqual(before);
+        expect(f.calls).toHaveLength(0);
+      }).pipe(Effect.provide(f.layer));
+    }),
+);
+
+it.effect.each(["gpt-6.1-sol", "openai-codex:gpt-6.1-sol", "default"])(
+  "uses the same v2 consent across verified Hermes %s selections",
+  (selectedModel) =>
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        live: true,
+        route: "hermes",
+        selectedModel,
+        verified: true,
+        realStore: true,
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const store = yield* GrantStore.N2itionGrantStore;
+        const before = yield* store.read;
+        expect((yield* service.read(f.scope(), input)).tasks).toHaveLength(1);
+        for (const alias of ["default", "gpt-6.1-sol", "openai-codex:gpt-6.1-sol"]) {
+          f.setModel(alias);
+          expect((yield* service.read(f.scope(), input)).tasks).toHaveLength(1);
+          expect(f.calls.at(-1)?.digest).toBe(digest);
+        }
+        expect(f.calls).toHaveLength(4);
+        expect(yield* store.read).toEqual(before);
+      }).pipe(Effect.provide(f.layer));
+    }),
 );
 
 it.effect(
@@ -1336,64 +1403,74 @@ it.effect("accepts a known reasoningEffort option change on a verified route", (
   }),
 );
 
-it.effect.each([
-  "accountHash",
-  "runtimePolicyHash",
-  "profileHome",
-  "credentialSource",
-  "endpoint",
-  "project",
-  "config",
-  "policy",
-  "options",
-  "private",
-  "missing",
-  "stale",
-] as const)("rejects verified %s changes before transport without rewriting consent", (condition) =>
-  Effect.gen(function* () {
-    const f = yield* fixture({
-      live: true,
-      verified: true,
-      realStore: true,
-      missingVerifier: condition === "missing",
-    });
-    if (condition === "project") f.changeProject();
-    else if (condition === "config")
-      f.setEffectiveSettings({
-        ...f.getSettings(),
-        providerInstances: {
-          [providerInstanceId]: {
-            ...f.getSettings().providerInstances[providerInstanceId]!,
-            config: { binaryPath: "different-codex" },
+it.effect.each(
+  [
+    "upstreamModel",
+    "accountHash",
+    "runtimePolicyHash",
+    "profileHome",
+    "credentialSource",
+    "endpoint",
+    "project",
+    "config",
+    "policy",
+    "options",
+    "private",
+    "missing",
+    "stale",
+  ].flatMap((condition) =>
+    ["gpt-6.1-sol", "default"].map((selectedModel) => ({ condition, selectedModel })),
+  ),
+)(
+  "rejects verified $condition changes with $selectedModel before transport without rewriting consent",
+  ({ condition, selectedModel }) =>
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        live: true,
+        verified: true,
+        realStore: true,
+        missingVerifier: condition === "missing",
+      });
+      f.setModel(selectedModel);
+      if (condition === "project") f.changeProject();
+      else if (condition === "config")
+        f.setEffectiveSettings({
+          ...f.getSettings(),
+          providerInstances: {
+            [providerInstanceId]: {
+              ...f.getSettings().providerInstances[providerInstanceId]!,
+              config: { binaryPath: "different-codex" },
+            },
           },
-        },
-      });
-    else if (condition === "policy")
-      f.setSettings({ ...f.getSettings(), accountRouting: accountRoutingPolicy });
-    else if (condition === "options")
-      f.setModel("gpt-6.1-sol", [{ id: "unknownOption", value: true }]);
-    else if (condition === "private")
-      f.setSettings({ ...f.getSettings(), modelPrivacy: "private" });
-    else if (condition === "stale") f.setProof({ ...f.getProof(), expiresAt: f.nowMillis });
-    else if (condition !== "missing")
-      f.setProof({
-        ...f.getProof(),
-        identity: {
-          ...f.getProof().identity,
-          [condition]: condition.endsWith("Hash") ? "f".repeat(64) : "changed",
-        },
-      });
-    yield* Effect.gen(function* () {
-      const service = yield* N2itionContext.N2itionContext;
-      const store = yield* GrantStore.N2itionGrantStore;
-      const before = yield* store.read;
-      expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
-        condition === "missing" || condition === "stale" ? "identity_unverified" : "route_changed",
-      );
-      expect(f.calls).toHaveLength(0);
-      expect(yield* store.read).toEqual(before);
-    }).pipe(Effect.provide(f.layer));
-  }),
+        });
+      else if (condition === "policy")
+        f.setSettings({ ...f.getSettings(), accountRouting: accountRoutingPolicy });
+      else if (condition === "options")
+        f.setModel(selectedModel, [{ id: "unknownOption", value: true }]);
+      else if (condition === "private")
+        f.setSettings({ ...f.getSettings(), modelPrivacy: "private" });
+      else if (condition === "stale") f.setProof({ ...f.getProof(), expiresAt: f.nowMillis });
+      else if (condition !== "missing")
+        f.setProof({
+          ...f.getProof(),
+          identity: {
+            ...f.getProof().identity,
+            [condition]: condition.endsWith("Hash") ? "f".repeat(64) : "changed",
+          },
+        });
+      yield* Effect.gen(function* () {
+        const service = yield* N2itionContext.N2itionContext;
+        const store = yield* GrantStore.N2itionGrantStore;
+        const before = yield* store.read;
+        expect((yield* readError(service.read(f.scope(), input))).reason).toBe(
+          condition === "missing" || condition === "stale"
+            ? "identity_unverified"
+            : "route_changed",
+        );
+        expect(f.calls).toHaveLength(0);
+        expect(yield* store.read).toEqual(before);
+      }).pipe(Effect.provide(f.layer));
+    }),
 );
 
 it.effect.each(["file", "lease"] as const)(

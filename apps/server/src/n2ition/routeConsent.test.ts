@@ -29,6 +29,27 @@ it("accepts only a resolved model agreeing with the verified runtime", () => {
   expect(n2itionResolvedModel("other:gpt-6.1-sol", identity)).toBeNull();
   expect(n2itionResolvedModel("gpt-6-luna", identity)).toBeNull();
 });
+it.each(["gpt-6.1-sol", "gpt-6-luna"])(
+  "resolves qualified default from the concrete runtime model %s",
+  (upstreamModel) => {
+    const verified = { ...identity, upstreamModel };
+    expect(n2itionResolvedModel("default", verified, true)).toBe(upstreamModel);
+    expect(n2itionResolvedModel("default", verified, false)).toBeNull();
+    expect(n2itionResolvedModel("auto", verified, true)).toBeNull();
+    expect(n2itionResolvedModel("", verified, true)).toBeNull();
+    expect(n2itionResolvedModel("different-model", verified, true)).toBeNull();
+  },
+);
+it.each(["", " ", "default", "auto"])(
+  "refuses qualified default with unresolved runtime model %j",
+  (upstreamModel) => {
+    const unresolved = { ...identity, upstreamModel };
+    expect(n2itionResolvedModel("default", unresolved, true)).toBeNull();
+    expect(
+      n2itionResolvedModel(`${identity.upstreamProvider}:${upstreamModel}`, unresolved, true),
+    ).toBeNull();
+  },
+);
 it("preserves verified identity through qualified reasoning changes and resolved aliases", () => {
   const original = n2itionVerifiedRouteBinding(DEFAULT_SERVER_SETTINGS, thread, identity, [
     "/auth",
@@ -47,6 +68,14 @@ it("preserves verified identity through qualified reasoning changes and resolved
     ["/auth"],
   );
   expect(changed).toEqual(original);
+  expect(
+    n2itionVerifiedRouteBinding(
+      DEFAULT_SERVER_SETTINGS,
+      { ...thread, modelSelection: { ...thread.modelSelection, model: "default" } },
+      identity,
+      ["/auth"],
+    ),
+  ).toEqual(original);
 });
 it("retains account, source, policy, project and unknown-option boundaries", () => {
   const original = n2itionVerifiedRouteBinding(DEFAULT_SERVER_SETTINGS, thread, identity, [

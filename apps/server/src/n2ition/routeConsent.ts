@@ -47,11 +47,19 @@ export function n2itionSourceCredentialHash(
     .digest("hex");
 }
 
-export function n2itionResolvedModel(selected: string, identity: N2itionInferenceIdentity) {
-  if (!selected || selected === "default" || selected === "auto") return null;
-  return selected === identity.upstreamModel ||
-    selected === `${identity.upstreamProvider}:${identity.upstreamModel}`
-    ? identity.upstreamModel
+// Callers may qualify Default only after fresh trusted runtime inspection.
+export function n2itionResolvedModel(
+  selected: string,
+  identity: N2itionInferenceIdentity,
+  verifiedDefault = false,
+) {
+  if (!selected || selected === "auto" || (selected === "default" && !verifiedDefault)) return null;
+  const model = identity.upstreamModel;
+  if (!model.trim() || model === "default" || model === "auto") return null;
+  return selected === "default" ||
+    selected === model ||
+    selected === `${identity.upstreamProvider}:${model}`
+    ? model
     : null;
 }
 
@@ -74,7 +82,7 @@ export function n2itionVerifiedRouteBinding(
     accountRouteHash: providerConfigurationHash({
       projectId: thread.projectId,
       instanceId: thread.modelSelection.instanceId,
-      model: n2itionResolvedModel(thread.modelSelection.model, identity),
+      model: n2itionResolvedModel(thread.modelSelection.model, identity, true),
       options,
       identity,
       privateRoute: required,

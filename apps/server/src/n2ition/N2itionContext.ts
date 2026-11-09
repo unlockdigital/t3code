@@ -248,7 +248,7 @@ export const make = Effect.gen(function* () {
       if (verifiedBinding) {
         proof = yield* inspect(thread, effective);
         if (
-          n2itionResolvedModel(thread.modelSelection.model, proof.identity) !== grant.model ||
+          n2itionResolvedModel(thread.modelSelection.model, proof.identity, true) !== grant.model ||
           providerConfigurationHash(proof.identity) !==
             providerConfigurationHash(verifiedBinding.identity)
         )
@@ -530,14 +530,14 @@ export const make = Effect.gen(function* () {
               thread.modelSelection.instanceId !== grant.providerInstanceId
             )
               return yield* new N2itionConnectionError({ reason: "route_changed" });
-            if (thread.modelSelection.model === "default" || thread.modelSelection.model === "auto")
+            if (thread.modelSelection.model === "auto")
               return yield* new N2itionConnectionError({ reason: "enrollment_required" });
             yield* assertPrivateModelSelection(effective, thread, thread.modelSelection).pipe(
               Effect.mapError(() => new N2itionConnectionError({ reason: "route_changed" })),
             );
             yield* readCredential(grant);
             const proof = yield* inspect(thread, effective);
-            const model = n2itionResolvedModel(thread.modelSelection.model, proof.identity);
+            const model = n2itionResolvedModel(thread.modelSelection.model, proof.identity, true);
             if (!model) return yield* new N2itionConnectionError({ reason: "route_changed" });
             if (!grants.reenroll)
               return yield* new N2itionConnectionError({ reason: "enrollment_required" });
