@@ -197,7 +197,13 @@ export class ProviderSessionManagerV2 extends Context.Service<
 
 interface LiveSessionEntry {
   readonly attachedThreadIds: ReadonlySet<ThreadId>;
-  readonly loadedProviderThreadKeyByThread: ReadonlyMap<ThreadId, string>;
+  readonly loadedProviderThreadByThread: ReadonlyMap<
+    ThreadId,
+    {
+      readonly key: string;
+      readonly providerThread: OrchestrationV2ProviderThread;
+    }
+  >;
   /**
    * Revocation on detach/release is scoped to these ids so tearing down a
    * superseded session cannot revoke a replacement session's credential for the
@@ -1361,13 +1367,13 @@ export const layerWithOptions = (
           }
           const attachedThreadIds = new Set(entry.attachedThreadIds);
           attachedThreadIds.delete(input.threadId);
-          const loadedProviderThreadKeyByThread = new Map(entry.loadedProviderThreadKeyByThread);
-          loadedProviderThreadKeyByThread.delete(input.threadId);
+          const loadedProviderThreadByThread = new Map(entry.loadedProviderThreadByThread);
+          loadedProviderThreadByThread.delete(input.threadId);
           const updated = new Map(current);
           updated.set(key, {
             ...entry,
             attachedThreadIds,
-            loadedProviderThreadKeyByThread,
+            loadedProviderThreadByThread,
           });
           return updated;
         });
@@ -1382,13 +1388,14 @@ export const layerWithOptions = (
             (current) =>
               current
                 .get(sessionKey(input.providerSessionId))
-                ?.loadedProviderThreadKeyByThread.get(input.threadId) === input.providerThreadKey,
+                ?.loadedProviderThreadByThread.get(input.threadId)?.key === input.providerThreadKey,
           ),
         );
 
       const markProviderThreadLoaded = (input: {
         readonly providerSessionId: ProviderSessionId;
         readonly threadId: ThreadId;
+        readonly providerThread: OrchestrationV2ProviderThread;
         readonly providerThreadKey: string;
       }) =>
         Ref.update(sessions, (current) => {
@@ -1397,10 +1404,13 @@ export const layerWithOptions = (
           if (entry === undefined) {
             return current;
           }
-          const loadedProviderThreadKeyByThread = new Map(entry.loadedProviderThreadKeyByThread);
-          loadedProviderThreadKeyByThread.set(input.threadId, input.providerThreadKey);
+          const loadedProviderThreadByThread = new Map(entry.loadedProviderThreadByThread);
+          loadedProviderThreadByThread.set(input.threadId, {
+            key: input.providerThreadKey,
+            providerThread: input.providerThread,
+          });
           const updated = new Map(current);
-          updated.set(key, { ...entry, loadedProviderThreadKeyByThread });
+          updated.set(key, { ...entry, loadedProviderThreadByThread });
           return updated;
         });
 
@@ -1686,16 +1696,14 @@ export const layerWithOptions = (
                 ) {
                   return [false, current] as const;
                 }
-                const loadedProviderThreadKeyByThread = new Map(
-                  latest.loadedProviderThreadKeyByThread,
-                );
-                loadedProviderThreadKeyByThread.delete(input.threadId);
+                const loadedProviderThreadByThread = new Map(latest.loadedProviderThreadByThread);
+                loadedProviderThreadByThread.delete(input.threadId);
                 const idleThreadUnloads = new Map(latest.idleThreadUnloads);
                 idleThreadUnloads.delete(input.threadId);
                 const updated = new Map(current);
                 updated.set(key, {
                   ...latest,
-                  loadedProviderThreadKeyByThread,
+                  loadedProviderThreadByThread,
                   idleThreadUnloads,
                 });
                 return [true, updated] as const;
@@ -1866,6 +1874,7 @@ export const layerWithOptions = (
                   Effect.andThen(runtime.ensureThread(input)),
                   Effect.tap((providerThread) =>
                     markProviderThreadLoaded({
+                      providerThread,
                       providerSessionId,
                       threadId: input.threadId,
                       providerThreadKey: providerThreadLoadKey({
@@ -1914,6 +1923,7 @@ export const layerWithOptions = (
               ),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
+                  providerThread,
                   providerSessionId,
                   threadId,
                   providerThreadKey: providerThreadLoadKey({
@@ -1943,6 +1953,7 @@ export const layerWithOptions = (
                   Effect.andThen(runtime.forkThread(input)),
                   Effect.tap((providerThread) =>
                     markProviderThreadLoaded({
+                      providerThread,
                       providerSessionId,
                       threadId: input.targetThreadId,
                       providerThreadKey: providerThreadLoadKey({
@@ -2121,13 +2132,13 @@ export const layerWithOptions = (
                       const key = sessionKey(entry.runtime.providerSessionId);
                       const latest = sessions.get(key);
                       if (latest?.runtime !== entry.runtime || threadId === null) return sessions;
-                      const loadedProviderThreadKeyByThread = new Map(
-                        latest.loadedProviderThreadKeyByThread,
+                      const loadedProviderThreadByThread = new Map(
+                        latest.loadedProviderThreadByThread,
                       );
-                      loadedProviderThreadKeyByThread.delete(threadId);
+                      loadedProviderThreadByThread.delete(threadId);
                       return new Map(sessions).set(key, {
                         ...latest,
-                        loadedProviderThreadKeyByThread,
+                        loadedProviderThreadByThread,
                       });
                     });
                   }
@@ -2366,7 +2377,7 @@ export const layerWithOptions = (
               const now = yield* Clock.currentTimeMillis;
               const entry: LiveSessionEntry = {
                 attachedThreadIds: new Set([input.threadId]),
-                loadedProviderThreadKeyByThread: new Map(),
+                loadedProviderThreadByThread: new Map(),
                 mcpCredentialIdByThread:
                   mcpCredentialId === undefined
                     ? new Map()
@@ -2539,6 +2550,20 @@ export const layerWithOptions = (
                 );
               }
             }
+            // The committed switch can move the projection to the replacement
+            // session before this effect runs. The live session still owns its
+            // loaded native thread and must unsubscribe it before another resumes.
+            const loadedProviderThread = currentEntry?.loadedProviderThreadByThread.get(
+              input.threadId,
+            )?.providerThread;
+            if (loadedProviderThread !== undefined) {
+              detachedProviderThreads = [
+                ...detachedProviderThreads.filter(
+                  (thread) => thread.id !== loadedProviderThread.id,
+                ),
+                loadedProviderThread,
+              ];
+            }
             const detachResult = yield* Ref.modify(sessions, (current) => {
               const entry = current.get(key);
               if (entry === undefined || !entry.attachedThreadIds.has(input.threadId)) {
@@ -2552,10 +2577,8 @@ export const layerWithOptions = (
               }
               const attachedThreadIds = new Set(entry.attachedThreadIds);
               attachedThreadIds.delete(input.threadId);
-              const loadedProviderThreadKeyByThread = new Map(
-                entry.loadedProviderThreadKeyByThread,
-              );
-              loadedProviderThreadKeyByThread.delete(input.threadId);
+              const loadedProviderThreadByThread = new Map(entry.loadedProviderThreadByThread);
+              loadedProviderThreadByThread.delete(input.threadId);
               const mcpCredentialIdByThread =
                 input.revokeMcpCredential === true
                   ? (() => {
@@ -2569,7 +2592,7 @@ export const layerWithOptions = (
               const updatedEntry = {
                 ...entry,
                 attachedThreadIds,
-                loadedProviderThreadKeyByThread,
+                loadedProviderThreadByThread,
                 mcpCredentialIdByThread,
                 idleThreadUnloads,
               };
