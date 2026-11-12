@@ -5,10 +5,21 @@ This Apple-silicon package is an Unlock Digital fork preview based on official T
 ## Install and verify
 
 1. Download the `arm64.dmg`, release manifest and `SHA256SUMS` from the specific [Unlock Digital release](https://github.com/unlockdigital/t3code/releases).
-2. Calculate `shasum -a 256` for the downloaded files and compare the complete digests with the manifest.
+2. Calculate `shasum -a 256` for the downloaded files and compare the complete digests with `SHA256SUMS`.
 3. Open the disk image and copy **T3 Code Unlock Digital Preview.app** into Applications, preserving existing applications.
 4. Open the application using your Mac's authorized application-opening controls. Check the release's signing/notarization status; organizational device policy may require administrator approval.
 5. Confirm the expected version and source revision, configure a provider, and run a small task in a disposable project.
+
+## Optional trial launcher
+
+After installing the app in Applications, download and verify `Launch.Unlock.Digital.Trial.command` from the same release. Downloaded `.command` files need executable permission. Run these commands in Terminal, adjusting the download path if needed:
+
+```bash
+chmod +x "$HOME/Downloads/Launch.Unlock.Digital.Trial.command"
+"$HOME/Downloads/Launch.Unlock.Digital.Trial.command"
+```
+
+The launcher keeps its server and desktop profiles under `~/Library/Application Support/T3 Code Unlock Digital Trial`. Configure fresh provider sign-ins for this trial profile.
 
 ## Separate profiles and links
 

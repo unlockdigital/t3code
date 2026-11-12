@@ -368,7 +368,7 @@ jobs:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
           RELEASE_PLATFORM: ${{ needs.preflight.outputs.platform }}
         run: |
-          cp "release-source/packaging/fork/Launch Unlock Digital Trial.command" assets/
+          cp "release-source/packaging/fork/Launch Unlock Digital Trial.command" assets/Launch.Unlock.Digital.Trial.command
           python3 - <<'PYCODE'
           from pathlib import Path
           import json
@@ -399,6 +399,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # GitHub normalizes spaces and other special characters in uploaded asset names.
+          shopt -s dotglob nullglob
+          for asset in *; do
+            if [[ ! "$asset" =~ ^[A-Za-z0-9._-]+$ || "$asset" == .* || "$asset" == *. ]]; then
+              echo "Release asset filename may be renamed by GitHub: $asset" >&2
+              exit 1
+            fi
+          done
           find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum > SHA256SUMS
           test -s SHA256SUMS
           sha256sum --check SHA256SUMS
