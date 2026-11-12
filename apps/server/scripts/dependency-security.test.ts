@@ -19,6 +19,9 @@ describe("checkDependencySecurity", () => {
           "  /undici@6.29.1:\n    version: 6.29.1",
           "  /zod@3.25.0:\n    version: 3.25.0",
           "  /electron@44.10.1:\n    version: 44.10.1",
+          "  /zod@4.6.5:\n    version: 4.6.5",
+          "  /qs@6.16.0:\n    version: 6.16.0",
+          "  /fast-uri@3.1.8:\n    version: 3.1.8",
         ].join("\n"),
       ),
     );
@@ -28,18 +31,34 @@ describe("checkDependencySecurity", () => {
       { name: "undici", version: "8.12.2-beta.1" },
       { name: "undici", version: "6.29.1" },
       { name: "electron", version: "44.10.1" },
+      { name: "zod", version: "4.6.5" },
+      { name: "qs", version: "6.16.0" },
+      { name: "fast-uri", version: "3.1.8" },
     ]);
     expect(result.violations).toEqual([
       { name: "undici", version: "7.29.0", minimum: "7.30.1" },
       { name: "@modelcontextprotocol/sdk", version: "1.31.0", minimum: "1.32.0" },
       { name: "undici", version: "8.12.2-beta.1", minimum: "8.12.2" },
       { name: "electron", version: "44.10.1", minimum: "44.10.2" },
+      { name: "zod", version: "4.6.5", minimum: "4.6.6" },
+      { name: "qs", version: "6.16.0", minimum: "6.16.1" },
+      { name: "fast-uri", version: "3.1.8", minimum: "3.1.9" },
     ]);
   });
 
   it("accepts patched versions and permits packages omitted by filtered artifacts", () => {
     expect(
-      checkDependencySecurity(lock("  /undici@7.30.1:\n    version: 7.30.1")).violations,
+      checkDependencySecurity(
+        lock(
+          [
+            "  /undici@7.30.1:\n    version: 7.30.1",
+            "  /zod@4.6.6:\n    version: 4.6.6",
+            "  /qs@6.16.1:\n    version: 6.16.1",
+            "  /fast-uri@3.1.9:\n    version: 3.1.9",
+            "  /electron@44.10.2:\n    version: 44.10.2",
+          ].join("\n"),
+        ),
+      ).violations,
     ).toEqual([]);
     expect(checkDependencySecurity(lock("")).packages).toEqual([]);
   });
@@ -66,8 +85,8 @@ it("matches all active Cursor SDK entry formats to the approved bundles", async 
   const sdk = await checkInstalledCursorSdk();
   expect(sdk.version).toBe(sdk.expectedVersion);
   expect(sdk.bundles.map(({ file }) => file)).toEqual([
-    "dist/cjs/704.js",
-    "dist/esm/704.js",
+    "dist/cjs/587.js",
+    "dist/esm/587.js",
     "dist/bundled/index.js",
   ]);
   expect(sdk.violations).toEqual([]);

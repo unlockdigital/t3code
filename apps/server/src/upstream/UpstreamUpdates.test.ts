@@ -13,6 +13,15 @@ import { UpstreamStatus } from "@t3tools/contracts";
 import * as ServerConfig from "../config.ts";
 import * as UpstreamUpdates from "./UpstreamUpdates.ts";
 
+class FixtureError extends Schema.TaggedError<FixtureError>()("FixtureError", {
+  cause: Schema.Defect(),
+}) {}
+
+const fixturePromise = Effect.fn("UpstreamUpdates.test.fixturePromise")(
+  <A>(run: () => Promise<A>) =>
+    Effect.tryPromise({ try: run, catch: (cause) => new FixtureError({ cause }) }),
+);
+
 const release = (tag = "v0.1.3") => ({
   tag_name: tag,
   draft: false,
@@ -45,12 +54,10 @@ const fixture = (
 ) =>
   Effect.gen(function* () {
     const directory = yield* Effect.acquireRelease(
-      Effect.tryPromise(() =>
-        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-upstream-fixture-")),
-      ),
+      fixturePromise(() => NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-upstream-fixture-"))),
       (directory) => Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
     );
-    const setup = yield* Effect.tryPromise(async () => {
+    const setup = yield* fixturePromise(async () => {
       const root = NodePath.join(directory, "source");
       await NodeFSP.mkdir(root);
       await git(root, ["init", "-b", "fork"]);
@@ -152,7 +159,7 @@ it.live("prepares a merged candidate, persists it, and removes only the unchange
       const candidate = prepared.candidates[0]!;
       expect(candidate.status).toBe("clean");
       expect(prepared.customCommits).toBe(1);
-      yield* Effect.tryPromise(async () => {
+      yield* fixturePromise(async () => {
         expect((await git(root, ["rev-parse", "HEAD"])).stdout).toBe(head);
         expect((await git(root, ["branch", "--show-current"])).stdout).toBe("fork");
         expect(
@@ -170,7 +177,7 @@ it.live("prepares a merged candidate, persists it, and removes only the unchange
       expect(restored.candidates).toEqual(prepared.candidates);
       const cleaned = yield* service.execute({ action: "cleanup", candidateId: candidate.id });
       expect(cleaned.candidates).toEqual([]);
-      yield* Effect.tryPromise(async () => {
+      yield* fixturePromise(async () => {
         expect(
           (await git(root, ["show-ref", "--verify", `refs/heads/${candidate.branch}`])).code,
         ).toBe(0);
@@ -191,7 +198,7 @@ it.live("preserves conflicts for review and blocks cleanup", () =>
         (yield* service.execute({ action: "cleanup", candidateId: candidate.id }).pipe(Effect.flip))
           .stage,
       ).toBe("candidate-review");
-      yield* Effect.tryPromise(async () => {
+      yield* fixturePromise(async () => {
         expect((await git(candidate.path, ["diff", "--name-only", "--diff-filter=U"])).stdout).toBe(
           "shared.txt",
         );
@@ -209,7 +216,7 @@ it.live.each(["tracked", "untracked", "ignored", "commit"] as const)(
         const { service } = yield* fixture();
         const prepared = yield* service.execute({ action: "prepare", selectedTag: "v0.1.3" });
         const candidate = prepared.candidates[0]!;
-        yield* Effect.tryPromise(async () => {
+        yield* fixturePromise(async () => {
           await NodeFSP.writeFile(
             NodePath.join(
               candidate.path,
@@ -232,7 +239,7 @@ it.live.each(["tracked", "untracked", "ignored", "commit"] as const)(
             .pipe(Effect.flip)).stage,
         ).toBe("candidate-changed");
         expect((yield* service.execute({ action: "read" })).candidates).toHaveLength(1);
-        yield* Effect.tryPromise(async () => {
+        yield* fixturePromise(async () => {
           expect((await NodeFSP.stat(candidate.path)).isDirectory()).toBe(true);
         });
       }),
@@ -243,7 +250,7 @@ it.live("blocks preparation from a dirty checkout and preserves unpublished chan
   Effect.scoped(
     Effect.gen(function* () {
       const { root, service, calls } = yield* fixture();
-      yield* Effect.tryPromise(() =>
+      yield* fixturePromise(() =>
         NodeFSP.writeFile(NodePath.join(root, "unpublished.txt"), "keep"),
       );
       expect(
@@ -251,7 +258,7 @@ it.live("blocks preparation from a dirty checkout and preserves unpublished chan
           .stage,
       ).toBe("dirty-checkout");
       expect(calls.some((args) => args[0] === "fetch" || args[0] === "worktree")).toBe(false);
-      yield* Effect.tryPromise(async () => {
+      yield* fixturePromise(async () => {
         expect(await NodeFSP.readFile(NodePath.join(root, "unpublished.txt"), "utf8")).toBe("keep");
       });
     }),
@@ -266,7 +273,7 @@ it.live("rejects another upstream before any network call or candidate creation"
           throw new Error("must not call");
         },
       });
-      yield* Effect.tryPromise(() =>
+      yield* fixturePromise(() =>
         git(root, ["remote", "set-url", "upstream", "https://github.com/other/t3code.git"]),
       );
       expect(
@@ -373,7 +380,7 @@ it.live("rejects a recorded base outside HEAD's ancestry", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const { root, service, calls } = yield* fixture();
-      yield* Effect.tryPromise(async () => {
+      yield* fixturePromise(async () => {
         const file = NodePath.join(root, "docs/unlock-digital/upstream.json");
         await NodeFSP.writeFile(
           file,
@@ -399,7 +406,7 @@ it.live("keeps missing candidate records visible for manual recovery", () =>
       const { root, service } = yield* fixture();
       const candidate = (yield* service.execute({ action: "prepare", selectedTag: "v0.1.3" }))
         .candidates[0]!;
-      yield* Effect.tryPromise(() => git(root, ["worktree", "remove", "--", candidate.path]));
+      yield* fixturePromise(() => git(root, ["worktree", "remove", "--", candidate.path]));
       expect((yield* service.execute({ action: "read" })).candidates[0]?.status).toBe("missing");
       expect(
         (yield* service.execute({ action: "cleanup", candidateId: candidate.id }).pipe(Effect.flip))
@@ -416,7 +423,7 @@ it.live("resolves candidate path stably when read from a linked worktree", () =>
       const candidate = (yield* service.execute({ action: "prepare", selectedTag: "v0.1.3" }))
         .candidates[0]!;
       const linkedWorktree = NodePath.join(directory, "linked-worktree");
-      yield* Effect.tryPromise(async () => {
+      yield* fixturePromise(async () => {
         await git(root, ["worktree", "add", "-b", "linked-branch", "--", linkedWorktree, "HEAD"]);
       });
       const worktreeService = yield* UpstreamUpdates.UpstreamUpdates.pipe(

@@ -159,8 +159,15 @@ export function isSourceDesktopBuild(
 
 export function getDesktopUpdateDisabledReason(
   state: Pick<DesktopUpdateState, "enabled" | "status" | "message" | "installationKind"> | null,
-  developmentDesktopShell = false,
+  developmentDesktopShellOrDenial: boolean | string = false,
+  managedDenial?: string,
 ): string | null {
+  const denial =
+    typeof developmentDesktopShellOrDenial === "string"
+      ? developmentDesktopShellOrDenial
+      : managedDenial;
+  if (denial !== undefined) return denial;
+  const developmentDesktopShell = developmentDesktopShellOrDenial === true;
   if (isSourceDesktopBuild(state, developmentDesktopShell))
     return "Source build: review releases and prepare fork updates in Settings → Upstream Updates.";
   if (!state || (state.enabled && state.status !== "disabled")) return null;
@@ -169,10 +176,19 @@ export function getDesktopUpdateDisabledReason(
 
 export function getDesktopUpdateIdleTooltip(
   state: Pick<DesktopUpdateState, "enabled" | "status" | "message" | "installationKind"> | null,
-  developmentDesktopShell = false,
+  developmentDesktopShellOrDenial: boolean | string = false,
+  managedDenial?: string,
 ) {
-  const disabledReason = getDesktopUpdateDisabledReason(state, developmentDesktopShell);
-  if (isSourceDesktopBuild(state, developmentDesktopShell))
+  const disabledReason = getDesktopUpdateDisabledReason(
+    state,
+    developmentDesktopShellOrDenial,
+    managedDenial,
+  );
+  const denial =
+    typeof developmentDesktopShellOrDenial === "string"
+      ? developmentDesktopShellOrDenial
+      : managedDenial;
+  if (denial === undefined && isSourceDesktopBuild(state, developmentDesktopShellOrDenial === true))
     return { title: "Source Updates", detail: disabledReason };
   return disabledReason
     ? { title: "Updates unavailable", detail: disabledReason }

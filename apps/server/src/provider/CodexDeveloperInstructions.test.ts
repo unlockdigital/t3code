@@ -40,7 +40,7 @@ describe("Codex runtime context", () => {
       });
       NodeAssert.match(
         instructions,
-        /<runtime_info>.*embed images, video, and audio.*Markdown image syntax with absolute file paths.*Link any other file.*absolute path.*files viewer.*<\/runtime_info>/,
+        /<runtime_info>.*embed images, video, and audio.*Markdown image syntax with absolute file paths.*Link every other file you cite or produce by its absolute path.*files viewer.*<\/runtime_info>/,
       );
     }
   });
@@ -57,29 +57,26 @@ describe("Codex runtime context", () => {
 });
 
 describe("Codex orchestration context", () => {
-  it("preserves model selection, options, and delegated review boundaries", () => {
+  it("routes subagents native first, delegate_task for the rest", () => {
     const orchestration = Object.entries(buildCodexAdditionalContext({ model: "gpt-6.1-sol" }))
       .filter(([key]) => key.startsWith("t3_code_orchestration_"))
       .map(([, entry]) => entry.value)
       .join("\n");
 
-    NodeAssert.match(
-      orchestration,
-      /native subagent tools.*same-provider.*chosen model.*no model options/s,
+    NodeAssert.ok(orchestration.includes("use your native tool when the child uses your provider"));
+    NodeAssert.ok(orchestration.includes("`run_in_background:false`"));
+    NodeAssert.ok(orchestration.includes("A native type on another provider's model"));
+    NodeAssert.ok(
+      orchestration.includes("Background agent: `delegate_task`, never a background `Agent`."),
     );
-    NodeAssert.match(orchestration, /`delegate_task`.*native tools cannot/s);
-    NodeAssert.match(orchestration, /`delegate_task`.*cross-provider.*explicitly T3-owned/s);
-    NodeAssert.match(orchestration, /`inheritedOptions`.*`target.options`/s);
-    NodeAssert.match(orchestration, /delegated review round, call `delegate_task` again/);
-    NodeAssert.match(orchestration, /Do not use `t3_thread_send` on `childThreadId`/);
-    NodeAssert.match(orchestration, /only when the user explicitly asks for separate\/new/);
-    NodeAssert.match(orchestration, /distinct `clientRequestId` per round, stable across retries/);
-    NodeAssert.match(orchestration, /run_in_background:false/);
-    NodeAssert.match(orchestration, /Do not poll.*task_status/s);
-    NodeAssert.match(orchestration, /task_cancel.*start no replacement/s);
-    NodeAssert.match(orchestration, /child, do the work yourself/);
-    // The ACP transport fallback belongs to ACP sessions.
-    NodeAssert.doesNotMatch(orchestration, /acp-mcp-call/);
+    NodeAssert.ok(
+      orchestration.includes("Every new delegate review or re-check is a new `delegate_task`"),
+    );
+    NodeAssert.ok(orchestration.includes("never a `t3_thread_send`"));
+    NodeAssert.ok(!orchestration.includes("inheritedOptions"));
+    NodeAssert.ok(!orchestration.includes("Prefer native"));
+    // The ACP terminal fallback is ACP-only; Codex agents never need it.
+    NodeAssert.ok(!orchestration.includes("acp-mcp-call"));
   });
 });
 

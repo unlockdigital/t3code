@@ -7,6 +7,7 @@ import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import type { DesktopAppActivationRequest } from "@t3tools/contracts";
@@ -41,30 +42,27 @@ const liveProcess = Effect.acquireRelease(
 
 const encodeRuntimeState = Schema.encodeEffect(Schema.fromJsonString(PersistedServerRuntimeState));
 
-// Bound the fixture to its provided services so tsc-rs keeps the full CLI's requirements concrete.
-const runCliWithServices = <const Name extends string, Input, E, ContextInput>(
-  command: Command.Command<
-    Name,
-    Input,
-    ContextInput,
-    E,
-    NodeServices.NodeServices | NetService.NetService
-  >,
-  args: ReadonlyArray<string>,
-  env: Record<string, string>,
-) =>
-  Command.runWith(command, { version: "0.0.0" })(args).pipe(
+// Node reads this variable itself, so the test must set the real process environment.
+const setProcessEnv = (name: string, value: string) => {
+  const previous = process.env[name];
+  process.env[name] = value;
+  return () => {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  };
+};
+
+const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
+  Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
+        NodeCrypto.layer,
         NetService.layer,
         ConfigProvider.layer(ConfigProvider.fromEnv({ env })),
       ),
     ),
   );
-
-const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
-  runCliWithServices(makeCli(), args, env);
 
 const pathExists = (path: string) =>
   Effect.promise(() =>
@@ -242,16 +240,9 @@ describe("t3 app", () => {
           "t3-app-unsafe-",
           (root) =>
             Effect.gen(function* () {
-              const previousTmpdir = process.env.TMPDIR;
               yield* Effect.acquireRelease(
-                Effect.sync(() => {
-                  process.env.TMPDIR = root;
-                }),
-                () =>
-                  Effect.sync(() => {
-                    if (previousTmpdir === undefined) delete process.env.TMPDIR;
-                    else process.env.TMPDIR = previousTmpdir;
-                  }),
+                Effect.sync(() => setProcessEnv("TMPDIR", root)),
+                (restore) => Effect.sync(restore),
               );
               const baseDir = NodePath.join(root, defaultServerHomeName);
               const userId = yield* HostProcess.UserId;

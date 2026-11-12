@@ -1,6 +1,6 @@
 # Unlock Digital Mac preview
 
-This Apple-silicon package is an Unlock Digital fork preview based on official T3 Code v0.1.6. The release manifest identifies its exact source revision and completed validation. Provider credentials, conversations, repositories and personal browser data are configured on the destination machine.
+This Apple-silicon package is an Unlock Digital fork preview based on official T3 Code v0.1.9. The release manifest identifies its exact source revision and completed validation. Provider credentials, conversations, repositories and personal browser data are configured on the destination machine.
 
 ## Install and verify
 

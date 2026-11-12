@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -77,7 +77,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const manifestPath = path.join(config.stateDir, "skills.json");
   // Bounded reads also cover a file growing between stat and read. Core instructions
   // are returned whole; oversized resources stay accessible through native file tools.
@@ -172,7 +172,7 @@ const make = Effect.gen(function* () {
     }
     const content = target === corePath ? core : yield* readText(target, 16_384);
     const digest = yield* crypto
-      .digest("SHA-256", new TextEncoder().encode(content))
+      .digest(Digest.sha256, new TextEncoder().encode(content))
       .pipe(Effect.mapError(() => new SkillLibraryError({ reason: "read" })));
     const version = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
     const unchanged = input.retainedVersion === version;

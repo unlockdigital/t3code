@@ -22,6 +22,7 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as ServerSettingsService from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as TextGenerators from "../textGeneration/TextGenerators.ts";
 import * as ModelRouting from "./ModelRouting.ts";
 import { assertPrivateModelSelection, privateProviderConfigHash } from "./modelRoutingPolicy.ts";
 
@@ -52,6 +53,12 @@ it.effect("denies a disabled effective project brief provider before invoking it
   }).pipe(
     Effect.provide(
       Layer.effect(TextGeneration.TextGeneration, TextGeneration.make).pipe(
+        Layer.provide(
+          Layer.succeed(TextGenerators.TextGenerators, {
+            runner: () => Effect.undefined,
+            listModels: () => Effect.die("unexpected text generator model list"),
+          }),
+        ),
         Layer.provide(
           Layer.mock(ModelRouting.ModelRouting)({
             backgroundModel: () =>
@@ -303,13 +310,21 @@ it.effect(
             record("commit").pipe(Effect.as({ subject: "Synthetic", body: "" })),
           generatePrContent: () => record("pr").pipe(Effect.as({ title: "Synthetic", body: "" })),
           generateBranchName: () => record("branch").pipe(Effect.as({ branch: "synthetic" })),
+          generateTranscriptionPostProcessing: () => Effect.die("unexpected transcription"),
           generateReviewGuide: () =>
             record("review").pipe(Effect.as({ summary: "Synthetic", sections: [] } as never)),
         };
       };
       const layerGeneration = Layer.effect(TextGeneration.TextGeneration, TextGeneration.make).pipe(
         Layer.provide(
+          Layer.succeed(TextGenerators.TextGenerators, {
+            runner: () => Effect.undefined,
+            listModels: () => Effect.die("unexpected text generator model list"),
+          }),
+        ),
+        Layer.provide(
           Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            listInstances: Effect.succeed([]),
             getInstance: (id) =>
               Effect.succeed({ textGeneration: generation(id) } as ProviderInstance),
           }),

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ProjectId, RunId, ThreadId } from "@t3tools/contracts";
@@ -17,7 +18,7 @@ const layer = WorkflowReview.layer.pipe(
   Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provideMerge(Persistence.layerMemory),
   Layer.provide(Layer.mock(SkillLibrary.SkillLibrary)({ catalog: "existing: Prepare a release." })),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 const seed = Effect.fn("WorkflowReview.test.seed")(function* (
   suffix: string,

@@ -6,7 +6,7 @@ import {
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import * as Effect from "effect/Effect";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -145,10 +145,10 @@ export const readClaudePlatformBilling = Effect.fn("readClaudePlatformBilling")(
     ),
   );
   if (!limits.prepaidBalance) return limits;
-  const crypto = yield* Crypto.Crypto;
-  const fingerprint = yield* crypto
+  const digest = yield* Digest.Digest;
+  const fingerprint = yield* digest
     .digest(
-      "SHA-256",
+      Digest.sha256,
       new TextEncoder().encode(`claude-console\0${input.connection.organizationId}`),
     )
     .pipe(Effect.map(Hex.encode), Effect.orDie);

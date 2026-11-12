@@ -192,8 +192,9 @@ describe("model switch change", () => {
           optionDescriptors: [
             { id: "serviceTier", type: "select", options: [{ id: "fast", label: "Fast" }] },
             {
-              id: "reasoningEffort",
+              id: "thought_level",
               type: "select",
+              role: "reasoning",
               options: [
                 { id: "medium", label: "Medium", isDefault: true },
                 { id: "high", label: "High" },
@@ -208,7 +209,7 @@ describe("model switch change", () => {
   it("shows only what changed, reading an unset effort as the default", () => {
     expect(
       resolveModelSwitchChange(
-        { from: selection("gpt"), to: selection("gpt", { reasoningEffort: "high" }) },
+        { from: selection("gpt"), to: selection("gpt", { thought_level: "high" }) },
         providers,
       ),
     ).toEqual({ modelChanged: false, effort: { from: "Medium", to: "High" } });
@@ -220,7 +221,7 @@ describe("model switch change", () => {
   it("ignores changes the user cannot see", () => {
     expect(
       resolveModelSwitchChange(
-        { from: selection("gpt"), to: selection("gpt", { reasoningEffort: "medium" }) },
+        { from: selection("gpt"), to: selection("gpt", { thought_level: "medium" }) },
         providers,
       ),
     ).toBeNull();

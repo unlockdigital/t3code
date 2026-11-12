@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -53,7 +54,7 @@ it.effect("advertises only metadata and reads the chosen canonical content and r
         "Only this reference is needed.",
       );
     }).pipe(Effect.provide(fixture.layer));
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("reuses retained content, reloads after context loss, and detects edited sources", () =>
@@ -72,7 +73,7 @@ it.effect("reuses retained content, reloads after context loss, and detects edit
       expect(updated.content).toBe("Updated procedure.");
       expect(updated.version).not.toBe(first.version);
     }).pipe(Effect.provide(fixture.layer));
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("keeps the catalog available without opening instruction files at startup", () =>
@@ -84,7 +85,7 @@ it.effect("keeps the catalog available without opening instruction files at star
       expect(library.catalog).toContain("example:");
       expect((yield* library.read({ name: "example" }).pipe(Effect.flip)).reason).toBe("read");
     }).pipe(Effect.provide(fixture.layer));
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("requires an explicit request for manual skills and honors changed source policy", () =>
@@ -115,7 +116,7 @@ it.effect("requires an explicit request for manual skills and honors changed sou
         ).toBe("manual_only");
       }
     }).pipe(Effect.provide(automatic.layer));
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("excludes disabled skills and rejects unknown names", () =>
@@ -128,7 +129,7 @@ it.effect("excludes disabled skills and rejects unknown names", () =>
         expect((yield* library.read({ name }).pipe(Effect.flip)).reason).toBe("unknown_skill");
       }
     }).pipe(Effect.provide(fixture.layer));
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("rejects traversal and symlink escapes while allowing in-root references", () =>
@@ -146,7 +147,7 @@ it.effect("rejects traversal and symlink escapes while allowing in-root referenc
         (yield* library.read({ name: "example", resource: "./reference.md" })).content,
       ).toContain("Only this reference");
     }).pipe(Effect.provide(fixture.layer));
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -164,7 +165,7 @@ it.effect(
         yield* fixture.fs.writeFileString(`${fixture.directory}/SKILL.md`, "x".repeat(32_769));
         expect((yield* library.read({ name: "example" }).pipe(Effect.flip)).reason).toBe("size");
       }).pipe(Effect.provide(fixture.layer));
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("invalid or duplicate configuration leaves native skills available", () =>
@@ -184,5 +185,5 @@ it.effect("invalid or duplicate configuration leaves native skills available", (
         expect(library.catalog).toBe("");
       }).pipe(Effect.provide(fixture.layer));
     }
-  }).pipe(Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

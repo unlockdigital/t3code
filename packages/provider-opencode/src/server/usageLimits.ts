@@ -1,7 +1,7 @@
 import * as NodeSqlite from "node:sqlite";
 
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -53,44 +53,56 @@ const UsageResponse = Schema.Struct({
   usage: Schema.Struct({ rolling: UsageWindow, weekly: UsageWindow, monthly: UsageWindow }),
 });
 
+class OpenCodeCredentialReadError extends Schema.TaggedError<OpenCodeCredentialReadError>()(
+  "OpenCodeCredentialReadError",
+  { databasePath: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `Could not read OpenCode credentials from ${this.databasePath}.`;
+  }
+}
+
 // Selecting before decoding preserves the selected account for unsupported
 // credential types and self-hosted connections. NULL-active rows predate the selection flag.
 const readConsoleCredential = (databasePath: string, integrationId: "opencode" | "opencode-go") =>
-  Effect.try(() => {
-    const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
-    try {
-      database.exec("PRAGMA busy_timeout = 100");
-      const row = database
-        .prepare(
-          `SELECT value FROM credential
+  Effect.try({
+    try: () => {
+      const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
+      try {
+        database.exec("PRAGMA busy_timeout = 100");
+        const row = database
+          .prepare(
+            `SELECT value FROM credential
            WHERE integration_id = ? AND active IS NOT 0
            ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
-        )
-        .get(integrationId);
-      const stored =
-        typeof row?.value === "string"
-          ? Option.getOrUndefined(decodeStoredCredential(row.value))
-          : undefined;
-      const server = stored?.metadata?.server;
-      if (typeof server === "string") {
-        const url = new URL(server);
-        if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
-          return undefined;
+          )
+          .get(integrationId);
+        const stored =
+          typeof row?.value === "string"
+            ? Option.getOrUndefined(decodeStoredCredential(row.value))
+            : undefined;
+        const server = stored?.metadata?.server;
+        if (typeof server === "string") {
+          const url = new URL(server);
+          if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
+            return undefined;
+        }
+        if (stored?.type === "oauth") {
+          const key = stored.access.trim();
+          if (!key) return undefined;
+          const accountId = stored.metadata?.accountID;
+          return {
+            key,
+            ...(typeof accountId === "string" && accountId.trim() ? { accountId } : {}),
+          };
+        }
+        const key = stored?.key.trim();
+        return key ? { key } : undefined;
+      } finally {
+        database.close();
       }
-      if (stored?.type === "oauth") {
-        const key = stored.access.trim();
-        if (!key) return undefined;
-        const accountId = stored.metadata?.accountID;
-        return {
-          key,
-          ...(typeof accountId === "string" && accountId.trim() ? { accountId } : {}),
-        };
-      }
-      const key = stored?.key.trim();
-      return key ? { key } : undefined;
-    } finally {
-      database.close();
-    }
+    },
+    catch: (cause) => new OpenCodeCredentialReadError({ databasePath, cause }),
   }).pipe(Effect.orElseSucceed(() => undefined));
 
 /** External OpenCode servers own their credentials; never read the host's account for them. */
@@ -203,14 +215,14 @@ export const readOpenCodeUsageLimits = Effect.fn("readOpenCodeUsageLimits")(func
         resetsAt: DateTime.formatIso(body.usage.monthly.resetsAt),
       },
     ];
-    const crypto = yield* Crypto.Crypto;
+    const digest = yield* Digest.Digest;
     // An unkeyed hash matches across environments without a shared secret. It
     // permits offline guesses, but Go keys are randomly generated. OAuth
     // credentials hash the stable account id so token rotation cannot split
     // one account into several panel rows.
-    const credentialFingerprint = yield* crypto
+    const credentialFingerprint = yield* digest
       .digest(
-        "SHA-256",
+        Digest.sha256,
         new TextEncoder().encode(
           accountId ? `opencode-go\0oauth:${accountId}` : `opencode-go\0${apiKey}`,
         ),

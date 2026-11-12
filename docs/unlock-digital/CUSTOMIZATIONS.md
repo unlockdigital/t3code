@@ -1,6 +1,6 @@
 # Included fork improvements
 
-This preview integrates official T3 Code v0.1.6 with:
+This preview integrates official T3 Code v0.1.9 with:
 
 - Home activity and unread navigation, with background chats continuing as you navigate.
 - Multi-account labels distinguishing subscription connections and API credentials, clearer usage windows, and account routing previews.

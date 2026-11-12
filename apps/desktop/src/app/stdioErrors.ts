@@ -1,4 +1,4 @@
-/** Console output failures must stay separate from application storage failures. */
+// Redirected console output can fail when its log volume is full.
 export function handleStdioError(error: unknown): void {
   if (
     typeof error === "object" &&

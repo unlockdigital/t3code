@@ -11,8 +11,9 @@ import {
   PlusIcon,
   Trash2Icon,
   XIcon,
+  LockIcon,
+  LockOpenIcon,
 } from "lucide-react";
-import { Lock as LockGlyph, LockOpen } from "lucide";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { Fragment, useState, type ReactElement, type ReactNode } from "react";
@@ -42,11 +43,13 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { MorphIcon } from "~/components/MorphIcon";
 import { DraftInput } from "../ui/draft-input";
 import { SecretSourceInput, type SecretSource } from "./SecretSourceInput";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Switch } from "../ui/switch";
+import { ManagedControl, ManagedNotice } from "../ManagedPolicy";
+import { managedInstanceLocks, useManagedPolicy } from "../../state/managedPolicy";
+import { disallowedProviderMessage, isManagedDriverAllowed } from "@t3tools/contracts";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type {
@@ -94,7 +97,9 @@ function ProviderStatusDiagnostic({
 }
 
 let environmentVariableDraftId = 0;
-const nextEnvironmentVariableDraftId = () => `provider-env-${environmentVariableDraftId++}`;
+const DRAFT_ROW_ID_PREFIX = "provider-env-";
+const nextEnvironmentVariableDraftId = () =>
+  `${DRAFT_ROW_ID_PREFIX}${environmentVariableDraftId++}`;
 
 type EnvironmentDraftRow = {
   readonly id: string;
@@ -277,6 +282,7 @@ function ProviderEnvironmentFieldRow(props: {
     secret: SecretReference | undefined,
   ) => void;
   readonly onRemove: (field: ProviderEnvironmentField) => void;
+  readonly managedReason?: string | undefined;
   readonly secretSources: ReadonlyArray<SecretSource>;
 }) {
   const inputId = `${props.idPrefix}-environment-${props.field.name}`;
@@ -286,6 +292,7 @@ function ProviderEnvironmentFieldRow(props: {
     <SettingsRow
       title={<label htmlFor={inputId}>{props.field.label}</label>}
       description={props.field.description}
+      managed={props.managedReason}
       control={
         <div className="flex w-full min-w-0 items-center gap-2 @min-[32rem]/settings-row:w-56">
           {props.field.sensitive === false ? (
@@ -334,17 +341,30 @@ function ProviderEnvironmentFieldRow(props: {
 export function ProviderEnvironmentSection(props: {
   readonly environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>;
   readonly onChange: (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void;
+  /** Variables an administrator's policy pins: listed by name, never editable or removable. */
+  readonly managed?: { readonly names: ReadonlySet<string>; readonly reason: string } | undefined;
   readonly secretSources?: ReadonlyArray<SecretSource>;
 }) {
   const [storedDraft, setDraft] = useState(() =>
     seedRowsDraft(props.environment, toEnvironmentDraftRows),
   );
-  const draft = reconcileRowsDraft(
+  let draft = reconcileRowsDraft(
     storedDraft,
     props.environment,
     providerEnvironmentsEqual,
     toEnvironmentDraftRows,
   );
+  if (draft.rows !== storedDraft.rows) {
+    // Keep rows the server never acknowledged, even across an external reseed.
+    const acknowledged = new Set(storedDraft.seen.map((variable) => variable.name));
+    const unpublished = storedDraft.rows.filter(
+      (row) =>
+        row.id.startsWith(DRAFT_ROW_ID_PREFIX) &&
+        !acknowledged.has(row.name) &&
+        !draft.rows.some((incoming) => incoming.name === row.name),
+    );
+    if (unpublished.length > 0) draft = { ...draft, rows: [...draft.rows, ...unpublished] };
+  }
   if (draft !== storedDraft) setDraft(draft);
   const rows = draft.rows;
   const setRows = (nextRows: ReadonlyArray<EnvironmentDraftRow>) =>
@@ -373,6 +393,8 @@ export function ProviderEnvironmentSection(props: {
   };
 
   const updateVariable = (id: string, patch: Partial<Omit<EnvironmentDraftRow, "id">>) => {
+    // A row named like a pinned variable renders as the policy's, with no way to edit or remove it.
+    if (patch.name !== undefined && props.managed?.names.has(patch.name)) return;
     const nextRows = rows.map((row) =>
       row.id === id
         ? {
@@ -427,6 +449,16 @@ export function ProviderEnvironmentSection(props: {
       {rows.length > 0 ? (
         <div className="mt-3 min-w-0 space-y-2 pb-2">
           {rows.map((variable, index) => {
+            if (props.managed?.names.has(variable.name)) {
+              return (
+                <div key={variable.id} className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <code className="min-w-0 truncate text-xs sm:w-44 sm:shrink-0">
+                    {variable.name}
+                  </code>
+                  <span className="text-xs text-muted-foreground">{props.managed.reason}</span>
+                </div>
+              );
+            }
             const nameInput = (
               <DraftInput
                 size="sm"
@@ -434,6 +466,7 @@ export function ProviderEnvironmentSection(props: {
                 className="min-w-0 flex-1"
                 value={variable.name}
                 onCommit={(name) => updateVariable(variable.id, { name: name.trim() })}
+                disabled={variable.valueRedacted === true}
                 placeholder="VARIABLE_NAME"
                 spellCheck={false}
                 aria-label={`Environment variable name ${index + 1}`}
@@ -459,6 +492,7 @@ export function ProviderEnvironmentSection(props: {
                         type="button"
                         size="icon-micro"
                         variant="ghost-muted"
+                        disabled={variable.valueRedacted === true}
                         onClick={() => {
                           const sensitive = !variable.sensitive;
                           updateVariable(variable.id, {
@@ -471,10 +505,11 @@ export function ProviderEnvironmentSection(props: {
                         aria-pressed={variable.sensitive}
                         aria-label={`Mark environment variable ${variable.name || index + 1} as sensitive`}
                       >
-                        <MorphIcon
-                          className="size-3"
-                          icon={variable.sensitive ? LockGlyph : LockOpen}
-                        />
+                        {variable.sensitive ? (
+                          <LockIcon className="size-3" />
+                        ) : (
+                          <LockOpenIcon className="size-3" />
+                        )}
                       </Button>
                     }
                   />
@@ -539,6 +574,9 @@ export function ProviderEnvironmentSection(props: {
           })}
           <p className="text-xs text-muted-foreground">
             Sensitive values are stored separately and never returned to the app.
+            {rows.some((row) => row.valueRedacted === true)
+              ? " Enter a new value to rename a saved one or make it plain text."
+              : null}
           </p>
         </div>
       ) : null}
@@ -748,6 +786,14 @@ export function ProviderInstanceCard({
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
+  const managedPolicy = useManagedPolicy(environmentId);
+  const instanceLocks = managedInstanceLocks(managedPolicy, instance.driver);
+  const managedDriverReason = isManagedDriverAllowed(managedPolicy, instance.driver)
+    ? undefined
+    : disallowedProviderMessage(
+        managedPolicy?.organization,
+        driverOption?.label ?? String(instance.driver),
+      );
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
       toastManager.add({
@@ -1112,12 +1158,15 @@ export function ProviderInstanceCard({
               />
             </span>
           ) : null}
-          <Switch
-            checked={enabled}
-            disabled={readOnly || (projectOverride !== undefined && !canWriteSettings)}
-            onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
-            aria-label={`Enable ${displayName}`}
-          />
+          {/* The policy refuses switching it on; switching it off stays the user's call. */}
+          <ManagedControl reason={enabled ? undefined : managedDriverReason}>
+            <Switch
+              checked={enabled}
+              disabled={readOnly || (projectOverride !== undefined && !canWriteSettings)}
+              onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
+              aria-label={`Enable ${displayName}`}
+            />
+          </ManagedControl>
         </span>
       </div>
     );
@@ -1206,6 +1255,7 @@ export function ProviderInstanceCard({
         definition={driverOption}
         environmentId={environmentId}
         supportsTinfoilBilling={supportsTinfoilBilling}
+        managed={instanceLocks && { keys: instanceLocks.configKeys, reason: instanceLocks.reason }}
         value={instance.config}
         idPrefix={`provider-instance-${instanceId}`}
         variant="settings"
@@ -1219,7 +1269,9 @@ export function ProviderInstanceCard({
           <Button
             variant="outline"
             size="sm"
-            disabled={readOnly || !canWriteSettings}
+            disabled={
+              readOnly || !canWriteSettings || instanceLocks?.configKeys.has("consoleBilling")
+            }
             onClick={() =>
               updateConfig({ ...(instance.config as Record<string, unknown>), consoleBilling: "" })
             }
@@ -1294,6 +1346,12 @@ export function ProviderInstanceCard({
                   onCommit={updateEnvironmentField}
                   onSecretChange={updateEnvironmentFieldSecret}
                   onRemove={removeEnvironmentField}
+                  managedReason={
+                    instanceLocks?.wholeEnvironment ||
+                    instanceLocks?.environmentNames.has(field.name)
+                      ? instanceLocks.reason
+                      : undefined
+                  }
                   secretSources={secretSources}
                 />
               ))}
@@ -1330,15 +1388,26 @@ export function ProviderInstanceCard({
 
       <SettingsSection
         title="Environment"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
+        inert={readOnly || instanceLocks?.wholeEnvironment}
+        aria-disabled={readOnly || instanceLocks?.wholeEnvironment || undefined}
         className={readOnly ? "opacity-50 select-none" : undefined}
       >
-        <ProviderEnvironmentSection
-          environment={genericEnvironment}
-          onChange={updateGenericEnvironment}
-          secretSources={secretSources}
-        />
+        {instanceLocks?.wholeEnvironment ? (
+          <ManagedNotice>{instanceLocks.reason}</ManagedNotice>
+        ) : null}
+        <div className={instanceLocks?.wholeEnvironment ? "opacity-50" : undefined}>
+          <ProviderEnvironmentSection
+            environment={genericEnvironment}
+            onChange={updateGenericEnvironment}
+            secretSources={secretSources}
+            managed={
+              instanceLocks && {
+                names: instanceLocks.environmentNames,
+                reason: instanceLocks.reason,
+              }
+            }
+          />
+        </div>
       </SettingsSection>
       {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
         <AcpSessionManagementSection

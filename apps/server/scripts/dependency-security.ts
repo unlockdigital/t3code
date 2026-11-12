@@ -14,7 +14,7 @@ const WorkspaceLock = Schema.Struct({
 });
 const PackageInfo = Schema.Record(Schema.String, Schema.Unknown);
 const decodeWorkspaceLock = Schema.decodeUnknownSync(WorkspaceLock);
-const SdkPackage = Schema.Struct({ version: Schema.String });
+const SdkPackage = Schema.Struct({ name: Schema.String, version: Schema.String });
 const decodeSdkPackage = Schema.decodeUnknownSync(SdkPackage);
 const decodePackageInfo = Schema.decodeUnknownSync(PackageInfo);
 
@@ -85,8 +85,8 @@ export function checkDependencySecurity(source: string): DependencySecurityResul
   return { packages, violations };
 }
 
-const sdkVersion = "0.3.276";
-const sdkSha256 = "e4c986047654f8ad29c11000fefebd7dd9202a1d1f281e7029a0d60e84541622";
+const sdkVersion = "0.3.321";
+const sdkSha256 = "33bbcfede890cfac56da5f377d4a0d87d0b524df85a8e2b2195d426d4e290d46";
 const serverRequire = NodeModule.createRequire(new URL("../package.json", import.meta.url));
 
 async function sha256File(path: string) {
@@ -105,6 +105,9 @@ export async function checkInstalledClaudeSdk() {
     );
     const sha256 = await sha256File(sdkPath);
     const violations: string[] = [];
+    if (metadata.name !== "@anthropic-ai/claude-agent-sdk") {
+      violations.push(`Expected Claude SDK package; found ${metadata.name}.`);
+    }
     if (metadata.version !== sdkVersion) {
       violations.push(`Expected Claude SDK ${sdkVersion}; found ${metadata.version}.`);
     }
@@ -135,11 +138,11 @@ export async function checkInstalledClaudeSdk() {
   }
 }
 
-const cursorSdkVersion = "1.0.38";
+const cursorSdkVersion = "1.2.0";
 const cursorSdkHashes = {
-  "dist/cjs/704.js": "92b9d8c1a4cf93fd42749085a70f6ea02f27fc9ef6167d521992f918274da4f1",
-  "dist/esm/704.js": "01c57c4234b5e09771f31edb2e664999cb3b882db3ce9c9b8b091e2a37e0cf0c",
-  "dist/bundled/index.js": "d89e8355b17cbd7f38cb3b5f76cda56bb7c249816c3438a545c1bfa427eeb65e",
+  "dist/cjs/587.js": "b2754f5c2fdf90e6e45b78b8f1d342eb07c904bc06201c0e23fcf7e9c7ccb8df",
+  "dist/esm/587.js": "9164550549529f46cda0edd00a6c5e2502c28d3b1a8763827796c7185fec7d32",
+  "dist/bundled/index.js": "011fe3f52749b0ba29b979b7a73baf0e3f479ee126ef1e8166f5fb71aae9efa5",
 };
 
 export function resolveCursorSdkRoot() {
@@ -151,7 +154,7 @@ export function resolveCursorSdkRoot() {
 export async function checkInstalledCursorSdk() {
   try {
     const root = resolveCursorSdkRoot();
-    const { version } = decodeSdkPackage(
+    const { name, version } = decodeSdkPackage(
       JSON.parse(await NodeFSP.readFile(NodePath.join(root, "package.json"), "utf8")) as unknown,
     );
     const bundles = await Promise.all(
@@ -162,6 +165,9 @@ export async function checkInstalledCursorSdk() {
       })),
     );
     const violations: string[] = [];
+    if (name !== "@cursor/sdk") {
+      violations.push(`Expected Cursor SDK package; found ${name}.`);
+    }
     if (version !== cursorSdkVersion) {
       violations.push(`Expected Cursor SDK ${cursorSdkVersion}; found ${version}.`);
     }
@@ -203,7 +209,7 @@ export async function runDependencySecurity(
       `Checked ${result.packages.length} resolved packages; ${result.violations.length} below minimums.\n`,
     );
     process.stdout.write(
-      `Claude SDK embedded Zod and qs patches: ${claudeSdk.violations.length ? "guard failed" : "approved bundle"}.\n`,
+      `Claude SDK embedded Zod patch: ${claudeSdk.violations.length ? "guard failed" : "approved bundle"}.\n`,
     );
     process.stdout.write(
       `Cursor SDK embedded fast-uri patch: ${cursorSdk.violations.length ? "guard failed" : "approved bundles"}.\n`,

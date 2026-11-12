@@ -2,15 +2,13 @@
 
 This repository is Unlock Digital's maintained fork of [T3 Code](https://github.com/pingdotgg/t3code), an open-source agent harness control surface. It enables unified control of coding agents running on your machine with desktop, web, and mobile interfaces.
 
-Works with your subscriptions and configurations across Claude Code, Codex, Google Antigravity, OpenCode, Cursor, and Grok Build.
+Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx. If they're set up on your computer, T3 Code can control them.
 
-Current preview source integrates official **v0.1.6**. See [included improvements](docs/unlock-digital/CUSTOMIZATIONS.md), [Mac installation and profile isolation](docs/unlock-digital/PORTABLE_TRIAL.md), and [upstream maintenance](docs/unlock-digital/UPSTREAM_SYNC.md). Release assets identify the exact fork commit, validation, and signing status.
+Current preview source integrates official **v0.1.9**. See [included improvements](docs/unlock-digital/CUSTOMIZATIONS.md), [Mac installation and profile isolation](docs/unlock-digital/PORTABLE_TRIAL.md), and [upstream maintenance](docs/unlock-digital/UPSTREAM_SYNC.md). Release assets identify the exact fork commit, validation, and signing status.
 
-## Current release · November 1, 2026
+## Preview candidate · November 11, 2026
 
-[Download for Apple-silicon Mac](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/T3-Code-0.1.6-unlock.1-preview.20261101.1-arm64.dmg) · [Source package](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/t3code-0.1.6-unlock.1-preview.20261101.1-source.tar.gz) · [Release notes](https://github.com/unlockdigital/t3code/releases/tag/v0.1.6-unlock.1-preview.20261101.1)
-
-This release includes the qualified Unlock Digital customizations and uses separate preview profiles. Follow the [install guide](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/INSTALL.md) and verify downloads with [SHA256SUMS](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/SHA256SUMS). The [validation report](https://github.com/unlockdigital/t3code/releases/download/v0.1.6-unlock.1-preview.20261101.1/VALIDATION.md) records signing, acceptance and security coverage. Updates and adoption remain manual.
+The v0.1.9 integration candidate preserves the public fork's supported customizations. Published previews are available on the [releases page](https://github.com/unlockdigital/t3code/releases); each release identifies its exact source commit, checksums, and completed validation. Follow the [Mac installation guide](docs/unlock-digital/PORTABLE_TRIAL.md) for separate profiles. Updates and adoption remain manual.
 
 ## Unlock Digital Enhancements
 
@@ -24,7 +22,7 @@ This edition builds on upstream stable releases while providing tailored capabil
 ## Upstream Relationship
 
 - Upstream canonical repository: [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
-- Base release: official `v0.1.6`
+- Base release: official `v0.1.9`
 - Operating branch: `unlock-digital/main`
 - Maintenance plan: See [docs/unlock-digital/UPSTREAM_SYNC.md](./docs/unlock-digital/UPSTREAM_SYNC.md)
 
@@ -42,13 +40,13 @@ This edition is maintained as a reproducible source build with an isolated, pinn
 
 2. Build and launch:
    ```bash
-   vp run build && vp run dev:desktop
-   # (or use the parent workspace launcher: "../Launch T3 Code.command")
+   vp run build:desktop
+   vp run dev:desktop
    ```
 
 ### Prerequisites & Providers
 
-Install and authenticate at least one provider before use:
+Install and authenticate at least one provider using the [provider setup guide](docs/user/install.md#providers).
 
 The package-manager commands below install upstream T3 Code. Use the Unlock Digital download above for this fork's customizations.
 

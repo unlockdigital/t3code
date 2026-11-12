@@ -24,6 +24,7 @@ import { appAtomRegistry } from "../state/atom-registry";
 import { assetEnvironment } from "../state/assets";
 import { environmentSession } from "../state/session";
 import { environmentThreadShells } from "../state/threads";
+import { workspaceConnections } from "../state/workspace";
 import { downloadAttachmentForPreview } from "./attachmentDownload";
 import {
   persistComposerAttachmentFile,
@@ -168,7 +169,13 @@ async function importAttachment(
 ): Promise<DraftComposerAttachment> {
   await waitForComposerDraftsLoaded();
   checkAborted(signal);
-  const local = findLocalComposerClipboardAttachment(environmentId, record.attachmentId);
+  const local = findLocalComposerClipboardAttachment(
+    appAtomRegistry
+      .get(workspaceConnections.environmentsAtom)
+      .map((environment) => environment.environmentId),
+    environmentId,
+    record.attachmentId,
+  );
   if (local) {
     if (!local.fileUri && local.type === "image" && local.dataUrl)
       return {

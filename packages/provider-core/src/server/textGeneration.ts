@@ -2,9 +2,9 @@ import type {
   BranchNamingOptions,
   ChatAttachment,
   ModelSelection,
+  ProjectId,
   PullRequestReviewGuide,
   TextGenerationError,
-  ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
@@ -13,7 +13,7 @@ import type { TextGenerationPolicy } from "./textGenerationPolicy.ts";
 import type { ThreadTitleForkSource } from "./textGenerationPrompts.ts";
 
 interface ModelRequestContext {
-  readonly projectId?: ProjectId;
+  readonly projectId?: ProjectId | null | undefined;
   readonly threadId?: ThreadId;
 }
 
@@ -120,10 +120,23 @@ export type ReviewGuideGenerationResult = Omit<
 > &
   ModelRequestResult;
 
+export interface TranscriptionPostProcessingInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+}
+
+export interface TranscriptionPostProcessingResult {
+  transcription: string;
+}
+
 export interface ProviderTextGeneration {
   readonly generateProjectBrief: (
     input: ProjectBriefGenerationInput,
   ) => Effect.Effect<ProjectBriefGenerationResult, TextGenerationError>;
+  readonly generateTranscriptionPostProcessing: (
+    input: TranscriptionPostProcessingInput,
+  ) => Effect.Effect<TranscriptionPostProcessingResult, TextGenerationError>;
 
   readonly generateCommitMessage: (
     input: CommitMessageGenerationInput,

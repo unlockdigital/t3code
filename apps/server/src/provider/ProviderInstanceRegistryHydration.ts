@@ -7,14 +7,17 @@ import {
   type ProviderInstanceConfigMap,
   ServerSettings,
 } from "@t3tools/contracts";
+import * as NodeUtil from "node:util";
+
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import type * as Crypto from "effect/Crypto";
+import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
+import * as ManagedProviders from "../policy/managedProviders.ts";
 import * as Settings from "../serverSettings.ts";
 import { DEFAULT_PROVIDER_INSTANCES } from "./defaultProviderInstances.ts";
 import * as SecretResolver from "../secrets/SecretResolver.ts";
@@ -42,7 +45,7 @@ type ProviderInstanceRegistryHydrationEnv =
   | Path.Path
   | FileSystem.FileSystem
   // Secret provider reads.
-  | Crypto.Crypto
+  | SecureRandom.SecureRandom
   // The Claude runner counts its CLIs as running agents for port discovery.
   | PortScanner.PortDiscovery;
 
@@ -117,19 +120,34 @@ export const seedDevReplayInstance = Effect.fn(
   });
 });
 
-const layerSettingsWatcher = (settingsChanges: Stream.Stream<ServerSettings>) =>
+// A label is display-only, so only kind and config can change what a vault returns.
+const vaultConfigs = (settings: ServerSettings) =>
+  Object.entries(settings.secretProviders).map(([id, { kind, config }]) => [id, kind, config]);
+
+export const layerSettingsWatcher = (
+  settingsChanges: Stream.Stream<ServerSettings>,
+  // The settings the registry was built from: a change queued during startup differs from these.
+  initialSettings?: ServerSettings,
+) =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const mutator = yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
+      const serverSettings = yield* Settings.ServerSettingsService;
+      let secretProviders = initialSettings && vaultConfigs(initialSettings);
       yield* settingsChanges.pipe(
         Stream.runForEach(() =>
-          mutator
-            .reconcile()
-            .pipe(
-              Effect.catchCause((cause) =>
-                Effect.logError("ProviderInstanceRegistry reconcile failed", cause),
-              ),
+          mutator.reconcile().pipe(
+            Effect.andThen(serverSettings.getSettings),
+            Effect.flatMap((current) => {
+              const next = vaultConfigs(current);
+              if (NodeUtil.isDeepStrictEqual(secretProviders, next)) return Effect.void;
+              secretProviders = next;
+              return mutator.reloadSecrets();
+            }),
+            Effect.catchCause((cause) =>
+              Effect.logError("ProviderInstanceRegistry reconcile failed", cause),
             ),
+          ),
         ),
         Effect.forkScoped,
       );
@@ -163,14 +181,24 @@ export const layer: Layer.Layer<
       ),
     );
 
+    // Drivers launch from the host environment, minus launch overrides a policy ignores.
+    const hostEnvironment = ManagedProviders.providerHostEnvironment(
+      serverSettings.managedPolicy,
+      yield* HostProcess.Environment,
+    );
+    // Instances of drivers the policy leaves out stay listed, as unavailable, so their threads
+    // explain why instead of losing their provider.
     const layerMutable = ProviderInstanceRegistry.layer({
       drivers: BUILT_IN_DRIVERS,
       snapshot,
       readCurrentSnapshot,
+      blockedReason: (driver) =>
+        ManagedProviders.disallowedDriverReason(serverSettings.managedPolicy, driver),
     }).pipe(
       Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
       Layer.provide(AcpRegistrySupport.layerFromHost),
       Layer.provide(ProviderHostLive.layer),
+      Layer.provide(Layer.succeed(HostProcess.Environment, hostEnvironment)),
       Layer.provide(SecretResolver.layer),
     );
 

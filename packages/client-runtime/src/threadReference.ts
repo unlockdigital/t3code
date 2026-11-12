@@ -4,7 +4,7 @@ import type {
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { threadContextRecord } from "@t3tools/shared/composerContextReferences";
-import { appThreadLink, formatThreadLink } from "@t3tools/shared/threadLinks";
+import { appThreadLink, formatThreadLink, hostedThreadLink } from "@t3tools/shared/threadLinks";
 
 import { resolveThreadCurrentPullRequestLink } from "./threadPullRequests.ts";
 
@@ -25,15 +25,17 @@ export interface ThreadReferenceCopyTarget {
 export function threadChipCopyTarget(
   threadRef: ScopedThreadRef,
   title: string,
-  scheme?: string,
+  schemeOrHostedAppUrl?: string,
 ): ThreadReferenceCopyTarget {
   const record = threadContextRecord(threadRef, title);
   return {
     kind: "thread",
     value:
-      scheme === undefined
+      schemeOrHostedAppUrl === undefined
         ? formatThreadLink(threadRef, record.title)
-        : appThreadLink(threadRef, scheme),
+        : /^https?:\/\//.test(schemeOrHostedAppUrl)
+          ? hostedThreadLink(threadRef, schemeOrHostedAppUrl)
+          : appThreadLink(threadRef, schemeOrHostedAppUrl),
     description: record.title,
     fragment: { version: 1, source: { environmentId: threadRef.environmentId }, records: [record] },
     clipboardTarget: "thread",
@@ -50,6 +52,7 @@ export function resolveThreadReferenceCopyTarget(input: {
   readonly pullRequests?: ReadonlyArray<ThreadPullRequestLink> | undefined;
   readonly linkedPullRequestUrl?: string | null;
   readonly appScheme?: string | undefined;
+  readonly hostedAppUrl?: string;
 }): ThreadReferenceCopyTarget | null {
   if (input.openPanelPullRequestUrl === null) return null;
   const pullRequestUrl =
@@ -65,5 +68,5 @@ export function resolveThreadReferenceCopyTarget(input: {
         successTitle: "PR link copied",
         failureTitle: "Failed to copy PR link",
       }
-    : threadChipCopyTarget(input.threadRef, input.title, input.appScheme);
+    : threadChipCopyTarget(input.threadRef, input.title, input.appScheme ?? input.hostedAppUrl);
 }
