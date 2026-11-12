@@ -3338,7 +3338,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
 
         yield* service.updateSettings({ defaultAutoPull: true });
         const stored = JSON.parse(yield* fs.readFileString(config.settingsPath));
-        assert.equal(stored.defaultRuntimeMode, "auto");
+        assert.equal((yield* decodeServerSettings(stored)).defaultRuntimeMode, "auto");
         assert.equal(stored.projectSettingsOverrides[raised].defaultRuntimeMode, "full-access");
       }).pipe(
         Effect.provide(

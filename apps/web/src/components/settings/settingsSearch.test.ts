@@ -63,6 +63,9 @@ describe("searchSettings", () => {
       (item) => item.id === "upstream-updates",
     );
     expect(result?.to).toBe("/settings/upstream-updates");
+    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).toContain(
+      "/settings/upstream-updates",
+    );
     expect(getSettingsSearchTargetScope("upstream-updates")?.scope).toBe("environment");
   });
 

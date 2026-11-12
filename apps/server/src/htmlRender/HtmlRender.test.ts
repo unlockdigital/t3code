@@ -502,7 +502,10 @@ fs.createReadStream(null, { fd: 3 }).on("end", quit).on("data", (chunk) => {
           const executable = path.join(directory, "chrome-headless-shell");
           yield* fileSystem.writeFileString(
             executable,
-            `#!${process.execPath}\nprocess.stderr.write(${JSON.stringify(PreviewBrowserHost.NO_SANDBOX_SIGNATURE)});\nprocess.exit(1);\n`,
+            executableNodeFixture(
+              process.execPath,
+              `process.stderr.write(${JSON.stringify(PreviewBrowserHost.NO_SANDBOX_SIGNATURE)});\nprocess.exit(1);\n`,
+            ),
             { mode: 0o755 },
           );
 

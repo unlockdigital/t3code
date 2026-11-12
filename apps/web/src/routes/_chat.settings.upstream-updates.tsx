@@ -12,6 +12,6 @@ function UpstreamUpdatesRoute() {
   );
 }
 
-export const Route = createFileRoute("/settings/upstream-updates")({
+export const Route = createFileRoute("/_chat/settings/upstream-updates")({
   component: UpstreamUpdatesRoute,
 });
