@@ -195,7 +195,7 @@ describe("SecretResolver", () => {
         SecretResolver.layer({
           drivers: [first.driver, second.driver],
           secretProviders: Effect.sync(() => ({ [personal]: provider })),
-        }).pipe(Layer.provide(NodeServices.layer)),
+        }).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
       ),
     );
   });
