@@ -6,9 +6,11 @@ Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCod
 
 Current preview source integrates official **v0.1.9**. See [included improvements](docs/unlock-digital/CUSTOMIZATIONS.md), [Mac installation and profile isolation](docs/unlock-digital/PORTABLE_TRIAL.md), and [upstream maintenance](docs/unlock-digital/UPSTREAM_SYNC.md). Release assets identify the exact fork commit, validation, and signing status.
 
-## Preview candidate · November 11, 2026
+## Published preview · v0.1.9
 
-The v0.1.9 integration candidate preserves the public fork's supported customizations. Published previews are available on the [releases page](https://github.com/unlockdigital/t3code/releases); each release identifies its exact source commit, checksums, and completed validation. Follow the [Mac installation guide](docs/unlock-digital/PORTABLE_TRIAL.md) for separate profiles. Updates and adoption remain manual.
+The published [v0.1.9-unlock.1-preview.20261111.1 release](https://github.com/unlockdigital/t3code/releases/tag/v0.1.9-unlock.1-preview.20261111.1) integrates official v0.1.9 at source commit [c13dae4](https://github.com/unlockdigital/t3code/commit/c13dae4d88c4f935f8f394b88d93fdd23555d2f4). This Apple-silicon macOS preview is unsigned and uses manual installation and updates.
+
+Download the [arm64 DMG](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/T3-Code-0.1.9-unlock.1-preview.20261111.1-arm64.dmg), follow [INSTALL-MAC.md](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/INSTALL-MAC.md), and verify downloads against [SHA256SUMS](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/SHA256SUMS). [VALIDATION.md](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/VALIDATION.md) records completed checks and limits. Use separate application and server profiles and configure provider accounts on the destination machine.
 
 ## Unlock Digital Enhancements
 
