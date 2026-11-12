@@ -1,5 +1,16 @@
 # T3 Code docs
 
+## Unlock Digital fork
+
+Start with the [published preview](https://github.com/unlockdigital/t3code/releases/tag/v0.1.9-unlock.1-preview.20261111.1) and [Mac installation and profile isolation](./unlock-digital/PORTABLE_TRIAL.md).
+
+- [Supported customizations](./unlock-digital/CUSTOMIZATIONS.md)
+- [Provider setup](./unlock-digital/PROVIDERS.md)
+- [Source setup](./unlock-digital/SETUP.md)
+- [Canonical branch and upstream maintenance](./unlock-digital/UPSTREAM_SYNC.md)
+
+The guides below describe the shared T3 Code product. Use the fork installation guide for Unlock Digital downloads and profiles; the general installation guide covers official upstream packages.
+
 ## Using T3 Code
 
 - [Install T3 Code](./user/install.md)

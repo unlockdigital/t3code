@@ -1,5 +1,9 @@
 # Upstream maintenance and release identity
 
+## Canonical branch
+
+Use `unlock-digital/main` as the authoritative public source and release-integration branch. Release tags preserve the exact source of published installers. Keep contribution branches while their pull requests are open: deleting a head branch closes its open pull request. Retire a contribution branch after its pull request is merged or closed and any needed changes are preserved. GitHub can automatically delete branches merged within the fork; upstream submissions may need cleanup by the fork owner after merging.
+
 ## Fork and upstream release identity
 
 The upstream base is [pingdotgg/t3code v0.1.9](https://github.com/pingdotgg/t3code/releases/tag/v0.1.9), commit `24e77473ecf41bc1f7142529c7911c1c1aae1d76`. [upstream.json](upstream.json) records this base for update preparation. Identify a fork artifact by `unlockdigital/t3code`, its complete tag, source SHA, and package version. The Unlock Digital preview uses a tag shaped `vX.Y.Z-unlock.N-preview.YYYYMMDD.N`.

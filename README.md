@@ -1,133 +1,52 @@
 # T3 Code · Unlock Digital Edition
 
-This repository is Unlock Digital's maintained fork of [T3 Code](https://github.com/pingdotgg/t3code), an open-source agent harness control surface. It enables unified control of coding agents running on your machine with desktop, web, and mobile interfaces.
+Unlock Digital's maintained fork of [T3 Code](https://github.com/pingdotgg/t3code). Control coding agents on your machines through desktop, web, and mobile clients using your provider accounts.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx. If they're set up on your computer, T3 Code can control them.
+**[Download the preview](https://github.com/unlockdigital/t3code/releases/tag/v0.1.9-unlock.1-preview.20261111.1)** · **[Installation guide](docs/unlock-digital/PORTABLE_TRIAL.md)** · **[Documentation](docs/README.md)**
 
-Current preview source integrates official **v0.1.9**. See [included improvements](docs/unlock-digital/CUSTOMIZATIONS.md), [Mac installation and profile isolation](docs/unlock-digital/PORTABLE_TRIAL.md), and [upstream maintenance](docs/unlock-digital/UPSTREAM_SYNC.md). Release assets identify the exact fork commit, validation, and signing status.
+## Install the published preview
 
-## Published preview · v0.1.9
+The Apple-silicon macOS preview is **v0.1.9-unlock.1-preview.20261111.1**, based on official v0.1.9 and built from [c13dae4](https://github.com/unlockdigital/t3code/commit/c13dae4d88c4f935f8f394b88d93fdd23555d2f4). It is unsigned and uses manual installation and updates.
 
-The published [v0.1.9-unlock.1-preview.20261111.1 release](https://github.com/unlockdigital/t3code/releases/tag/v0.1.9-unlock.1-preview.20261111.1) integrates official v0.1.9 at source commit [c13dae4](https://github.com/unlockdigital/t3code/commit/c13dae4d88c4f935f8f394b88d93fdd23555d2f4). This Apple-silicon macOS preview is unsigned and uses manual installation and updates.
+[Download arm64 DMG](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/T3-Code-0.1.9-unlock.1-preview.20261111.1-arm64.dmg) · [INSTALL-MAC.md](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/INSTALL-MAC.md) · [SHA256SUMS](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/SHA256SUMS) · [Validation](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/VALIDATION.md)
 
-Download the [arm64 DMG](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/T3-Code-0.1.9-unlock.1-preview.20261111.1-arm64.dmg), follow [INSTALL-MAC.md](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/INSTALL-MAC.md), and verify downloads against [SHA256SUMS](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/SHA256SUMS). [VALIDATION.md](https://github.com/unlockdigital/t3code/releases/download/v0.1.9-unlock.1-preview.20261111.1/VALIDATION.md) records completed checks and limits. Use separate application and server profiles and configure provider accounts on the destination machine.
+Use the installation guide to verify downloads, keep separate application and server profiles, and configure provider accounts on the destination machine.
 
-## Unlock Digital Enhancements
+## What this fork adds
 
-This edition builds on upstream stable releases while providing tailored capabilities for multi-provider orchestration and local development:
+- Home activity overview for agents and background work.
+- Provider usage, billing, and multi-account clarity.
+- Upstream release monitoring and isolated update preparation.
+- Dedicated local profiles for the preview.
 
-- **Home Activity Overview**: A dedicated Home view offering a compact agent activity overview, live elapsed task durations, grouped subagent counts, and steady thread action menus during live background work.
-- **Upstream Updates Management**: Built-in **Settings → Upstream Updates** to monitor official upstream releases and security advisories, and safely prepare candidates in isolated git worktrees without interrupting active development runs.
-- **Usage & Billing Clarity**: Clarified five-hour and monthly provider limit labels, Anthropic Console billing links, and multi-account status across models.
-- **Private Local Storage Isolation**: Dedicated application state directories ensuring local conversations, settings, and database migrations remain isolated locally on your machine.
+See [supported customizations](docs/unlock-digital/CUSTOMIZATIONS.md) for details.
 
-## Upstream Relationship
+## Find your way
 
-- Upstream canonical repository: [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
-- Base release: official `v0.1.9`
-- Operating branch: `unlock-digital/main`
-- Maintenance plan: See [docs/unlock-digital/UPSTREAM_SYNC.md](./docs/unlock-digital/UPSTREAM_SYNC.md)
+| Task                | Guide                                                            |
+| ------------------- | ---------------------------------------------------------------- |
+| Configure providers | [Provider setup](docs/unlock-digital/PROVIDERS.md)               |
+| Use T3 Code         | [User documentation](docs/README.md#using-t3-code)               |
+| Build from source   | [Development runbook](docs/operations/development.md)            |
+| Maintain the fork   | [Upstream synchronization](docs/unlock-digital/UPSTREAM_SYNC.md) |
 
-## Installation & Running
+## Source and contributions
 
-### Running from source
+The authoritative public branch is [`unlock-digital/main`](https://github.com/unlockdigital/t3code/tree/unlock-digital/main). Published releases pin their own source commits. Contribution branches stay available while their pull requests are open; the [maintenance guide](docs/unlock-digital/UPSTREAM_SYNC.md#canonical-branch) describes their lifecycle.
 
-This edition is maintained as a reproducible source build with an isolated, pinned toolchain.
+<details>
+<summary>Developer navigation</summary>
 
-1. Install dependencies with Vite+:
+| Directory                | Contents                                           |
+| ------------------------ | -------------------------------------------------- |
+| [apps/](apps/)           | Server, desktop, web, and mobile applications      |
+| [packages/](packages/)   | Shared contracts, client runtime, and integrations |
+| [docs/](docs/README.md)  | User guides, development, and maintenance          |
+| [scripts/](scripts/)     | Development and build tools                        |
+| [packaging/](packaging/) | Installer and release support                      |
 
-   ```bash
-   vp i
-   ```
+Start with [fork setup](docs/unlock-digital/SETUP.md) and the [architecture overview](docs/internals/overview.md). Read the [contribution guidance](CONTRIBUTING.md) and current [upstream contribution policy](https://github.com/pingdotgg/t3code/blob/main/CONTRIBUTING.md) before proposing an upstream bug fix.
 
-2. Build and launch:
-   ```bash
-   vp run build:desktop
-   vp run dev:desktop
-   ```
+</details>
 
-### Prerequisites & Providers
-
-Install and authenticate at least one provider using the [provider setup guide](docs/user/install.md#providers).
-
-The package-manager commands below install upstream T3 Code. Use the Unlock Digital download above for this fork's customizations.
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### Windows (`scoop`)
-
-```bash
-scoop install extras/t3code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-#### Nix (nixpkgs)
-
-```bash
-nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
-```
-
-The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
-and includes the desktop app (`t3code-desktop`) and the `t3` command.
-See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
-
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [FAQ](./docs/user/faq.md)
-
-## Unlock Digital fork
-
-- [Unlock Digital setup and customizations](./docs/unlock-digital/SETUP.md)
-- [Upstream synchronization guide](./docs/unlock-digital/UPSTREAM_SYNC.md)
-- [Provider connections & ledger](./docs/unlock-digital/PROVIDERS.md)
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-
-Building from source internals? See [docs/internals/overview.md](./docs/internals/overview.md).
-
-## Contributing & Upstream
-
-Custom features in this edition follow modular review boundaries so that general-purpose improvements (such as Home activity overviews and usage clarity) can be proposed upstream to [pingdotgg/t3code](https://github.com/pingdotgg/t3code) in accordance with upstream contribution guidelines.
+[Security policy](.github/SECURITY.md) · [MIT license](LICENSE)
