@@ -1,6 +1,6 @@
 import type { ServerProviderUsageLimits } from "@t3tools/contracts";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
@@ -97,10 +97,13 @@ export const readTinfoilUsageLimits = Effect.fn("readTinfoilUsageLimits")(functi
     );
     const owner =
       caller?.context_type === "organization" ? caller.organization?.id : caller?.user_id;
-    const crypto = yield* Crypto.Crypto;
+    const digest = yield* Digest.Digest;
     const credentialFingerprint = owner
-      ? yield* crypto
-          .digest("SHA-256", new TextEncoder().encode(`tinfoil\0${caller!.context_type}:${owner}`))
+      ? yield* digest
+          .digest(
+            Digest.sha256,
+            new TextEncoder().encode(`tinfoil\0${caller!.context_type}:${owner}`),
+          )
           .pipe(Effect.map(Hex.encode), Effect.orDie)
       : undefined;
     const limits: ServerProviderUsageLimits = {

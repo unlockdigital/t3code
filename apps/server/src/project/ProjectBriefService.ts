@@ -8,7 +8,7 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -44,7 +44,7 @@ export class ProjectBriefService extends Context.Service<
 >()("t3/project/ProjectBriefService") {}
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectService = yield* ProjectService.ProjectService;
   const settings = yield* ServerSettings.ServerSettingsService;
@@ -80,7 +80,7 @@ const make = Effect.gen(function* () {
     yield* projectService
       .updateBrief({
         projectId,
-        commandId: CommandId.make(yield* crypto.randomUUIDv4().pipe(Effect.orDie)),
+        commandId: CommandId.make(yield* crypto.uuidV4().pipe(Effect.orDie)),
         expectedRevision,
         state,
       })
@@ -96,7 +96,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* get(projectId);
         const next = {
-          revision: yield* crypto.randomUUIDv4().pipe(Effect.orDie),
+          revision: yield* crypto.uuidV4().pipe(Effect.orDie),
           contextFile: contextFile === undefined ? current.contextFile : contextFile,
           saved: null,
         };
@@ -127,7 +127,7 @@ const make = Effect.gen(function* () {
         const state = project.briefState ?? emptyState;
         const existing = pending.get(projectId);
         if (existing?.revision === state.revision) return existing.run;
-        const revision = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+        const revision = yield* crypto.uuidV4().pipe(Effect.orDie);
         const started = { ...state, revision };
         yield* save(projectId, state.revision, started);
         const operation = Effect.gen(function* () {

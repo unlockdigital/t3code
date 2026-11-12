@@ -1,6 +1,7 @@
 import {
   AntigravitySettings,
   ClaudeSettings,
+  CloudSpeechCredentials,
   CodexSettings,
   EasDeviceHostConfig,
   type ProviderInstanceConfig,
@@ -8,6 +9,7 @@ import {
   ServerSettingsError,
   type SettingsSecretValue,
   SimlockDeviceHostConfig,
+  TextGeneratorConfig,
   UsageLimitSourceConfig,
   isSecretReference,
   isSecretSetting,
@@ -15,6 +17,7 @@ import {
 import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
 import { cursorClient } from "@t3tools/provider-cursor/client";
 import { grokClient } from "@t3tools/provider-grok/client";
+import { kiroClient } from "@t3tools/provider-kiro/client";
 import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
@@ -53,12 +56,22 @@ const providerSecretFields = new Map([
   ["codex", describeSecretFields(CodexSettings)],
   ["claudeAgent", describeSecretFields(ClaudeSettings)],
   ["antigravity", describeSecretFields(AntigravitySettings)],
-  ...[cursorClient, grokClient, museClient, openCodeClient, piClient, acpRegistryClient].map(
+  ...[
+    cursorClient,
+    grokClient,
+    kiroClient,
+    museClient,
+    openCodeClient,
+    piClient,
+    acpRegistryClient,
+  ].map(
     (definition) =>
       [definition.driverKind, describeSecretFields(definition.settingsSchema)] as const,
   ),
 ]);
 const usageLimitSecretFields = describeSecretFields(UsageLimitSourceConfig);
+const textGeneratorSecretFields = describeSecretFields(TextGeneratorConfig);
+const voiceSecretFields = describeSecretFields(CloudSpeechCredentials);
 const easDeviceHostSecretFields = describeSecretFields(EasDeviceHostConfig);
 const simlockDeviceHostSecretFields = describeSecretFields(SimlockDeviceHostConfig);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
@@ -281,6 +294,19 @@ function mapSecretFieldGroups(
     ]),
   ) as ServerSettings["usageLimitSources"];
 
+  const textGenerators = Object.fromEntries(
+    Object.entries(settings.textGenerators).map(([id, generator]) => [
+      id,
+      mapFields(
+        generator,
+        textGeneratorSecretFields,
+        (field, serverHost) =>
+          `text-generator-${encode(id)}-${encode(field)}` +
+          (serverHost === null ? "" : `-${encode(serverHost)}`),
+      ),
+    ]),
+  ) as ServerSettings["textGenerators"];
+
   const easDeviceHosts = settings.easDeviceHosts.map(
     (host) =>
       mapFields(
@@ -306,10 +332,46 @@ function mapSecretFieldGroups(
 
   return {
     ...settings,
+    cloudSpeechCredentials: mapFields(
+      settings.cloudSpeechCredentials,
+      voiceSecretFields,
+      (provider) => `voice-cloud-${provider}`,
+    ) as ServerSettings["cloudSpeechCredentials"],
     providerInstances,
     sourceControlHosts,
     usageLimitSources,
+    textGenerators,
     easDeviceHosts,
     simlockDeviceHosts,
+  };
+}
+
+/**
+ * `next` with every secret reference to a secret provider that `current` has and `next` dropped
+ * unset: a credential field becomes empty, and a provider variable holding one is removed.
+ */
+export function withoutRemovedSecretProviderReferences(
+  current: ServerSettings,
+  next: ServerSettings,
+): ServerSettings {
+  const removed = new Set(
+    Object.keys(current.secretProviders).filter((id) => !Object.hasOwn(next.secretProviders, id)),
+  );
+  if (removed.size === 0) return next;
+  const isRemoved = (value: unknown) => isSecretReference(value) && removed.has(value.provider);
+  const fields = mapSettingsSecretValues(next, (value) => (isRemoved(value) ? "" : value));
+  return {
+    ...fields,
+    providerInstances: Object.fromEntries(
+      Object.entries(fields.providerInstances).map(([instanceId, instance]) => [
+        instanceId,
+        instance.environment?.some((variable) => isRemoved(variable.value))
+          ? {
+              ...instance,
+              environment: instance.environment.filter((variable) => !isRemoved(variable.value)),
+            }
+          : instance,
+      ]),
+    ),
   };
 }

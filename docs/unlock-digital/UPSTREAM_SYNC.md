@@ -2,7 +2,11 @@
 
 ## Fork and upstream release identity
 
-The upstream base is [pingdotgg/t3code v0.1.6](https://github.com/pingdotgg/t3code/releases/tag/v0.1.6), commit `2359643cffa6ba9ee84d6f2694b935de54a8013e`. [upstream.json](upstream.json) records this base for update preparation. Identify a fork artifact by `unlockdigital/t3code`, its complete tag, source SHA, and package version. The Unlock Digital preview uses a tag shaped `vX.Y.Z-unlock.N-preview.YYYYMMDD.N`.
+The upstream base is [pingdotgg/t3code v0.1.9](https://github.com/pingdotgg/t3code/releases/tag/v0.1.9), commit `24e77473ecf41bc1f7142529c7911c1c1aae1d76`. [upstream.json](upstream.json) records this base for update preparation. Identify a fork artifact by `unlockdigital/t3code`, its complete tag, source SHA, and package version. The Unlock Digital preview uses a tag shaped `vX.Y.Z-unlock.N-preview.YYYYMMDD.N`.
+
+## Upstreamed contributions
+
+[PR #32959](https://github.com/pingdotgg/t3code/pull/32959), which fixes prompt links for encoded thread IDs, merged into upstream `main` on November 11, 2026 as `6a5d6085ba3db7565993e72d642f4122edc86675`. The fork retains the equivalent fix while its stable base remains v0.1.9, published earlier that day. A later upstream release containing the merge supersedes this carried fix.
 
 ## Preparing updates
 

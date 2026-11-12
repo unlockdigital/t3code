@@ -337,6 +337,24 @@ it.effect("allows an existing Standard conversation to use Tinfoil and switch ba
       createdBy: "user",
       creationSource: "web",
     });
+    expect(
+      yield* orchestrator
+        .dispatch({
+          type: "thread.model-selection.set",
+          commandId: CommandId.make("existing-history-tinfoil-busy"),
+          threadId: thread.threadId,
+          modelSelection: selection,
+        })
+        .pipe(Effect.flip),
+    ).toMatchObject({ _tag: "OrchestratorProviderSelectionBusyError" });
+    yield* orchestrator.dispatch({
+      type: "thread.stop",
+      commandId: CommandId.make("existing-history-stop"),
+      threadId: thread.threadId,
+    });
+    expect((yield* projections.getThreadProjection(thread.threadId)).runs[0]?.status).toBe(
+      "interrupted",
+    );
     yield* orchestrator.dispatch({
       type: "thread.model-selection.set",
       commandId: CommandId.make("existing-history-tinfoil"),

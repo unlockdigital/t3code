@@ -12,7 +12,7 @@ import {
   getProviderOptionCurrentValue,
 } from "@t3tools/shared/model";
 
-import { REASONING_SELECT_DESCRIPTOR_IDS } from "./modelTraits.ts";
+import { isReasoningSelect } from "./modelTraits.ts";
 import type { ThreadStructure } from "./state/models.ts";
 import { REASONING_EFFORT_OPTION_IDS } from "./state/threadExecution.ts";
 
@@ -24,7 +24,7 @@ export type HandoffTimelineRun = Pick<
 export type HandoffEndpoints = ReturnType<typeof resolveHandoffEndpoints>;
 
 export function resolvePendingHandoff(
-  projection: ThreadStructure | null | undefined,
+  projection: Pick<ThreadStructure, "runs" | "visibleTurnItems"> | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
 ): HandoffEndpoints | null {
@@ -128,10 +128,8 @@ function resolveEffort(
       .find((candidate) => candidate !== undefined);
     return value === undefined ? undefined : { value, label: value };
   }
-  const descriptor = model.capabilities?.optionDescriptors?.find(
-    (option) => option.type === "select" && REASONING_SELECT_DESCRIPTOR_IDS.has(option.id),
-  );
-  if (descriptor === undefined || descriptor.type !== "select") return undefined;
+  const descriptor = model.capabilities?.optionDescriptors?.find(isReasoningSelect);
+  if (descriptor === undefined) return undefined;
   const value =
     getModelSelectionStringOptionValue(selection, descriptor.id) ??
     getProviderOptionCurrentValue(descriptor, selection);

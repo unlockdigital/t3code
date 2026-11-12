@@ -77,6 +77,13 @@ describe("resolveThreadReferenceCopyTarget", () => {
     ).toMatchObject({ kind: "pull-request", value: "https://github.com/t3/pr/12" });
   });
 
+  it("links through an explicitly selected hosted app", () => {
+    expect(
+      resolveThreadReferenceCopyTarget({ ...thread, hostedAppUrl: "https://preview.t3.codes" })
+        ?.value,
+    ).toBe("https://preview.t3.codes/threads/env-1/thread-1");
+  });
+
   it.each([
     { appScheme: "t3code-unlock", href: "t3code-unlock://threads/env-1/thread-1" },
     {

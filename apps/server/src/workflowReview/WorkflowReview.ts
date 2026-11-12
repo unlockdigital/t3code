@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -59,7 +59,7 @@ export class WorkflowReview extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const library = yield* SkillLibrary.SkillLibrary;
   const settings = yield* ServerSettings.ServerSettingsService;
   const publicSources = Effect.fn("WorkflowReview.publicSources")(function* () {
@@ -172,7 +172,7 @@ const make = Effect.gen(function* () {
       }
       const packet: typeof Review.Digest.Type = {
         reviewId,
-        batchId: yield* crypto.randomUUIDv4(),
+        batchId: yield* crypto.uuidV4(),
         windowStart: state.cursor.at,
         windowEnd: now,
         hasMore: false,

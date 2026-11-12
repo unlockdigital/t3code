@@ -36,3 +36,5 @@ export const APP_LINK_SCHEME =
       ? desktopSchemeForVersion(APP_VERSION)
       : undefined;
 export const DESKTOP_DOWNLOAD_URL = "https://t3.codes/download";
+// Redirects to the App Store or Google Play to match the phone that opens it.
+export const MOBILE_APP_URL = "https://t3.codes/mobile";

@@ -6,7 +6,8 @@ enum T3ComposerClipboard {
 
   // Pasted thread links become chips in JS; packages/shared/src/threadLinks.ts parses them.
   static func hasThreadLink(_ text: String) -> Bool {
-    text.contains("t3-thread://v2/") || text.contains("://threads/")
+    text.contains("t3-thread://v2/") || text.contains("://threads/") ||
+      text.contains("https://app.t3.codes/threads/")
   }
 
   static func write(text: String, fragment: String) {
@@ -131,6 +132,9 @@ public class T3ComposerEditorModule: Module {
       }
       AsyncFunction("setSelection") { (view: T3ComposerEditorView, start: Int, end: Int) in
         view.setSelection(start: start, end: end)
+      }
+      AsyncFunction("readState") { (view: T3ComposerEditorView) -> [String: Any] in
+        view.readState()
       }
     }
   }

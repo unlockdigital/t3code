@@ -6,6 +6,7 @@
  */
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import type { HttpClient } from "effect/http";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
@@ -22,6 +23,9 @@ import type { DeviceHubAccess } from "../device/hubAccess.ts";
 export { type DeviceHubAccess, withDeviceHubQuery } from "../device/hubAccess.ts";
 
 const TICKET_TIMEOUT_MS = 8_000;
+const isRemoteEnvironmentAuthUndeclaredStatusError = Schema.is(
+  RemoteEnvironmentAuthUndeclaredStatusError,
+);
 
 export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDeviceHubAccess")(
   function* (input: {
@@ -49,8 +53,7 @@ export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDevi
         client.webSocketTicketFor({ headers, params: { use: "media" } }),
     }).pipe(
       Effect.catchIf(
-        (error) =>
-          error instanceof RemoteEnvironmentAuthUndeclaredStatusError && error.status === 404,
+        (error) => isRemoteEnvironmentAuthUndeclaredStatusError(error) && error.status === 404,
         // Older servers expose the bare route; signing again binds the proof to that URL.
         () =>
           executeAuthenticatedEnvironmentHttpRequest({

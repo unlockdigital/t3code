@@ -11,18 +11,22 @@ it("rejects oversized leading bounded arrays before traversing elements", async 
   const sdkPath = require.resolve("@anthropic-ai/claude-agent-sdk");
   const source = await NodeFSP.readFile(sdkPath, "utf8");
   const sha256 = NodeCrypto.createHash("sha256").update(source).digest("hex");
-  NodeAssert.ok(
-    [
-      "b1607967e0dfb39a0db45f143d3b57c7a85f2f6eaa77d6bee7d8184a9830a9f3",
-      "e4c986047654f8ad29c11000fefebd7dd9202a1d1f281e7029a0d60e84541622",
-    ].includes(sha256),
+  NodeAssert.equal(
+    sha256,
+    "33bbcfede890cfac56da5f377d4a0d87d0b524df85a8e2b2195d426d4e290d46",
     `Unexpected SDK bundle ${sha256}; review instrumented aliases`,
   );
-  const start = source.indexOf("var C4;function M(");
-  const end = source.indexOf("var wKe=L(", start);
+  const start = source.indexOf("class YM{");
+  const end = source.indexOf("import{basename as jF", start);
   NodeAssert.ok(start >= 0 && end > start, "Missing Claude SDK Zod implementation");
+  const constants = source.match(/var Vb="command-name"[^;]+;/)?.[0];
+  const tags = source.match(/var kL="bash-input"[^;]+;/)?.[0];
+  NodeAssert.ok(constants && tags, "Missing Zod error-message constants");
+  // The SDK memoizer enables generated object parsers that depend on the full SDK runtime.
   const { A, S, O, M } = NodeVM.compileFunction(
-    `${source.slice(start, end)}\nreturn { A: D, S: _, O: C, M: FS };`,
+    `${constants}${tags}${source.slice(start, end)}
+    Rn.memoizer = { attach() {}, alloc(_inst, _payload, value) { return value; } };
+    return { A: k, S: h, O: mO, M: ug };`,
   )();
   let visits = 0;
   const element = () => {
@@ -93,6 +97,10 @@ it("rejects oversized leading bounded arrays before traversing elements", async 
   visits = 0;
   result = A(element()).max(2, { error: "custom size" }).safeParse(oversized);
   NodeAssert.equal(result.error.issues[0].message, "custom size");
+  NodeAssert.equal(visits, 0);
+  visits = 0;
+  result = A(element(), { error: "schema size" }).max(2).safeParse(oversized);
+  NodeAssert.equal(result.error.issues[0].message, "schema size");
   NodeAssert.equal(visits, 0);
   visits = 0;
   const asyncElement = S().refine(async () => {

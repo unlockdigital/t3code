@@ -183,12 +183,10 @@ export const make = Effect.gen(function* () {
         }
         return { modelSelection: first.route.modelSelection, private: true };
       },
-      Effect.catch((cause) =>
-        Effect.fail(
-          isModelRoutingError(cause)
-            ? cause
-            : new ModelRoutingError({ reason: "context-unavailable", cause }),
-        ),
+      Effect.mapError((cause) =>
+        isModelRoutingError(cause)
+          ? cause
+          : new ModelRoutingError({ reason: "context-unavailable", cause }),
       ),
     ),
   });

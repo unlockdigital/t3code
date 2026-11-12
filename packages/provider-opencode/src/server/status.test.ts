@@ -1,6 +1,7 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeSqlite from "node:sqlite";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -15,6 +16,7 @@ import * as Tracer from "effect/Tracer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { beforeEach } from "vite-plus/test";
+import { settingsSecretLiteral } from "@t3tools/contracts";
 
 import { OpenCodeSettings, resolveOpenCodeUsageProvider } from "../settings.ts";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
@@ -61,7 +63,7 @@ it.effect("retains a verified balance when the auxiliary spending request times 
           );
         }),
       ),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Effect.forkChild,
     );
     yield* Deferred.await(started);
@@ -113,7 +115,7 @@ it.effect("keeps monthly spending independent of top-ups and requests the exact 
             );
           }),
         ),
-        Effect.provide(NodeServices.layer),
+        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
       NodeAssert.deepEqual(limits.prepaidBalance, {
         remainingUsd: balance,
@@ -162,7 +164,7 @@ it.effect(
               );
             }),
           ),
-          Effect.provide(NodeServices.layer),
+          Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         );
         NodeAssert.deepEqual(limits.prepaidBalance, {
           remainingUsd: -2.4,
@@ -210,7 +212,7 @@ it.effect("reports a Tinfoil-only connection as API usage without reading Go cre
         HttpClient.HttpClient,
         HttpClient.make(() => Effect.die("Tinfoil local usage must not send a credential to Go")),
       ),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     NodeAssert.deepEqual(limits.windows, []);
     NodeAssert.equal(limits.unavailable?.reason, "unsupported");
@@ -248,7 +250,7 @@ it.effect("reads live Tinfoil balances and monthly spend without using inference
           return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
         }),
       ),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     NodeAssert.deepEqual(limits.prepaidBalance, {
       remainingUsd: 67.2,
@@ -289,7 +291,7 @@ it.effect("keeps failed Tinfoil billing reads distinct from an exhausted balance
             ),
           ),
         ),
-        Effect.provide(NodeServices.layer),
+        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
       NodeAssert.equal(limits.prepaidBalance, undefined);
       NodeAssert.equal(limits.unavailable?.reason, "probeFailed");
@@ -336,7 +338,7 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
           );
         }),
       ),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     NodeAssert.equal(limits.unavailable, undefined);
     NodeAssert.equal(
@@ -507,7 +509,7 @@ it.effect(
           consoleStatus === 500 ? undefined : fingerprints.get(requested.at(-1)!),
         );
       }
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("prefers the selected stored Go key over the auth.json key OpenCode 2 imported", () =>
@@ -576,7 +578,7 @@ it.effect("prefers the selected stored Go key over the auth.json key OpenCode 2 
       NodeAssert.equal(limits.unavailable, undefined);
       NodeAssert.equal(limits.windows.length, 3);
     }
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("does not read local credentials for external or disabled OpenCode instances", () =>
@@ -596,7 +598,7 @@ it.effect("does not read local credentials for external or disabled OpenCode ins
           HttpClient.HttpClient,
           HttpClient.make(() => Effect.die("unexpected usage request")),
         ),
-        Effect.provide(NodeServices.layer),
+        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
       NodeAssert.equal(limits.unavailable?.reason, "unsupported");
     }
@@ -629,7 +631,7 @@ it.effect("keeps Go entitlement absence distinct from failed or malformed usage 
             Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({}, { status }))),
           ),
         ),
-        Effect.provide(NodeServices.layer),
+        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
       NodeAssert.equal(limits.unavailable?.reason, reason);
       NodeAssert.equal(limits.credentialFingerprint, undefined);
@@ -761,11 +763,12 @@ beforeEach(() => {
 });
 
 const layerTest = Layer.succeed(OpenCodeRuntime.OpenCodeRuntime, OpenCodeRuntimeTestDouble).pipe(
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
-const makeOpenCodeSettings = (overrides?: Partial<OpenCodeSettings>): OpenCodeSettings =>
-  decodeOpenCodeSettings({
+// As the instance registry hands them to the driver: a referenced password is already read.
+const makeOpenCodeSettings = (overrides?: Partial<OpenCodeSettings>) => {
+  const settings = decodeOpenCodeSettings({
     enabled: true,
     binaryPath: "opencode",
     serverUrl: "",
@@ -773,9 +776,11 @@ const makeOpenCodeSettings = (overrides?: Partial<OpenCodeSettings>): OpenCodeSe
     customModels: [],
     ...overrides,
   });
+  return { ...settings, serverPassword: settingsSecretLiteral(settings.serverPassword) };
+};
 
 const checkProvider = Effect.fn("checkProvider")(function* (
-  settings: OpenCodeSettings,
+  settings: ReturnType<typeof makeOpenCodeSettings>,
   cwd = process.cwd(),
   environment?: NodeJS.ProcessEnv,
   server = replayOpenCodeServer(OPENCODE_1_RESPONSES, settings.serverPassword),

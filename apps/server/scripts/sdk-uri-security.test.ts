@@ -52,18 +52,18 @@ function loadWebpackFastUri(source: string): FastUri {
 }
 
 function loadBunFastUri(source: string): FastUri {
-  const loader = source.match(/,f=(\(\$,J\)=>\(\)=>[^;]+);/)?.[1];
-  const start = source.indexOf("var h81=f(");
-  const end = source.indexOf("var Xp1=f(", start);
+  const loader = source.match(/,b=(\(\$,J\)=>\(\)=>[^;]+);/)?.[1];
+  const start = source.indexOf("var hX1=b(");
+  const end = source.indexOf("var a18=b(", start);
   NodeAssert.ok(loader && start >= 0 && end > start, "Missing Bun fast-uri factory group");
   return NodeVM.compileFunction(
-    `const f = ${loader};${source.slice(start, end)}\nreturn $p1();`,
+    `const b = ${loader};${source.slice(start, end)}\nreturn l18();`,
   )() as FastUri;
 }
 
 it.each([
-  ["dist/esm/704.js", loadWebpackFastUri],
-  ["dist/cjs/704.js", loadWebpackFastUri],
+  ["dist/esm/587.js", loadWebpackFastUri],
+  ["dist/cjs/587.js", loadWebpackFastUri],
   ["dist/bundled/index.js", loadBunFastUri],
 ] as const)("rejects encoded schemes in the Cursor SDK %s", async (file, load) => {
   const uri = load(await NodeFSP.readFile(NodePath.join(resolveCursorSdkRoot(), file), "utf8"));

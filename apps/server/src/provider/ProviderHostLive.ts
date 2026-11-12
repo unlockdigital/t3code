@@ -4,7 +4,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { ProviderCredentialError } from "@t3tools/provider-core/server/errors";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Option from "effect/Option";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -24,7 +24,7 @@ export const layer = Layer.effect(
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
     const secrets = yield* ServerSecretStore.ServerSecretStore;
-    const crypto = yield* Crypto.Crypto;
+    const digest = yield* Digest.Digest;
     // Catalog-only hosts also run without a database. They fail closed for retries.
     const sql = yield* Effect.serviceOption(SqlClient.SqlClient);
     const projections = Option.isSome(sql)
@@ -93,7 +93,7 @@ export const layer = Layer.effect(
             ),
           })),
           Effect.provideService(ServerSecretStore.ServerSecretStore, secrets),
-          Effect.provideService(Crypto.Crypto, crypto),
+          Effect.provideService(Digest.Digest, digest),
         );
       }),
     });

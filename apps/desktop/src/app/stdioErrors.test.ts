@@ -1,18 +1,18 @@
-// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics nodeBuiltinImport:off - subprocesses exercise Node's fatal stream error behavior.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeProcess from "node:process";
 import { assert, it } from "vite-plus/test";
 
-import { handleStdioError } from "./stdioErrors.ts";
-
 it.each([
-  ["stdout", "EPIPE"],
-  ["stderr", "EPIPE"],
-  ["stdout", "ENOSPC"],
-  ["stderr", "ENOSPC"],
-  ["stdout", "EDQUOT"],
-  ["stderr", "EDQUOT"],
-])("keeps the application alive when %s emits %s", (streamName, code) => {
+  ["stdout", "EPIPE", 0],
+  ["stderr", "EPIPE", 0],
+  ["stdout", "ENOSPC", 0],
+  ["stderr", "ENOSPC", 0],
+  ["stdout", "EDQUOT", 0],
+  ["stderr", "EDQUOT", 0],
+  ["stdout", "EIO", 1],
+  ["stderr", "EIO", 1],
+])("handles %s %s with exit status %i", (streamName, code, exitStatus) => {
   const result = NodeChildProcess.spawnSync(
     NodeProcess.execPath,
     [
@@ -33,11 +33,13 @@ it.each([
     { encoding: "utf8" },
   );
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.include(result.stdout + result.stderr, "application continued");
-});
-
-it("preserves unexpected failures from standard output", () => {
-  const error = Object.assign(new Error("unexpected output failure"), { code: "EIO" });
-  assert.throws(() => handleStdioError(error), error);
+  assert.isUndefined(result.error);
+  assert.equal(result.status, exitStatus, result.stderr);
+  if (exitStatus === 0) {
+    assert.include(result.stdout + result.stderr, "application continued");
+  } else {
+    assert.include(result.stderr, "diagnostic output unavailable");
+    assert.include(result.stderr, code);
+    assert.notInclude(result.stdout + result.stderr, "application continued");
+  }
 });

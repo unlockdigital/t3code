@@ -185,6 +185,7 @@ jobs:
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
       cli_archive: true
+      launch_check: true
 
   desktop_mac_x64:
     if: needs.preflight.outputs.platform == 'all'
@@ -359,18 +360,39 @@ jobs:
           sparse-checkout: |
             /packaging/fork/
             /docs/unlock-digital/PORTABLE_TRIAL.md
+            /docs/unlock-digital/upstream.json
           sparse-checkout-cone-mode: false
       - name: Add independent Mac trial companions
         env:
           RELEASE_SHA: ${{ needs.preflight.outputs.ref }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_PLATFORM: ${{ needs.preflight.outputs.platform }}
         run: |
           cp "release-source/packaging/fork/Launch Unlock Digital Trial.command" assets/
           python3 - <<'PYCODE'
           from pathlib import Path
+          import json
           import os
           source = Path("release-source/docs/unlock-digital/PORTABLE_TRIAL.md").read_text()
-          provider_guide = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/blob/{os.environ['RELEASE_SHA']}/docs/user/install.md#providers"
-          Path("assets/INSTALL-MAC.md").write_text(source.replace("../user/install.md#providers", provider_guide))
+          repository = os.environ["GITHUB_REPOSITORY"]
+          revision = os.environ["RELEASE_SHA"]
+          source_url = f"https://github.com/{repository}/blob/{revision}"
+          Path("assets/INSTALL-MAC.md").write_text(
+              source.replace("../user/install.md#providers", f"{source_url}/docs/user/install.md#providers")
+                    .replace("(PROVIDERS.md)", f"({source_url}/docs/unlock-digital/PROVIDERS.md)")
+          )
+          upstream = json.loads(Path("release-source/docs/unlock-digital/upstream.json").read_text())
+          manifest = {
+              "repository": repository,
+              "tag": os.environ["RELEASE_TAG"],
+              "sourceCommit": revision,
+              "upstream": {"tag": upstream["baseTag"], "commit": upstream["baseCommit"]},
+              "platform": os.environ["RELEASE_PLATFORM"],
+              "signing": "unsigned",
+              "automaticUpdates": False,
+              "buildRun": f"https://github.com/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+          }
+          Path("assets/RELEASE.json").write_text(json.dumps(manifest, indent=2) + "\n")
           PYCODE
       - name: Generate and verify checksums
         working-directory: assets
