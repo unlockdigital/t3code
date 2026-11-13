@@ -285,6 +285,7 @@ function makeMutableServerSettingsService(
     return {
       start: Effect.void,
       ready: Effect.void,
+      setApprovalCoordinator: () => Effect.die("Unexpected coordinator mutation"),
       getSettings: Ref.get(settingsRef),
       getRoutingSettings: Ref.get(settingsRef),
 
@@ -3039,6 +3040,7 @@ it.layer(
       const settings = yield* makeMutableServerSettingsService(input.current);
       const serverSettings = {
         ...settings,
+        setApprovalCoordinator: () => Effect.die("Unexpected coordinator mutation"),
         getSettings: Effect.suspend(() => {
           if (!readSeed) {
             readSeed = true;

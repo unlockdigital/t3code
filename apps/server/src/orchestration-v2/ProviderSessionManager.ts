@@ -1,3 +1,4 @@
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -232,7 +233,10 @@ export class ProviderSessionManagerV2 extends Context.Service<
 
 interface LiveSessionEntry {
   readonly attachedThreadIds: ReadonlySet<ThreadId>;
-  readonly loadedProviderThreadKeyByThread: ReadonlyMap<ThreadId, string>;
+  readonly loadedProviderThreadKeyByThread: ReadonlyMap<
+    ThreadId,
+    { readonly key: string; readonly providerThread: OrchestrationV2ProviderThread }
+  >;
   /** null marks an unknown catalog; undefined means MCP refresh is not configured. */
   readonly openedWithLinkedEnvironments: boolean | null | undefined;
   readonly linkedEnvironmentsByThread: ReadonlyMap<ThreadId, boolean | null>;
@@ -363,6 +367,7 @@ export const layerWithOptions = (
       const mcpSessionRegistry = yield* McpSessionRegistry.McpSessionRegistry;
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       /** Unreadable settings must preserve explicit browser-access opt-outs. */
+      const n2itionGrants = yield* Effect.serviceOption(N2itionGrantStore.N2itionGrantStore);
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
       const projects = yield* ProjectStore.ProjectStoreV2;
       const eventSink = yield* EventSink.EventSinkV2;
@@ -533,6 +538,15 @@ export const layerWithOptions = (
                       }),
                   ),
                 );
+                const grant = Option.isSome(n2itionGrants)
+                  ? yield* n2itionGrants.value.read.pipe(Effect.orElseSucceed(() => null))
+                  : null;
+                const expectedN2itionEpoch =
+                  grant?.mode === "active" &&
+                  grant.threadId === threadId &&
+                  grant.providerInstanceId === providerInstanceId
+                    ? grant.epoch
+                    : undefined;
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -555,7 +569,8 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     // Refresh credentials when the thread's delegation ownership changes.
-                    (resolved.thread.subagent === true) === subagent
+                    (resolved.thread.subagent === true) === subagent &&
+                    resolved.n2itionGrantEpoch === expectedN2itionEpoch
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -1415,12 +1430,14 @@ export const layerWithOptions = (
             (current) =>
               current
                 .get(sessionKey(input.providerSessionId))
-                ?.loadedProviderThreadKeyByThread.get(input.threadId) === input.providerThreadKey,
+                ?.loadedProviderThreadKeyByThread.get(input.threadId)?.key ===
+              input.providerThreadKey,
           ),
         );
 
       /** Pass the setting read before a native load; cache hits keep the earlier record. */
       const markProviderThreadLoaded = (input: {
+        readonly providerThread: OrchestrationV2ProviderThread;
         readonly providerSessionId: ProviderSessionId;
         readonly threadId: ThreadId;
         readonly providerThreadKey: string;
@@ -1433,7 +1450,10 @@ export const layerWithOptions = (
             return current;
           }
           const loadedProviderThreadKeyByThread = new Map(entry.loadedProviderThreadKeyByThread);
-          loadedProviderThreadKeyByThread.set(input.threadId, input.providerThreadKey);
+          loadedProviderThreadKeyByThread.set(input.threadId, {
+            key: input.providerThreadKey,
+            providerThread: input.providerThread,
+          });
           const linkedEnvironmentsByThread = new Map(entry.linkedEnvironmentsByThread);
           if (
             input.linkedEnvironments !== undefined &&
@@ -2068,6 +2088,7 @@ export const layerWithOptions = (
               Effect.andThen(loadNatively(runtime.ensureThread(input))),
               Effect.tap(({ loaded: providerThread, linkedEnvironments }) =>
                 markProviderThreadLoaded({
+                  providerThread,
                   providerSessionId,
                   threadId: input.threadId,
                   providerThreadKey: providerThreadLoadKey({
@@ -2128,6 +2149,7 @@ export const layerWithOptions = (
               ),
               Effect.tap(({ loaded: providerThread, linkedEnvironments }) =>
                 markProviderThreadLoaded({
+                  providerThread,
                   providerSessionId,
                   threadId,
                   providerThreadKey: providerThreadLoadKey({
@@ -2158,6 +2180,7 @@ export const layerWithOptions = (
               Effect.andThen(loadNatively(runtime.forkThread(input))),
               Effect.tap(({ loaded: providerThread, linkedEnvironments }) =>
                 markProviderThreadLoaded({
+                  providerThread,
                   providerSessionId,
                   threadId: input.targetThreadId,
                   providerThreadKey: providerThreadLoadKey({
@@ -2832,6 +2855,19 @@ export const layerWithOptions = (
                   { concurrency: 1, discard: true },
                 );
               }
+            }
+            // A committed switch can replace the projection before its detach effect runs.
+            // The live session still owns the native thread until it unsubscribes it.
+            const loadedProviderThread = currentEntry?.loadedProviderThreadKeyByThread.get(
+              input.threadId,
+            )?.providerThread;
+            if (loadedProviderThread !== undefined) {
+              detachedProviderThreads = [
+                ...detachedProviderThreads.filter(
+                  (thread) => thread.id !== loadedProviderThread.id,
+                ),
+                loadedProviderThread,
+              ];
             }
             const detachResult = yield* Ref.modify(sessions, (current) => {
               const entry = current.get(key);

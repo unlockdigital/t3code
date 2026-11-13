@@ -1,3 +1,4 @@
+import { SidebarAgentNavigation } from "./SidebarAgentNavigation";
 import { Link, useLocation } from "@tanstack/react-router";
 import { HouseIcon } from "lucide-react";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../ui/sidebar";
@@ -18,6 +19,7 @@ export function SidebarHomeNavigation() {
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
+      <SidebarAgentNavigation />
     </>
   );
 }

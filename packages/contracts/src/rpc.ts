@@ -1,7 +1,19 @@
+import {
+  PrivateHelperDecisionInput,
+  PrivateHelperError,
+  PrivateHelperPacket,
+  PrivateHelperState,
+  PrivateHelperStateInput,
+} from "./privateHelpers.ts";
 import { TextGenerationError } from "./git.ts";
-import { ProjectId } from "./baseSchemas.ts";
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ProjectBriefState, ProjectBriefError } from "./project.ts";
-
+import {
+  N2itionStatus,
+  N2itionControlInput,
+  N2itionReconnectInput,
+  N2itionConnectionError,
+} from "./n2itionConnection.ts";
 import {
   ProviderConnectTinfoilBillingInput,
   ProviderConfigureClaudeBillingInput,
@@ -431,6 +443,8 @@ import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
+  privacyGetHelperState: "privacy.getHelperState",
+  privacyDecideHelper: "privacy.decideHelper",
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
@@ -547,8 +561,13 @@ export const WS_METHODS = {
   serverRemoveLocalThreadHandoff: "server.removeLocalThreadHandoff",
   serverGetDatabaseStorage: "server.getDatabaseStorage",
 
+  serverSetApprovalCoordinator: "server.setApprovalCoordinator",
   serverGetSettings: "server.getSettings",
   accountRoutingPreview: "accountRouting.preview",
+  n2itionStatus: "n2ition.status",
+  n2itionControl: "n2ition.control",
+  n2itionRefresh: "n2ition.refresh",
+  n2itionReconnect: "n2ition.reconnect",
   serverReclaimDatabaseSpace: "server.reclaimDatabaseSpace",
   peerLinksList: "peerLinks.list",
   peerLinksLink: "peerLinks.link",
@@ -885,16 +904,52 @@ const WsServerGetDatabaseStorageRpc = Rpc.make(WS_METHODS.serverGetDatabaseStora
   error: EnvironmentAuthorizationError,
 });
 
-const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
-  payload: Schema.Struct({}),
-  success: ServerSettings,
-  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
-});
 const WsServerReclaimDatabaseSpaceRpc = Rpc.make(WS_METHODS.serverReclaimDatabaseSpace, {
   payload: Schema.Struct({}),
   error: Schema.Union([DatabaseReclaimError, EnvironmentAuthorizationError]),
 });
 
+const WsPrivacyGetHelperStateRpc = Rpc.make(WS_METHODS.privacyGetHelperState, {
+  payload: PrivateHelperStateInput,
+  success: PrivateHelperState,
+  error: Schema.Union([PrivateHelperError, EnvironmentAuthorizationError]),
+});
+const WsPrivacyDecideHelperRpc = Rpc.make(WS_METHODS.privacyDecideHelper, {
+  payload: PrivateHelperDecisionInput,
+  success: PrivateHelperPacket,
+  error: Schema.Union([PrivateHelperError, EnvironmentAuthorizationError]),
+});
+const WsN2itionStatusRpc = Rpc.make(WS_METHODS.n2itionStatus, {
+  payload: Schema.Struct({}),
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+const WsN2itionControlRpc = Rpc.make(WS_METHODS.n2itionControl, {
+  payload: N2itionControlInput,
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+const WsN2itionRefreshRpc = Rpc.make(WS_METHODS.n2itionRefresh, {
+  payload: Schema.Struct({}),
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+const WsN2itionReconnectRpc = Rpc.make(WS_METHODS.n2itionReconnect, {
+  payload: N2itionReconnectInput,
+  success: N2itionStatus,
+  error: Schema.Union([N2itionConnectionError, EnvironmentAuthorizationError]),
+});
+
+const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
+  payload: Schema.Struct({}),
+  success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+const WsServerSetApprovalCoordinatorRpc = Rpc.make(WS_METHODS.serverSetApprovalCoordinator, {
+  payload: Schema.Struct({ threadId: ThreadId, enabled: Schema.Boolean }),
+  success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
 const WsPeerLinksListRpc = Rpc.make(WS_METHODS.peerLinksList, {
   payload: Schema.Struct({}),
   success: Schema.Struct({ links: Schema.Array(PeerLinkSummary) }),
@@ -2210,12 +2265,17 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerCreateLocalThreadHandoffRpc,
   WsServerRemoveLocalThreadHandoffRpc,
   WsServerGetDatabaseStorageRpc,
-
+  WsPrivacyGetHelperStateRpc,
+  WsPrivacyDecideHelperRpc,
+  WsN2itionStatusRpc,
+  WsN2itionControlRpc,
+  WsN2itionRefreshRpc,
+  WsN2itionReconnectRpc,
   WsServerGetSettingsRpc,
   WsAccountRoutingPreviewRpc,
   WsServerReclaimDatabaseSpaceRpc,
   WsServerUpdateSettingsRpc,
-
+  WsServerSetApprovalCoordinatorRpc,
   WsPeerLinksListRpc,
   WsPeerLinksLinkRpc,
   WsPeerLinksUnlinkRpc,

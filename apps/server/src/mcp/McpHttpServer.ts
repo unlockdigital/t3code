@@ -1,3 +1,8 @@
+import * as CoordinatorApprovals from "../orchestration-v2/CoordinatorApprovals.ts";
+import { PrivacyToolkit } from "./toolkits/privacy/tools.ts";
+import * as PrivacyHandlers from "./toolkits/privacy/handlers.ts";
+import { N2itionToolkit } from "./toolkits/n2ition/tools.ts";
+import * as N2itionHandlers from "./toolkits/n2ition/handlers.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -1184,7 +1189,9 @@ export const layerOrchestratorToolkit = toolkitRegistration(
   OrchestratorHandlers.layer,
 ).pipe(Layer.provide(OrchestratorMcpService.layer), Layer.provide(ThreadMetadataMcpService.layer));
 
-export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
+export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer).pipe(
+  Layer.provide(CoordinatorApprovals.layer),
+);
 
 const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
@@ -1283,6 +1290,8 @@ export const layerTools = Layer.mergeAll(
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,
+  toolkitRegistration(PrivacyToolkit, PrivacyHandlers.layer),
+  toolkitRegistration(N2itionToolkit, N2itionHandlers.layer),
 
   layerAttachmentToolkit,
   layerProjectRegistration,

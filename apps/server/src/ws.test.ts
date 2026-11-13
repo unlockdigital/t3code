@@ -1,3 +1,5 @@
+import * as PrivateHelpers from "./privacy/PrivateHelpers.ts";
+import * as N2itionContext from "./n2ition/N2itionContext.ts";
 import * as ProviderBilling from "./provider/ProviderBilling.ts";
 import * as AccountRouting from "./provider/AccountRoutingService.ts";
 
@@ -778,6 +780,7 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
 
 // Build the production RPC layer; unrelated capabilities fail if this test calls them.
 const layerUnusedConfigRpcServices = Layer.mergeAll(
+  Layer.mock(N2itionContext.N2itionContext)({}),
   Layer.mock(DocumentText.DocumentText)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(WorkspacePaths.WorkspacePaths)({}),
@@ -835,6 +838,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProviderBilling.ProviderBilling)({}),
   Layer.mock(AccountRouting.AccountRoutingService)({}),
+  Layer.mock(PrivateHelpers.PrivateHelpers)({}),
   Layer.mock(SecretResolver.SecretResolver)({}),
   Layer.mock(GuestShareService.GuestShareService)({}),
   Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({}),

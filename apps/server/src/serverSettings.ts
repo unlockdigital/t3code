@@ -1,3 +1,4 @@
+import type { ThreadId } from "@t3tools/contracts";
 import {
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
@@ -362,6 +363,10 @@ export class ServerSettingsService extends Context.Service<
       patch: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
+    readonly setApprovalCoordinator: (
+      threadId: ThreadId,
+      enabled: boolean,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
     readonly updateProviderInstance: (
       mutation: ProviderInstanceMutation,
       patch?: ServerSettingsPatch,
@@ -431,6 +436,15 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     getSettings,
     getRoutingSettings: getSettings,
     updateSettings: (patch) => applyTestPatch(patch),
+    setApprovalCoordinator: (threadId, enabled) =>
+      updateTestSettings((current) =>
+        Effect.succeed({
+          ...current,
+          approvalCoordinatorThreadIds: enabled
+            ? [...new Set([...current.approvalCoordinatorThreadIds, threadId])]
+            : current.approvalCoordinatorThreadIds.filter((id) => id !== threadId),
+        }),
+      ),
     updateProviderInstance: (mutation, patch = {}) => applyTestPatch(patch, mutation),
     withSettingsSnapshot: (use) =>
       writeSemaphore.withPermits(1)(getSettings.pipe(Effect.flatMap(use))),
@@ -1383,11 +1397,12 @@ const make = Effect.gen(function* () {
   const updateAndPersistSettings = (
     patch: ServerSettingsPatch,
     mutation?: ProviderInstanceMutation,
+    coordinator?: { threadId: ThreadId; enabled: boolean },
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
-        const prepared = yield* prepareSettingsPatch(patch, settingsPath);
+        let prepared = yield* prepareSettingsPatch(patch, settingsPath);
         const {
           settings: current,
           parseFailure,
@@ -1407,6 +1422,13 @@ const make = Effect.gen(function* () {
             operation: "write-file",
             cause: "Retry after the legacy source control secrets can be copied.",
           });
+        }
+        if (coordinator) {
+          const approvalCoordinatorThreadIds = coordinator.enabled
+            ? [...new Set([...current.approvalCoordinatorThreadIds, coordinator.threadId])]
+            : current.approvalCoordinatorThreadIds.filter((id) => id !== coordinator.threadId);
+          patch = { ...patch, approvalCoordinatorThreadIds };
+          prepared = { ...prepared, approvalCoordinatorThreadIds };
         }
         const candidate = yield* applySettingsUpdate(current, prepared, settingsPath, mutation);
         if (hasConflictingCredentialHosts(candidate)) return yield* conflictingHostsError();
@@ -1598,6 +1620,8 @@ const make = Effect.gen(function* () {
     getRoutingSettings: writeSemaphore.withPermits(1)(getRoutingSettingsUnlocked),
     getSettings: writeSemaphore.withPermits(1)(getMaterializedSettingsUnlocked),
     updateSettings: (patch) => updateAndPersistSettings(patch),
+    setApprovalCoordinator: (threadId, enabled) =>
+      updateAndPersistSettings({}, undefined, { threadId, enabled }),
     updateProviderInstance: (mutation, patch = {}) => updateAndPersistSettings(patch, mutation),
     withSettingsSnapshot,
     get streamChanges() {

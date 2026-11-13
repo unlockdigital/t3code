@@ -1,3 +1,5 @@
+import { N2itionContext } from "../n2ition/N2itionContext.ts";
+import { PrivateHelpers } from "../privacy/PrivateHelpers.ts";
 import { AccountRoutingService } from "./AccountRoutingService.ts";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -77,6 +79,8 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(SecretRequests)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-context-budget-" }),
   Layer.mock(ServerEnvironment)({}),
+  Layer.mock(N2itionContext)({}),
+  Layer.mock(PrivateHelpers)({}),
   Layer.mock(ServerSecretStore)({}),
   Layer.mock(ServerSettingsService)({}),
   Layer.mock(SourceControlRepositoryService)({}),
@@ -137,9 +141,16 @@ it.effect("agent context matches the committed budget", () =>
   Effect.gen(function* () {
     const mcp = yield* McpServer.McpServer;
     const names = mcp.tools.map(({ tool }) => tool.name);
-    expect(names.filter((name) => /^(n2ition_|private_helper_|t3_approval_)/.test(name))).toEqual(
-      [],
-    );
+    expect(
+      names.filter((name) => /^(n2ition_|private_helper_|t3_approval_)/.test(name)).sort(),
+    ).toEqual([
+      "n2ition_connection_status",
+      "n2ition_context_read",
+      "private_helper_propose",
+      "private_helper_status",
+      "t3_approval_approve_once",
+      "t3_approval_read",
+    ]);
     const measured = {
       claudeSystemAppendBytes: utf8Bytes(claudeSystemAppend()),
       codexAdditionalContextBytes: utf8Bytes(codexAdditionalContext()),

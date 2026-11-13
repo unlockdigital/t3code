@@ -1,3 +1,4 @@
+import * as PrivateHelpers from "../privacy/PrivateHelpers.ts";
 import * as WorktreeBranchSync from "./WorktreeBranchSync.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
@@ -390,7 +391,7 @@ export const layerProduction = Layer.mergeAll(
   layerScratchThreadPromotionProvided,
   layerSecretRequestsProvided,
   ProviderBilling.layer.pipe(Layer.provide(layerSecretRequestsProvided)),
-
+  PrivateHelpers.layer,
   GuestShareService.layer.pipe(
     Layer.provide(Layer.merge(layerOrchestratorProvided, layerCommandOutputHubProvided)),
   ),

@@ -1,3 +1,9 @@
+import * as N2itionContext from "./n2ition/N2itionContext.ts";
+import * as N2itionRouteIdentity from "./n2ition/N2itionRouteIdentity.ts";
+import * as N2itionTransport from "./n2ition/N2itionTransport.ts";
+import * as N2itionGrantStore from "./n2ition/N2itionGrantStore.ts";
+import * as Scheduler from "./scheduling/Scheduler.ts";
+import * as CoordinatorApprovalReactor from "./orchestration-v2/CoordinatorApprovalReactor.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Random from "effect/Random";
@@ -690,6 +696,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
 
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const service = yield* CoordinatorApprovalReactor.CoordinatorApprovalReactor;
+      yield* service.start();
+    }),
+  ).pipe(Layer.provide(CoordinatorApprovalReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
   ProviderInstallation.layer,
@@ -1214,7 +1226,14 @@ const layerMakeServer = Layer.unwrap(
 
     return layerServerApplication.pipe(
       Layer.provide(CloudLink.layer.pipe(Layer.provideMerge(ConnectReachability.layer))),
-
+      Layer.provideMerge(
+        N2itionContext.layer.pipe(
+          Layer.provide(N2itionRouteIdentity.layer),
+          Layer.provide(N2itionTransport.layer),
+          Layer.provide(ServerSecretStore.layer),
+          Layer.provide(Scheduler.layer),
+        ),
+      ),
       Layer.provideMerge(layerRuntimeServices),
       Layer.provideMerge(
         McpSessionRegistry.layer.pipe(
@@ -1222,6 +1241,7 @@ const layerMakeServer = Layer.unwrap(
         ),
       ),
 
+      Layer.provideMerge(N2itionGrantStore.layer),
       Layer.provide(layerActivation),
       Layer.provideMerge(
         RelayTracing.layerServerRelayBroker.pipe(Layer.provide(ManagedPolicy.layer)),
