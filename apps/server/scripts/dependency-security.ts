@@ -25,7 +25,7 @@ const minimums: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   "body-parser": { 2: "2.4.0" },
   seroval: { 1: "1.6.11" },
   "proxy-addr": { 2: "2.0.8" },
-  hono: { 4: "4.13.11" },
+  hono: { 4: "4.13.16" },
   "ip-address": { 10: "10.7.4" },
   qs: { 6: "6.16.1" },
   "fast-uri": { 3: "3.1.9" },

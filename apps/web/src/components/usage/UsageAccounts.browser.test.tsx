@@ -1,9 +1,10 @@
 import { EnvironmentId, IsoDateTime, ProviderDriverKind } from "@t3tools/contracts";
 import type { UsageAccount } from "@t3tools/shared/usageLimits";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { act, render } from "../../../test/render";
+import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import "../../index.css";
 import { UsageAccounts } from "./UsageAccounts";
 import { usageAccountOrderId } from "./usageAccountOrder";
@@ -49,13 +50,7 @@ function Harness({
   const [preferences, setPreferences] = useState<UsagePagePreferences>(() =>
     persist ? readUsagePagePreferences() : { metric: "limits", windowDays: 30 },
   );
-  useEffect(() => {
-    const goBack = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) onBack();
-    };
-    window.addEventListener("keydown", goBack);
-    return () => window.removeEventListener("keydown", goBack);
-  }, [onBack]);
+  useEscapeToGoBack(onBack);
   const update = (patch: Partial<UsagePagePreferences>) => {
     const next = { ...preferences, ...patch };
     setPreferences(next);

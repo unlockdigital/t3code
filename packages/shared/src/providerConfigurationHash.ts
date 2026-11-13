@@ -13,7 +13,7 @@ function canonicalValue(value: unknown): unknown {
   return value;
 }
 
-function providerConfigurationHash(configuration: unknown): string {
+export function providerConfigurationHash(configuration: unknown): string {
   return Hex.encode(
     sha256(new TextEncoder().encode(JSON.stringify(canonicalValue(configuration)))),
   );

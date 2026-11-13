@@ -1,3 +1,5 @@
+import * as PrivateHelpers from "./privacy/PrivateHelpers.ts";
+import * as N2itionContext from "./n2ition/N2itionContext.ts";
 import * as ProviderBilling from "./provider/ProviderBilling.ts";
 import type * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import type * as ServerSecretStore from "./auth/ServerSecretStore.ts";
@@ -676,6 +678,10 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 const CoreWsRpcGroup = ServerWsRpcGroup.omit(
+  WS_METHODS.n2itionStatus,
+  WS_METHODS.n2itionControl,
+  WS_METHODS.n2itionRefresh,
+  WS_METHODS.n2itionReconnect,
   WS_METHODS.projectsGetBrief,
   WS_METHODS.projectsGenerateBrief,
   WS_METHODS.projectsClearBrief,
@@ -1494,7 +1500,7 @@ export const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const providerBilling = yield* ProviderBilling.ProviderBilling;
-
+      const privateHelpers = yield* PrivateHelpers.PrivateHelpers;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -2692,6 +2698,8 @@ export const layerWsRpc = (
         [WS_METHODS.providerConfigureClaudeBilling]: (input) =>
           providerBilling.configureClaude(input),
 
+        [WS_METHODS.privacyGetHelperState]: (input) => privateHelpers.state(input.threadId),
+        [WS_METHODS.privacyDecideHelper]: (input) => privateHelpers.decide(input),
         [WS_METHODS.providerConsumeResetCredit]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {
@@ -2763,6 +2771,14 @@ export const layerWsRpc = (
         [WS_METHODS.serverRunStorageCleanup]: () => storageCleanup.runNow,
         [WS_METHODS.serverGetStorageCleanupReport]: () => storageCleanup.reports,
         [WS_METHODS.serverGetDatabaseStorage]: () => databaseStorage.status,
+        [WS_METHODS.serverSetApprovalCoordinator]: ({ threadId, enabled }) =>
+          serverSettings
+            .setApprovalCoordinator(threadId, enabled)
+            .pipe(
+              Effect.map((settings) =>
+                ServerSettings.redactServerSettingsForClient(settings, settingsClient),
+              ),
+            ),
         [WS_METHODS.serverGetSettings]: (_input) =>
           serverSettings.getSettings.pipe(
             Effect.map((settings) =>
@@ -3626,6 +3642,52 @@ export const layerWsRpc = (
             (service) =>
               ({ projectId, contextFile }) =>
                 service.configure(projectId, contextFile),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionStatus,
+          Effect.map(N2itionContext.N2itionContext, (service) => () => service.status),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsGenerateBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId }) =>
+                service.generate(projectId),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsClearBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId }) =>
+                service.clear(projectId),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.projectsConfigureBrief,
+          Effect.map(
+            ProjectBriefService.ProjectBriefService,
+            (service) =>
+              ({ projectId, contextFile }) =>
+                service.configure(projectId, contextFile),
+          ),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionControl,
+          Effect.map(N2itionContext.N2itionContext, (service) => (input) => service.control(input)),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionRefresh,
+          Effect.map(N2itionContext.N2itionContext, (service) => () => service.refresh),
+        ),
+        ServerWsRpcGroup.toLayerHandler(
+          WS_METHODS.n2itionReconnect,
+          Effect.map(
+            N2itionContext.N2itionContext,
+            (service) => (input) => service.reconnect(input),
           ),
         ),
       ),

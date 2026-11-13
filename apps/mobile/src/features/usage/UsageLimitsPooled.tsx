@@ -767,6 +767,7 @@ export function UsageLimitsSection({
       {accounts.length === 0 &&
       notices.length === 0 &&
       failedLabels.length === 0 &&
+      !cursorPrompt &&
       externalLinks.length === 0 ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0

@@ -57,6 +57,8 @@ import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model"
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   memo,
+  lazy,
+  Suspense,
   use,
   useEffect,
   useEffectEvent,
@@ -273,6 +275,9 @@ import {
 import { ComposerControlsBar } from "./ComposerControlsBar";
 
 import { composerCommandKeyHandler } from "./composerCommandKey";
+const PrivateControls = lazy(() =>
+  import("./PrivateControls").then((module) => ({ default: module.PrivateControls })),
+);
 import { usePromptSuggestion } from "./usePromptSuggestion";
 import { useFreshSessionArmed } from "./freshSessionArms";
 
@@ -3570,6 +3575,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-2"
                 >
+                  {activeThread?.source.privateModelRoute === undefined ? null : (
+                    <Suspense fallback={null}>
+                      <PrivateControls
+                        key={`${environmentId}:${activeThread.id}`}
+                        environmentId={environmentId}
+                        threadId={activeThread.id}
+                        policy={activeThread.source.privateHelpers ?? "review"}
+                        canOperate={canOperateThread}
+                      />
+                    </Suspense>
+                  )}
                   <div
                     ref={attachExpandedComposerControls}
                     data-chat-composer-controls="footer"
