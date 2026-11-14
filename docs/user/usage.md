@@ -161,6 +161,9 @@ the bar show each account's quota, countdown, and credits. Tap a row to open its
 In pooled summaries, the same account signed in on more than one environment, or reported by a hub as well, counts once.
 Filter with the environment dropdown to see what a single machine has.
 
+For supported subscription tiers, pooled percentages and reset estimates account for plan capacity.
+Claude uses this weighting for session allowances. A window with an unknown plan uses equal account weights.
+
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
 shows 0% left. The next refill depends on both reset times: an exhausted session must also reset,
 and a partly spent session may only regain its unused portion when the week resets. Missing or
