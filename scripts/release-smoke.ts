@@ -241,15 +241,18 @@ try {
     },
   );
 
-  NodeFS.rmSync(NodePath.resolve(tempRoot, "pnpm-lock.yaml"), { force: true });
-
+  // Release version bumps refresh the reviewed lockfile, preserving compatible transitive peers.
   NodeChildProcess.execFileSync("vp", ["install", "--lockfile-only", "--ignore-scripts"], {
     cwd: tempRoot,
     stdio: "inherit",
   });
 
   const lockfile = NodeFS.readFileSync(NodePath.resolve(tempRoot, "pnpm-lock.yaml"), "utf8");
-  assertContains(lockfile, "lockfileVersion:", "Expected pnpm-lock.yaml to be regenerated.");
+  assertContains(
+    lockfile,
+    "lockfileVersion:",
+    "Expected a release lockfile after refreshing package versions.",
+  );
 
   for (const relativePath of [
     "apps/server/package.json",
