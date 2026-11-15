@@ -1,3 +1,5 @@
+import { N2itionConnectionError } from "@t3tools/contracts/n2itionConnection";
+import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
@@ -14,6 +16,8 @@ import * as NetAddress from "effect/net/NetAddress";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+
+const isN2itionConnectionError = Schema.is(N2itionConnectionError);
 
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
@@ -114,7 +118,13 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           grant.providerInstanceId !== request.providerInstanceId
         )
           return undefined;
-        yield* Effect.sync(() => N2itionGrantStore.validateGrant(grant, issuedAt));
+        yield* Effect.try({
+          try: () => N2itionGrantStore.validateGrant(grant, issuedAt),
+          catch: (cause) =>
+            isN2itionConnectionError(cause)
+              ? cause
+              : new N2itionConnectionError({ reason: "invalid_data" }),
+        });
         yield* n2itionGrants.value.checkRouteFiles(grant);
         return grant.epoch;
       }).pipe(Effect.orElseSucceed(() => undefined));

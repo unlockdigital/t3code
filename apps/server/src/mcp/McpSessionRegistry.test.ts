@@ -1,3 +1,5 @@
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
+import type { N2itionGrant } from "@t3tools/contracts/n2itionConnection";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Layer from "effect/Layer";
@@ -221,4 +223,88 @@ it.effect.each(["provider-session", "thread", "all"] as const)(
       yield* registry.touch(threadId);
       expect(yield* registry.resolve(token)).toBeUndefined();
     }),
+);
+
+it.effect.each(["expired", "paused", "revoked"] as const)(
+  "keeps ordinary Teddy tools available when N2ITION consent is %s",
+  (condition) =>
+    Effect.gen(function* () {
+      const grant: N2itionGrant = {
+        version: 1,
+        environmentId,
+        threadId: ThreadId.make("teddy"),
+        providerInstanceId: ProviderInstanceId.make("hermes-dot"),
+        model: "synthetic-model",
+        source: "synthetic",
+        origin: "http://127.0.0.1",
+        mode: condition === "expired" ? "active" : condition,
+        epoch: 6,
+        expiresAt: condition === "expired" ? "1970-01-01T00:00:01Z" : "2099-01-01T00:00:00Z",
+        cadenceHours: 1,
+        privacyVerified: false,
+        sharedProcessAccepted: false,
+        routeFiles: [],
+      };
+      const registry = yield* makeRegistry(() => 1_000).pipe(
+        Effect.provideService(N2itionGrantStore.N2itionGrantStore, {
+          read: Effect.succeed(grant),
+          control: () => Effect.die("unused"),
+          checkRouteFiles: () => Effect.die("consent must be validated first"),
+        }),
+      );
+      const issued = yield* registry.issue({
+        threadId: grant.threadId,
+        providerInstanceId: grant.providerInstanceId,
+        capabilities: new Set(["n2ition-read"]),
+      });
+      const scope = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(scope?.capabilities).toEqual(new Set(["orchestration", "worktree", "pull-requests"]));
+      expect(scope?.n2itionGrantEpoch).toBeUndefined();
+    }),
+);
+
+it.effect("mints N2ITION capability only for the consented thread and provider", () =>
+  Effect.gen(function* () {
+    const grant: N2itionGrant = {
+      version: 1,
+      environmentId,
+      threadId: ThreadId.make("teddy"),
+      providerInstanceId: ProviderInstanceId.make("hermes-dot"),
+      model: "synthetic-model",
+      source: "synthetic",
+      origin: "http://127.0.0.1",
+      mode: "active",
+      epoch: 6,
+      expiresAt: "2099-01-01T00:00:00Z",
+      cadenceHours: 1,
+      privacyVerified: false,
+      sharedProcessAccepted: false,
+      routeFiles: [],
+    };
+    const registry = yield* makeRegistry(() => 1000).pipe(
+      Effect.provideService(N2itionGrantStore.N2itionGrantStore, {
+        read: Effect.succeed(grant),
+        control: () => Effect.die("unused"),
+        checkRouteFiles: () => Effect.void,
+      }),
+    );
+    for (const [thread, provider, allowed] of [
+      ["teddy", "hermes-dot", true],
+      ["child", "hermes-dot", false],
+      ["teddy", "codex", false],
+    ] as const) {
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make(thread),
+        providerInstanceId: ProviderInstanceId.make(provider),
+        capabilities: new Set(["n2ition-read"]),
+      });
+      const scope = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(scope?.capabilities.has("n2ition-read")).toBe(allowed);
+      expect(scope?.n2itionGrantEpoch).toBe(allowed ? 6 : undefined);
+    }
+  }),
 );
