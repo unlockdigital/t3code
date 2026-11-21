@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react-native";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { N2itionStatus } from "@t3tools/contracts/n2itionConnection";
@@ -15,6 +16,7 @@ export function N2itionConnectionSection({
 }: {
   readonly environmentId: EnvironmentId;
 }) {
+  const gt = useGT();
   const allowed = useAtomValue(serverEnvironment.n2itionReconnect.permissionAtom(environmentId));
   const getStatus = useAtomCommand(serverEnvironment.n2itionStatus, { reportFailure: false });
   const reconnect = useAtomCommand(serverEnvironment.n2itionReconnect, { reportFailure: false });
@@ -61,24 +63,28 @@ export function N2itionConnectionSection({
           );
         } else {
           setError(
-            "The connection needs attention. Check status and verify this environment’s account setup.",
+            gt(
+              "The connection needs attention. Check status and verify this environment’s account setup.",
+            ),
           );
         }
       })
       .catch(() => {
-        setError("Connection status is unavailable. Reconnect this environment and try again.");
+        setError(gt("Connection status is unavailable. Reconnect this environment and try again."));
       });
     setBusy(false);
   };
   if (!allowed || !status || status.state === "disabled") return null;
   const revoked = status.localMode === "revoked";
   return (
-    <SettingsSection title="Teddy · N2ITION">
+    <SettingsSection title={gt("Teddy · N2ITION")}>
       <View className="gap-2 p-4">
         <Text>{status.state.replaceAll("_", " ")}</Text>
         <Text className="text-sm text-foreground-muted">
-          Read-only task context. Reconnection verifies the enrolled account and preserves the
-          current access limits.
+          <T>
+            Read-only task context. Reconnection verifies the enrolled account and preserves the
+            current access limits.
+          </T>
         </Text>
         {error ? (
           <Text accessibilityRole="alert" className="text-sm text-danger-foreground">
@@ -88,39 +94,41 @@ export function N2itionConnectionSection({
       </View>
       <SettingsActionRow
         icon="arrow.clockwise"
-        label="Check status"
+        label={gt("Check status")}
         disabled={busy}
         onPress={() => void act("check")}
       />
       <SettingsActionRow
         icon="checkmark"
-        label="Verify and reconnect"
+        label={gt("Verify and reconnect")}
         disabled={busy || revoked}
         onPress={() => void act("reconnect")}
       />
       <SettingsActionRow
         icon={status.localMode === "active" ? "stop.fill" : "play"}
-        label={status.localMode === "active" ? "Pause access" : "Resume access"}
+        label={status.localMode === "active" ? gt("Pause access") : gt("Resume access")}
         disabled={busy || revoked}
         onPress={() => void act(status.localMode === "active" ? "pause" : "resume")}
       />
       <SettingsActionRow
         icon="arrow.clockwise"
-        label="Refresh context"
+        label={gt("Refresh context")}
         disabled={busy || status.localMode !== "active"}
         onPress={() => void act("refresh")}
       />
       <SettingsActionRow
         icon="xmark"
-        label="Revoke here"
+        label={gt("Revoke here")}
         disabled={busy || revoked}
         onPress={() =>
           Dialog.alert(
-            "Revoke N2ITION access?",
-            "This ends this environment’s access and clears its cached context. Reconnection requires a new owner setup.",
+            gt("Revoke N2ITION access?"),
+            gt(
+              "This ends this environment’s access and clears its cached context. Reconnection requires a new owner setup.",
+            ),
             [
-              { text: "Cancel", style: "cancel" },
-              { text: "Revoke", style: "destructive", onPress: () => void act("revoke") },
+              { text: gt("Cancel"), style: "cancel" },
+              { text: gt("Revoke"), style: "destructive", onPress: () => void act("revoke") },
             ],
           )
         }

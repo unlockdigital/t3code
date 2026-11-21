@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import type { N2itionStatus } from "@t3tools/contracts/n2itionConnection";
 import { useEffect, useEffectEvent, useState } from "react";
@@ -8,16 +9,20 @@ import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsSection } from "./settingsLayout";
 
 export function N2itionSettings() {
+  const gt = useGT();
   const { environment, scope } = useSettingsScope();
   if (scope.kind !== "environment" || !environment)
     return (
-      <SettingsSection title="Teddy · N2ITION" id="n2ition">
-        <p>Choose an environment to inspect Teddy’s CRM connection.</p>
+      <SettingsSection title={gt("Teddy · N2ITION")} id="n2ition">
+        <p>
+          <T>Choose an environment to inspect Teddy’s CRM connection.</T>
+        </p>
       </SettingsSection>
     );
   return <N2itionConnection key={environment.environmentId} />;
 }
 function N2itionConnection() {
+  const gt = useGT();
   const { environment } = useSettingsScope();
   const environmentId = environment!.environmentId;
   const allowed = useAtomValue(serverEnvironment.n2itionControl.permissionAtom(environmentId));
@@ -43,7 +48,9 @@ function N2itionConnection() {
       );
       setError(null);
     } else
-      setError("Connection status unavailable. Check this environment’s connection and try again.");
+      setError(
+        gt("Connection status unavailable. Check this environment’s connection and try again."),
+      );
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep owner connection status synchronized with the remote environment while its settings page is mounted.
   useEffect(() => {
@@ -76,24 +83,32 @@ function N2itionConnection() {
         setConfirm(false);
       } else
         setError(
-          "The action could not finish. Refresh status to see whether access is paused, expired or requires attention in N2ITION.",
+          gt(
+            "The action could not finish. Refresh status to see whether access is paused, expired or requires attention in N2ITION.",
+          ),
         );
     } catch {
       setError(
-        "The action could not finish. Refresh status to see whether access is paused, expired or requires attention in N2ITION.",
+        gt(
+          "The action could not finish. Refresh status to see whether access is paused, expired or requires attention in N2ITION.",
+        ),
       );
     }
     setBusy(false);
   };
   return (
-    <SettingsSection title="Teddy · N2ITION" id="n2ition">
+    <SettingsSection title={gt("Teddy · N2ITION")} id="n2ition">
       <div className="space-y-3">
         <p>
-          Read-only task context for conversations with Teddy. All task categories and notes are
-          included in the approved connection.
+          <T>
+            Read-only task context for conversations with Teddy. All task categories and notes are
+            included in the approved connection.
+          </T>
         </p>
         {!allowed ? (
-          <p>Settings access is required to view or control this connection.</p>
+          <p>
+            <T>Settings access is required to view or control this connection.</T>
+          </p>
         ) : status ? (
           <>
             <p role="status">
@@ -103,25 +118,29 @@ function N2itionConnection() {
                 : ""}
             </p>
             <p>
-              Last checked:{" "}
+              <T>Last checked:</T>{" "}
               {status.lastCheckedAt
                 ? new Date(status.lastCheckedAt).toLocaleString()
-                : "No successful reads yet"}
-              . Tasks: {status.state === "connected" ? status.taskCount : "unverified"}.
+                : gt("No successful reads yet")}
+              <T>. Tasks:</T> {status.state === "connected" ? status.taskCount : "unverified"}.
             </p>
             {status.cadenceHours && (
               <p>
-                Checks every {status.cadenceHours} hour(s) while this environment is running.
-                Current questions trigger a fresh read.
+                <T>Checks every</T> {status.cadenceHours}{" "}
+                <T>
+                  hour(s) while this environment is running. Current questions trigger a fresh read.
+                </T>
               </p>
             )}
             {status.state === "disabled" && (
-              <p>The connection has not been configured in this environment.</p>
+              <p>
+                <T>The connection has not been configured in this environment.</T>
+              </p>
             )}
             {status.lastError && (
               <p>
-                Latest issue: {status.lastError.replaceAll("_", " ")}. Access may also be paused or
-                revoked in N2ITION’s settings.
+                <T>Latest issue:</T> {status.lastError.replaceAll("_", " ")}
+                <T>. Access may also be paused or revoked in N2ITION’s settings.</T>
               </p>
             )}
             <div className="flex flex-wrap gap-2">
@@ -130,63 +149,69 @@ function N2itionConnection() {
                 disabled={busy || status.epoch === null || status.localMode === "revoked"}
                 onClick={() => void act(status.localMode === "paused" ? "resume" : "pause")}
               >
-                {status.localMode === "paused" ? "Resume here" : "Pause here"}
+                {status.localMode === "paused" ? gt("Resume here") : gt("Pause here")}
               </Button>
               <Button
                 variant="outline"
                 disabled={busy || status.localMode !== "active"}
                 onClick={() => void act("refresh")}
               >
-                Refresh context
+                <T>Refresh context</T>
               </Button>
               <Button variant="outline" disabled={busy} onClick={() => void check()}>
-                Check status
+                <T>Check status</T>
               </Button>
               <Button
                 variant="outline"
                 disabled={busy || status.epoch === null || status.localMode === "revoked"}
                 onClick={() => void act("reconnect")}
               >
-                Verify and reconnect
+                <T>Verify and reconnect</T>
               </Button>
               <Button
                 variant="destructive"
                 disabled={busy || status.epoch === null || status.localMode === "revoked"}
                 onClick={() => setConfirm(true)}
               >
-                Revoke here
+                <T>Revoke here</T>
               </Button>
             </div>
             {confirm && (
               <div role="alert">
                 <p>
-                  Revoking ends this environment’s access and clears cached context. Reconnection
-                  requires a new owner-approved setup. Existing conversations retain information
-                  under their own retention settings.
+                  <T>
+                    Revoking ends this environment’s access and clears cached context. Reconnection
+                    requires a new owner-approved setup. Existing conversations retain information
+                    under their own retention settings.
+                  </T>
                 </p>
                 <div className="flex gap-2">
                   <Button variant="destructive" disabled={busy} onClick={() => void act("revoke")}>
-                    Confirm revocation
+                    <T>Confirm revocation</T>
                   </Button>
                   <Button variant="outline" onClick={() => setConfirm(false)}>
-                    Cancel
+                    <T>Cancel</T>
                   </Button>
                 </div>
               </div>
             )}
             <p>
-              Last 30 days: {status.usage.reads} context reads · {status.usage.notesReads} reads
-              with notes · {status.usage.refreshes} refreshes · {status.usage.failures} failures.
-              Background AI calls: 0.
+              <T>Last 30 days:</T> {status.usage.reads} <T>context reads ·</T>{" "}
+              {status.usage.notesReads} <T>reads with notes ·</T> {status.usage.refreshes}{" "}
+              <T>refreshes ·</T> {status.usage.failures} <T>failures. Background AI calls: 0.</T>
             </p>
             <p>
-              Usage counts stay in this environment and contain no task text. Sleeping or
-              disconnected computers can miss checks; Teddy will identify unavailable context when
-              you ask.
+              <T>
+                Usage counts stay in this environment and contain no task text. Sleeping or
+                disconnected computers can miss checks; Teddy will identify unavailable context when
+                you ask.
+              </T>
             </p>
           </>
         ) : (
-          <p>Checking connection…</p>
+          <p>
+            <T>Checking connection…</T>
+          </p>
         )}
         {error && <p role="alert">{error}</p>}
       </div>

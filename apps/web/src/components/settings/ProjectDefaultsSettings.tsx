@@ -364,8 +364,10 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             <SettingsRow
               serverScoped
               settingKeys={["modelPrivacy"]}
-              title="Private workflow"
-              description="Require Tinfoil for new conversations and background model requests in this project. Existing Standard conversations retain their disclosure history; start a fresh conversation."
+              title={gt("Private workflow")}
+              description={gt(
+                "Require Tinfoil for new conversations and background model requests in this project. Existing Standard conversations retain their disclosure history; start a fresh conversation.",
+              )}
               control={
                 <Switch
                   checked={settings.modelPrivacy === "private"}
@@ -380,7 +382,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                         : { modelPrivacy: "standard" },
                     )
                   }
-                  aria-label="Require private workflow for this project"
+                  aria-label={gt("Require private workflow for this project")}
                 />
               }
             />

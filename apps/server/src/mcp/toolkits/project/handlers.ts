@@ -266,11 +266,6 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             code: "capability_denied",
             message: "This caller can launch only policy-approved projects.",
           });
-        const readProject = Project.ProjectService.pipe(
-          Effect.flatMap((projects) => projects.getById(projectId)),
-          Effect.mapError(unavailable),
-          Effect.map(Option.getOrUndefined),
-        );
         // A retry of an accepted launch replays it: it keeps the model it started
         // with and skips the checks only a new launch needs, which the project
         // may no longer pass, such as a base branch deleted since.

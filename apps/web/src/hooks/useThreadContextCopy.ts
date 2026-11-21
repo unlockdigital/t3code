@@ -1,3 +1,5 @@
+import { m } from "../i18n/messages";
+import { msg } from "gt-react";
 import { AuthOrchestrationOperateScope, type ScopedThreadRef } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { formatConversationMarkdown, threadTranscriptContext } from "@t3tools/shared/threadHandoff";
@@ -75,10 +77,24 @@ function createThreadContextCopyAction({
         toastManager.add({
           type: snapshot.unavailableAttachmentCount ? "warning" : "success",
           title:
-            format === "handoff" ? "Local agent handoff copied" : "Conversation copied as Markdown",
-          description: `${snapshot.attachmentCount} attached files shared on the source computer.${snapshot.unavailableAttachmentCount ? ` ${snapshot.unavailableAttachmentCount} unavailable; details are in the transcript.` : ""}`,
+            format === "handoff"
+              ? m(msg("Local agent handoff copied"))
+              : m(msg("Conversation copied as Markdown")),
+          description: snapshot.unavailableAttachmentCount
+            ? m(
+                msg(
+                  "{attachmentCount} attached files shared on the source computer. {unavailableCount} unavailable; details are in the transcript.",
+                ),
+                {
+                  attachmentCount: snapshot.attachmentCount,
+                  unavailableCount: snapshot.unavailableAttachmentCount,
+                },
+              )
+            : m(msg("{attachmentCount} attached files shared on the source computer."), {
+                attachmentCount: snapshot.attachmentCount,
+              }),
           actionProps: {
-            children: "Delete shared copy",
+            children: m(msg("Delete shared copy")),
             onClick: () => {
               void removeHandoff({
                 environmentId: target.environmentId,
@@ -115,15 +131,23 @@ function createThreadContextCopyAction({
           type: "success",
           title:
             format === "link"
-              ? "Thread link copied"
+              ? m(msg("Thread link copied"))
               : format === "handoff"
-                ? "Conversation snapshot copied"
-                : "Conversation copied as Markdown",
+                ? m(msg("Conversation snapshot copied"))
+                : m(msg("Conversation copied as Markdown")),
           ...(format !== "link" && !canCreateLocalHandoff
             ? {
                 description: supportsLocalHandoff
-                  ? "Text snapshot copied. Attachment sharing requires operate permission on the source host."
-                  : "Text snapshot copied. Local attachment sharing requires an updated source host.",
+                  ? m(
+                      msg(
+                        "Text snapshot copied. Attachment sharing requires operate permission on the source host.",
+                      ),
+                    )
+                  : m(
+                      msg(
+                        "Text snapshot copied. Local attachment sharing requires an updated source host.",
+                      ),
+                    ),
               }
             : {}),
         });
@@ -132,8 +156,8 @@ function createThreadContextCopyAction({
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not copy thread context",
-          description: error instanceof Error ? error.message : "An error occurred.",
+          title: m(msg("Could not copy thread context")),
+          description: error instanceof Error ? error.message : m(msg("An error occurred.")),
         }),
       );
     }

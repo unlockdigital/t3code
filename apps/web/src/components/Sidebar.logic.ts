@@ -1202,7 +1202,7 @@ export function resolveThreadStatusPill(input: {
   const blockedOnAgents =
     thread.runtime?.status === "running" && thread.blockedOnThreadWait === true;
   const waitingOnAgents = {
-    label: "Waiting",
+    label: msg("Waiting"),
     colorClass: "text-sidebar-muted-foreground",
     dotClass: "bg-sidebar-muted-foreground",
     pulse: false,
@@ -1212,7 +1212,7 @@ export function resolveThreadStatusPill(input: {
     return !thread.hasPendingApprovals && blockedOnAgents
       ? waitingOnAgents
       : {
-          label: "Pending Approval",
+          label: msg("Pending Approval"),
           colorClass: "text-amber-600 dark:text-amber-300/90",
           dotClass: "bg-amber-500 dark:bg-amber-300/90",
           pulse: false,
@@ -1223,7 +1223,7 @@ export function resolveThreadStatusPill(input: {
     return !thread.hasPendingUserInput && blockedOnAgents
       ? waitingOnAgents
       : {
-          label: "Awaiting Input",
+          label: msg("Awaiting Input"),
           colorClass: "text-indigo-600 dark:text-indigo-300/90",
           dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
           pulse: false,

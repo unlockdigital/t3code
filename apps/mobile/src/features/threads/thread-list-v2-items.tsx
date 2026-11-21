@@ -445,16 +445,20 @@ const PENDING_TASK_MENU_ACTIONS: MenuAction[] = [
   },
 ];
 
-const THREAD_CONTEXT_COPY_MENU: MenuAction = {
+const threadContextCopyMenu = (resolve: ReturnType<typeof useMessages>): MenuAction => ({
   id: "copy-context",
-  title: "Copy context",
+  title: resolve(msg("Copy context")),
   image: "doc.on.doc",
   subactions: [
-    { id: "copy-thread-link", title: "Thread link", image: "link" },
-    { id: "copy-thread-markdown", title: "Conversation as Markdown", image: "doc.text" },
-    { id: "copy-thread-handoff", title: "Agent handoff", image: "doc.on.doc" },
+    { id: "copy-thread-link", title: resolve(msg("Thread link")), image: "link" },
+    {
+      id: "copy-thread-markdown",
+      title: resolve(msg("Conversation as Markdown")),
+      image: "doc.text",
+    },
+    { id: "copy-thread-handoff", title: resolve(msg("Agent handoff")), image: "doc.on.doc" },
   ],
-};
+});
 
 const DRAFT_TASK_MENU_ACTIONS: MenuAction[] = [
   {
@@ -1075,7 +1079,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const canTurnIntoProject = canTurnThreadIntoProject(thread);
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
-      THREAD_CONTEXT_COPY_MENU,
+      threadContextCopyMenu(m),
       {
         id: "rename",
         title: gt("Rename", { $context: "verb, thread action" }),
@@ -1794,7 +1798,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   if (!canOperateThread)
     return (
       <View style={rowAppearance.swipeContainerStyle}>
-        <Menu actions={[THREAD_CONTEXT_COPY_MENU]} onPressAction={handleMenuAction}>
+        <Menu actions={[threadContextCopyMenu(m)]} onPressAction={handleMenuAction}>
           {rowContent(() => {})}
         </Menu>
       </View>

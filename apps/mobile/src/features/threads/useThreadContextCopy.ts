@@ -1,3 +1,5 @@
+import { m } from "../../i18n/messages";
+import { msg } from "gt-react-native";
 import { AuthOrchestrationOperateScope, type ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
@@ -76,8 +78,13 @@ function createThreadContextCopyAction({
         }
         if (snapshot.unavailableAttachmentCount)
           Dialog.alert(
-            "Some attachments unavailable",
-            `${snapshot.unavailableAttachmentCount} attachments could not be shared. The transcript lists the details.`,
+            m(msg("Some attachments unavailable")),
+            m(
+              msg(
+                "{unavailableAttachmentCount} attachments could not be shared. The transcript lists the details.",
+              ),
+              { unavailableAttachmentCount: snapshot.unavailableAttachmentCount },
+            ),
           );
         return;
       }
@@ -102,15 +109,23 @@ function createThreadContextCopyAction({
         throw new Error("Could not write to the clipboard.");
       if (format !== "link" && !canCreateLocalHandoff)
         Dialog.alert(
-          "Conversation snapshot copied",
+          m(msg("Conversation snapshot copied")),
           supportsLocalHandoff
-            ? "Text snapshot copied. Attachment sharing requires operate permission on the source host."
-            : "Text snapshot copied. Local attachment sharing requires an updated source host.",
+            ? m(
+                msg(
+                  "Text snapshot copied. Attachment sharing requires operate permission on the source host.",
+                ),
+              )
+            : m(
+                msg(
+                  "Text snapshot copied. Local attachment sharing requires an updated source host.",
+                ),
+              ),
         );
     } catch (error) {
       Dialog.alert(
-        "Could not copy thread context",
-        error instanceof Error ? error.message : "An error occurred.",
+        m(msg("Could not copy thread context")),
+        error instanceof Error ? error.message : m(msg("An error occurred.")),
       );
     }
   };

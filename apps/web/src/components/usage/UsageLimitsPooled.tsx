@@ -40,7 +40,6 @@ import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { PaceIcon, ResetCreditDialog, barColor, usePaceMark, useResetCredit } from "./UsageLimits";
 import {
-  collectExternalUsageLinks,
   collectLimitNotices,
   cursorUsageWindowDetails,
   formatResetsIn,
@@ -697,7 +696,6 @@ export function UsageLimitsPooled({
   readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly historyEnvironments: readonly import("@t3tools/shared/usageLimits").UsageAccountHistoryEnvironment[];
 }) {
-  const gt = useGT();
   const m = useMessages();
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
@@ -717,14 +715,14 @@ export function UsageLimitsPooled({
       />
       {accounts.length === 0 && notices.length === 0 && !cursorPrompt ? (
         <p className="text-sm text-muted-foreground">
-          Add a provider account in Settings to see its usage here.
+          <T>Add a provider account in Settings to see its usage here.</T>
         </p>
       ) : null}
       {cursorPrompt}
       {pools.length > 0 ? (
         <details className="rounded-lg border border-border/60">
           <summary className="cursor-pointer rounded-lg px-3 py-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-            Pooled quota details{" "}
+            <T>Pooled quota details</T>{" "}
             <span className="font-normal text-muted-foreground">· {pools.length} providers</span>
           </summary>
           <div className="space-y-5 border-t border-border/60 p-3">

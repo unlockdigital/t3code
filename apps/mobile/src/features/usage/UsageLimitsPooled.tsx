@@ -25,7 +25,6 @@ import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import {
   collectExternalUsageLinks,
   collectLimitNotices,
-  cursorUsageWindowDetails,
   formatResetsIn,
 } from "@t3tools/shared/usageLimitsCopy";
 import { msg, T, useGT, useMessages, Var } from "gt-react-native";
@@ -493,6 +492,7 @@ function UsageAccountRow({
   readonly historyEnvironments: readonly UsageAccountHistoryEnvironment[];
   readonly showEnvironment: boolean;
 }) {
+  const gt = useGT();
   const [details, setDetails] = useState(false);
   const history = usageAccountHistory(account, historyEnvironments);
   const limits = account.limits;
@@ -528,13 +528,13 @@ function UsageAccountRow({
             {DRIVER_LABEL[account.driver] ?? account.driver}
             {` · ${account.category === "API key" ? "API" : account.category}`}
             {account.status !== "Connected" ? ` · ${account.status}` : ""}
-            {exhaustedCount > 0 ? ` · ${exhaustedCount} exhausted` : ""}
+            {exhaustedCount > 0 ? gt(" · {exhaustedCount} exhausted", { exhaustedCount }) : ""}
             {showEnvironment ? ` · ${account.environmentLabel}` : ""}
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Details for ${account.label}`}
+          accessibilityLabel={gt("Details for {label}", { label: account.label })}
           accessibilityState={{ expanded: details }}
           className="min-h-11 min-w-11 items-center justify-center"
           onPress={() => setDetails((value) => !value)}
@@ -555,7 +555,8 @@ function UsageAccountRow({
                   window.label.replace(/\s*·\s*Reported quota$/, "")}
               </Text>
               <Text className="text-base font-t3-semibold text-foreground tabular-nums">
-                {remainingPercent(window)}% left
+                {remainingPercent(window)}
+                <T>% left</T>
               </Text>
             </View>
           </View>
@@ -565,20 +566,22 @@ function UsageAccountRow({
           {account.status !== "Connected"
             ? account.status
             : limits?.unavailable?.reason === "probeFailed"
-              ? "Refresh to retry usage"
-              : (limits?.unavailable?.message ?? "Usage unavailable")}
+              ? gt("Refresh to retry usage")
+              : (limits?.unavailable?.message ?? gt("Usage unavailable"))}
         </Text>
       ) : null}
       {limits?.creditBalance ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Credit details for ${account.label}`}
+          accessibilityLabel={gt("Credit details for {label}", { label: account.label })}
           accessibilityState={{ expanded: details }}
           onPress={() => setDetails((value) => !value)}
           className="min-h-11 gap-1"
         >
           <View className="flex-row items-center gap-1">
-            <Text className="shrink text-xs text-foreground-muted">Credits remaining</Text>
+            <Text className="shrink text-xs text-foreground-muted">
+              <T>Credits remaining</T>
+            </Text>
             <SymbolView
               name={details ? "chevron.up" : "chevron.down"}
               size={12}
@@ -587,13 +590,13 @@ function UsageAccountRow({
           </View>
           <Text className="text-lg font-t3-semibold text-foreground tabular-nums">
             {limits.creditBalance.unlimited
-              ? "Unlimited"
+              ? gt("Unlimited")
               : limits.creditBalance.balance !== undefined
                 ? Number(limits.creditBalance.balance).toLocaleString(undefined, {
                     maximumFractionDigits: 2,
                   })
                 : limits.creditBalance.hasCredits
-                  ? "Unknown"
+                  ? gt("Unknown")
                   : "0"}
           </Text>
         </Pressable>
@@ -601,29 +604,30 @@ function UsageAccountRow({
       {account.category === "API key" ? (
         <View className="gap-1">
           <Text className="text-xs text-foreground-muted">
-            Dollars remaining
-            {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
+            <T>Dollars remaining</T>
+            {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? gt(" · stale") : ""}
           </Text>
           <View className="flex-row flex-wrap items-baseline gap-2">
             <Text className="text-lg font-t3-semibold text-foreground tabular-nums">
-              {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "Unknown"}
+              {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : gt("Unknown")}
             </Text>
             {creditPercent !== null ? (
               <Text className="text-xs text-foreground-muted">
-                {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}% left
+                {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                <T>% left</T>
               </Text>
             ) : null}
           </View>
           {prepaidBalance && balanceCheckedAt ? (
             <Text className="text-xs text-foreground-muted">
-              Updated {new Date(balanceCheckedAt).toLocaleString()}
+              <T>Updated</T> {new Date(balanceCheckedAt).toLocaleString()}
             </Text>
           ) : null}
           {creditPercent !== null ? (
             <View
               accessible
               accessibilityRole="progressbar"
-              accessibilityLabel={`Credits remaining for ${account.label}`}
+              accessibilityLabel={gt("Credits remaining for {label}", { label: account.label })}
               accessibilityValue={{
                 min: 0,
                 max: 100,
@@ -643,36 +647,46 @@ function UsageAccountRow({
             </View>
           ) : null}
           {!prepaidBalance ? (
-            <Text className="text-xs text-foreground-muted">Balance unavailable</Text>
+            <Text className="text-xs text-foreground-muted">
+              <T>Balance unavailable</T>
+            </Text>
           ) : null}
         </View>
       ) : null}
       {details ? (
         <View className="gap-3 border-t border-border pt-3">
           {prepaidBalance ? (
-            <Text className="text-xs text-foreground-muted">Balance covers all account usage.</Text>
+            <Text className="text-xs text-foreground-muted">
+              <T>Balance covers all account usage.</T>
+            </Text>
           ) : null}
           {monthlySpend ? (
             <View className="gap-1.5">
               <View className="flex-row flex-wrap items-baseline justify-between gap-2">
                 <Text className="text-xs text-foreground-muted">
-                  Monthly API spending{monthlySpend.stale ? " · stale" : ""}
+                  <T>Monthly API spending</T>
+                  {monthlySpend.stale ? gt(" · stale") : ""}
                 </Text>
                 <Text className="text-xs font-t3-medium text-foreground tabular-nums">
-                  {monthlySpend.spentUsd === null ? "Unknown" : formatUsd(monthlySpend.spentUsd)} /{" "}
-                  {formatUsd(monthlySpend.budgetUsd)}
+                  {monthlySpend.spentUsd === null
+                    ? gt("Unknown")
+                    : formatUsd(monthlySpend.spentUsd)}{" "}
+                  / {formatUsd(monthlySpend.budgetUsd)}
                 </Text>
               </View>
               {monthlySpend.percentUsed !== null ? (
                 <View
                   accessible
                   accessibilityRole="progressbar"
-                  accessibilityLabel={`Monthly spending for ${account.label}`}
+                  accessibilityLabel={gt("Monthly spending for {label}", { label: account.label })}
                   accessibilityValue={{
                     min: 0,
                     max: 100,
                     now: monthlySpend.percentUsed,
-                    text: `${formatUsd(monthlySpend.spentUsd!)} spent of ${formatUsd(monthlySpend.budgetUsd)} monthly budget`,
+                    text: gt("{value1} spent of {value2} monthly budget", {
+                      value1: formatUsd(monthlySpend.spentUsd!),
+                      value2: formatUsd(monthlySpend.budgetUsd),
+                    }),
                   }}
                   className="h-1 overflow-hidden rounded-full bg-subtle"
                 >
@@ -688,15 +702,19 @@ function UsageAccountRow({
               ) : null}
               <Text className="text-xs text-foreground-muted">
                 {monthlySpend.spentUsd === null
-                  ? "Monthly usage unavailable. Refresh to check."
+                  ? gt("Monthly usage unavailable. Refresh to check.")
                   : monthlySpend.overBudgetUsd! > 0
-                    ? `${formatUsd(monthlySpend.overBudgetUsd!)} over budget.`
-                    : `${formatUsd(monthlySpend.remainingUsd!)} left in budget.`}{" "}
-                Account-wide · Calendar month (UTC) · Tracking only.
+                    ? gt("{value1} over budget.", {
+                        value1: formatUsd(monthlySpend.overBudgetUsd!),
+                      })
+                    : gt("{value1} left in budget.", {
+                        value1: formatUsd(monthlySpend.remainingUsd!),
+                      })}{" "}
+                <T>Account-wide · Calendar month (UTC) · Tracking only.</T>
               </Text>
               {monthlySpend.spentUsd !== null ? (
                 <Text className="text-xs text-foreground-muted">
-                  Updated {new Date(monthlySpend.checkedAt).toLocaleString()}
+                  <T>Updated</T> {new Date(monthlySpend.checkedAt).toLocaleString()}
                 </Text>
               ) : null}
             </View>
@@ -704,10 +722,10 @@ function UsageAccountRow({
           {account.category === "API key" && history.state !== "ready" ? (
             <Text className="text-xs text-foreground-muted">
               {history.state === "shared"
-                ? "Shared history · see Cost & Tokens"
+                ? gt("Shared history · see Cost & Tokens")
                 : history.state === "loading"
-                  ? "Loading usage…"
-                  : "No linked usage yet"}
+                  ? gt("Loading usage…")
+                  : gt("No linked usage yet")}
             </Text>
           ) : null}
           {windows.map((window) => (
@@ -718,7 +736,8 @@ function UsageAccountRow({
                     window.label.replace(/\s*·\s*Reported quota$/, "")}
                 </Text>
                 <Text className="text-base font-t3-semibold text-foreground tabular-nums">
-                  {remainingPercent(window)}% left
+                  {remainingPercent(window)}
+                  <T>% left</T>
                 </Text>
               </View>
               {formatResetsIn(window, now) ? (
@@ -739,23 +758,23 @@ function UsageAccountRow({
           ) : null}
           {account.category === "API key" ? (
             <Text className="text-xs text-foreground-muted">
-              Spend estimates cover this connection’s recorded runs.
+              <T>Spend estimates cover this connection’s recorded runs.</T>
             </Text>
           ) : null}
           {history.state === "ready" && account.category === "API key" ? (
             <>
               <Text className="text-xs text-foreground-muted">
-                Estimated spend:{" "}
+                <T>Estimated spend:</T>{" "}
                 {history.records === 0
-                  ? "Unknown"
+                  ? gt("Unknown")
                   : history.unpriced && history.costUsd === 0
-                    ? "Unpriced"
+                    ? gt("Unpriced")
                     : `${formatUsd(history.costUsd)}${history.unpriced ? "+" : ""}`}
               </Text>
               <Text className="text-xs text-foreground-muted">
                 {history.records
                   ? `${formatTokens(history.tokens)} tokens${history.partial ? " · Partial history" : ""}`
-                  : "No recorded activity"}
+                  : gt("No recorded activity")}
               </Text>
               <Text className="text-xs text-foreground-muted">
                 {history.sinceDay} – {history.untilDay}
@@ -764,18 +783,25 @@ function UsageAccountRow({
           ) : null}
           {limits?.creditBalance?.hasCredits && limits.creditBalance.balance === undefined ? (
             <Text className="text-xs text-foreground-muted">
-              The provider confirms credits are available and omits the balance and monthly
-              allotment.
+              <T>
+                The provider confirms credits are available and omits the balance and monthly
+                allotment.
+              </T>
             </Text>
           ) : null}
           {external ? (
             <Pressable
               accessibilityRole="link"
-              accessibilityLabel={`Open ${external.label} for ${account.label}`}
+              accessibilityLabel={gt("Open {label} for {label2}", {
+                label: external.label,
+                label2: account.label,
+              })}
               className="min-h-11 justify-center"
               onPress={() => void Linking.openURL(external.url).catch(() => undefined)}
             >
-              <Text className="text-sm font-t3-medium text-primary">Billing</Text>
+              <Text className="text-sm font-t3-medium text-primary">
+                <T>Billing</T>
+              </Text>
             </Pressable>
           ) : null}
           {limits?.resetCredits && account.resetCreditInput ? (
@@ -823,7 +849,10 @@ export function UsageLimitsSection({
   const gt = useGT();
   return (
     <View className="gap-3">
-      <Text className="text-sm font-t3-medium text-foreground">Accounts ({accounts.length})</Text>
+      <Text className="text-sm font-t3-medium text-foreground">
+        <T>Accounts (</T>
+        {accounts.length})
+      </Text>
       {accounts.map((account) => (
         <UsageAccountRow
           key={account.key}
@@ -840,8 +869,8 @@ export function UsageLimitsSection({
       externalLinks.length === 0 ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0
-            ? "Select an environment to see limits."
-            : "Add a provider account in Settings to see its usage here."}
+            ? gt("Select an environment to see limits.")
+            : gt("Add a provider account in Settings to see its usage here.")}
         </Text>
       ) : null}
       {cursorPrompt}
@@ -853,7 +882,7 @@ export function UsageLimitsSection({
           onPress={() => setShowPools((value) => !value)}
         >
           <Text className="text-sm font-t3-medium text-foreground">
-            {showPools ? "Hide" : "Show"} pooled quota details
+            {showPools ? gt("Hide") : gt("Show")} <T>pooled quota details</T>
           </Text>
         </Pressable>
       ) : null}

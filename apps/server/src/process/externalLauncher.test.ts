@@ -67,11 +67,6 @@ const layerTest = (input: {
   readonly onUnref?: () => void;
   readonly spawnResult?: (command: ChildProcess.StandardCommand) => MockSpawnResult | undefined;
 }) => {
-  const launcherLayer = input.fileSystem
-    ? ExternalLauncher.layer.pipe(
-        Layer.provide(Layer.succeed(FileSystem.FileSystem, input.fileSystem)),
-      )
-    : ExternalLauncher.layer;
   const layerSpawner = Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
     ChildProcessSpawner.make((command) =>

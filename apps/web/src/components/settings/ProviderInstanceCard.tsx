@@ -1354,8 +1354,8 @@ export function ProviderInstanceCard({
       />
       {billingConnected ? (
         <SettingsRow
-          title="Claude Console billing"
-          description="Balance refresh uses your saved browser sign-in."
+          title={gt("Claude Console billing")}
+          description={gt("Balance refresh uses your saved browser sign-in.")}
         >
           <Button
             variant="outline"
@@ -1367,7 +1367,7 @@ export function ProviderInstanceCard({
               updateConfig({ ...(instance.config as Record<string, unknown>), consoleBilling: "" })
             }
           >
-            Disconnect billing
+            <T>Disconnect billing</T>
           </Button>
         </SettingsRow>
       ) : null}

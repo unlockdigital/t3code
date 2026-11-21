@@ -168,10 +168,11 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 const isDevelopmentDesktopShell = isElectron && import.meta.env.DEV;
 function ForkAboutVersionTitle() {
+  const gt = useGT();
   const updateState = useDesktopUpdateState();
   return (
     <AboutVersionTitle
-      label={isElectron ? "Desktop package version" : "App version"}
+      label={isElectron ? gt("Desktop package version") : gt("App version")}
       version={updateState?.currentVersion ?? APP_VERSION}
     />
   );
@@ -190,25 +191,26 @@ function DesktopSourceUpdateButton() {
         />
       }
     >
-      Upstream Updates
+      <T>Upstream Updates</T>
     </Button>
   ) : (
     <Button size="sm" variant="outline" disabled>
-      Connect local environment
+      <T>Connect local environment</T>
     </Button>
   );
 }
 
 function AboutUpstreamShortcut() {
+  const gt = useGT();
   const updateState = useDesktopUpdateState();
   if (isSourceDesktopBuild(updateState, isDevelopmentDesktopShell)) return null;
   return (
     <SettingsRow
-      title="Upstream Updates"
-      description="Review the upstream release base and prepare source update candidates."
+      title={gt("Upstream Updates")}
+      description={gt("Review the upstream release base and prepare source update candidates.")}
       control={
         <Button size="sm" variant="outline" render={<Link to="/settings/upstream-updates" />}>
-          Open Upstream Updates
+          <T>Open Upstream Updates</T>
         </Button>
       }
     />

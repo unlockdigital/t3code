@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react-native";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, UpstreamRequest, UpstreamStatus } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -14,6 +15,7 @@ export function UpstreamUpdatesSection({
 }: {
   readonly environmentId: EnvironmentId;
 }) {
+  const gt = useGT();
   const allowed = useAtomValue(serverEnvironment.upstream.permissionAtom(environmentId));
   const execute = useAtomCommand(serverEnvironment.upstream);
   const [status, setStatus] = useState<UpstreamStatus | null>(null);
@@ -43,11 +45,13 @@ export function UpstreamUpdatesSection({
     if (allowed) restore();
   }, [allowed]);
   return (
-    <SettingsSection title="Upstream Updates">
+    <SettingsSection title={gt("Upstream Updates")}>
       <SettingsActionRow
         icon="arrow.clockwise"
-        label="Check upstream"
-        description="Official stable release and public advisories for this environment's source checkout."
+        label={gt("Check upstream")}
+        description={gt(
+          "Official stable release and public advisories for this environment's source checkout.",
+        )}
         disabled={!allowed || busy}
         loading={busy}
         onPress={() => void run({ action: "refresh" })}
@@ -57,55 +61,59 @@ export function UpstreamUpdatesSection({
         <>
           <View className="gap-2 p-4">
             <Text selectable className="text-sm text-foreground">
-              Base {status.baseTag} ({status.baseCommit.slice(0, 12)}) · {status.customCommits}{" "}
-              commits ahead
+              <T>Base</T> {status.baseTag} ({status.baseCommit.slice(0, 12)}) ·{" "}
+              {status.customCommits} <T>commits ahead</T>
             </Text>
             <Text className="text-sm text-foreground-muted">
-              Checked: {status.checkedAt ?? "Never"} ·{" "}
+              <T>Checked:</T> {status.checkedAt ?? gt("Never")} ·{" "}
               {status.latest
                 ? status.updateAvailable
-                  ? `Available: ${status.latest.tag}`
-                  : "Up to date"
-                : "Release unavailable"}
+                  ? gt("Available: {tag}", { tag: status.latest.tag })
+                  : gt("Up to date")
+                : gt("Release unavailable")}
             </Text>
             {status.releaseError && (
               <Text className="text-sm text-danger-foreground">{status.releaseError}</Text>
             )}
             {status.dirty && (
               <Text className="text-sm text-foreground-muted">
-                Commit or preserve local changes before preparing from HEAD.
+                <T>Commit or preserve local changes before preparing from HEAD.</T>
               </Text>
             )}
             <Text className="text-sm text-foreground-muted">
-              Candidates await verification and manual integration. The current app keeps running.
+              <T>
+                Candidates await verification and manual integration. The current app keeps running.
+              </T>
             </Text>
             <Text className="text-sm text-foreground-muted">
-              Public advisory check: {status.security.checkedAt ?? "Never"}.{" "}
+              <T>Public advisory check:</T> {status.security.checkedAt ?? gt("Never")}.{" "}
               {status.security.error ??
                 (status.security.checkedAt && status.security.advisories.length === 0
-                  ? "Successfully checked: no published upstream advisories returned."
-                  : "Review published advisories below.")}
+                  ? gt("Successfully checked: no published upstream advisories returned.")
+                  : gt("Review published advisories below."))}
             </Text>
             <Text className="text-sm text-foreground-muted">
-              Dependabot alerts require GitHub sign-in. Assess deployed-runtime applicability
-              separately. The daily watch keeps its existing schedule.
+              <T>
+                Dependabot alerts require GitHub sign-in. Assess deployed-runtime applicability
+                separately. The daily watch keeps its existing schedule.
+              </T>
             </Text>
             {status.latest?.securityNotes.map((note) => (
               <Text key={note} selectable className="text-sm text-foreground">
-                Release-note security mention: {note}
+                <T>Release-note security mention:</T> {note}
               </Text>
             ))}
           </View>
           {status.latest && (
             <SettingsActionRow
               icon="link"
-              label={`${status.latest.tag} release notes`}
+              label={gt("{tag} release notes", { tag: status.latest.tag })}
               onPress={() => void Linking.openURL(status.latest!.url).catch(() => undefined)}
             />
           )}
           <SettingsActionRow
             icon="arrow.up.circle"
-            label="Prepare update candidate"
+            label={gt("Prepare update candidate")}
             disabled={
               !allowed || busy || status.dirty || !status.updateAvailable || !!status.releaseError
             }
@@ -127,7 +135,7 @@ export function UpstreamUpdatesSection({
           ))}
           <SettingsActionRow
             icon="link"
-            label="Fork Dependabot alerts"
+            label={gt("Fork Dependabot alerts")}
             onPress={() =>
               void Linking.openURL(`https://github.com/${status.fork}/security/dependabot`).catch(
                 () => undefined,
@@ -136,7 +144,7 @@ export function UpstreamUpdatesSection({
           />
           <SettingsActionRow
             icon="link"
-            label="Official security advisories"
+            label={gt("Official security advisories")}
             onPress={() =>
               void Linking.openURL(
                 `https://github.com/${status.repository}/security/advisories`,
@@ -145,7 +153,7 @@ export function UpstreamUpdatesSection({
           />
           <SettingsActionRow
             icon="arrow.clockwise"
-            label="Reload saved candidates"
+            label={gt("Reload saved candidates")}
             disabled={!allowed || busy}
             onPress={() => void run({ action: "read" })}
           />
@@ -153,7 +161,7 @@ export function UpstreamUpdatesSection({
             <View key={candidate.id}>
               <View className="gap-1 p-4">
                 <Text className="text-sm text-foreground">
-                  {candidate.tag} · {candidate.status} · Awaiting verification
+                  {candidate.tag} · {candidate.status} <T>· Awaiting verification</T>
                 </Text>
                 <Text selectable className="text-xs text-foreground-muted">
                   {candidate.path}
@@ -161,13 +169,15 @@ export function UpstreamUpdatesSection({
                   {candidate.branch}
                 </Text>
                 <Text className="text-sm text-foreground-muted">
-                  Cleanup keeps the branch for recovery and preserves worktrees with edits, ignored
-                  files or later commits. Conflicts remain available for review.
+                  <T>
+                    Cleanup keeps the branch for recovery and preserves worktrees with edits,
+                    ignored files or later commits. Conflicts remain available for review.
+                  </T>
                 </Text>
               </View>
               <SettingsActionRow
                 icon="trash"
-                label="Clean up unused candidate"
+                label={gt("Clean up unused candidate")}
                 disabled={!allowed || busy || candidate.status !== "clean"}
                 onPress={() => void run({ action: "cleanup", candidateId: candidate.id })}
               />

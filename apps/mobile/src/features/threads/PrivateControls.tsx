@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react-native";
 import type {
   EnvironmentId,
   PrivateHelperPacket,
@@ -20,6 +21,7 @@ export function PrivateControls(props: {
   policy: PrivateHelpersPolicy;
   canOperate: boolean;
 }) {
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const [packets, setPackets] = useState<readonly PrivateHelperPacket[]>([]);
   const [reviewed, setReviewed] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function PrivateControls(props: {
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Private controls"
+        accessibilityLabel={gt("Private controls")}
         onPress={() => {
           setOpen(true);
           void refresh();
@@ -69,7 +71,7 @@ export function PrivateControls(props: {
         className="min-h-11 self-start justify-center px-3"
       >
         <Text className="text-sm text-foreground-muted">
-          {props.policy === "disabled" ? "Private" : "Private + helpers"}
+          {props.policy === "disabled" ? gt("Private") : gt("Private + helpers")}
         </Text>
       </Pressable>
       <Modal
@@ -80,14 +82,18 @@ export function PrivateControls(props: {
       >
         <SafeAreaView className="flex-1 bg-screen">
           <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-            <Text className="text-xl font-t3-bold text-foreground">Private controls</Text>
+            <Text className="text-xl font-t3-bold text-foreground">
+              <T>Private controls</T>
+            </Text>
             <Text className="text-foreground-muted">
-              Full conversation context uses Tinfoil. External helpers receive only the exact packet
-              you review and approve. Auto action permissions stay separate.
+              <T>
+                Full conversation context uses Tinfoil. External helpers receive only the exact
+                packet you review and approve. Auto action permissions stay separate.
+              </T>
             </Text>
             <View className="gap-2">
               <Button
-                label="Private only"
+                label={gt("Private only")}
                 disabled={!props.canOperate || busy || props.policy === "disabled"}
                 onPress={() => {
                   void update({
@@ -97,7 +103,7 @@ export function PrivateControls(props: {
                 }}
               />
               <Button
-                label="Private + helpers · review each packet"
+                label={gt("Private + helpers · review each packet")}
                 disabled={!props.canOperate || busy || props.policy === "review"}
                 onPress={() => {
                   void update({
@@ -107,19 +113,21 @@ export function PrivateControls(props: {
                 }}
               />
               <Button
-                label="Refresh helper packets"
+                label={gt("Refresh helper packets")}
                 disabled={busy}
                 onPress={() => void refresh()}
               />
             </View>
             <Text className="text-foreground-muted">
-              Helpers have no parent history, workspace, tools, T3 access, or credentials. Their
-              provider’s data terms apply to the approved packet. Reviews expire after 15 minutes or
-              a server restart.
+              <T>
+                Helpers have no parent history, workspace, tools, T3 access, or credentials. Their
+                provider’s data terms apply to the approved packet. Reviews expire after 15 minutes
+                or a server restart.
+              </T>
             </Text>
             {packets.length === 0 ? (
               <Text className="text-foreground-muted">
-                Your private coordinator can prepare a self-contained helper packet.
+                <T>Your private coordinator can prepare a self-contained helper packet.</T>
               </Text>
             ) : null}
             {packets.map((packet) => (
@@ -130,7 +138,7 @@ export function PrivateControls(props: {
                 <Text className="text-foreground-muted">{packet.status}</Text>
                 <Text className="text-foreground">{packet.task.objective}</Text>
                 <Button
-                  label="Inspect exact outbound packet"
+                  label={gt("Inspect exact outbound packet")}
                   onPress={() => setReviewed(packet.id)}
                 />
                 {reviewed === packet.id ? (
@@ -141,7 +149,7 @@ export function PrivateControls(props: {
                 {packet.status === "awaiting-review" ? (
                   <View className="gap-2">
                     <Button
-                      label="Approve packet once"
+                      label={gt("Approve packet once")}
                       disabled={
                         !props.canOperate ||
                         busy ||
@@ -151,7 +159,7 @@ export function PrivateControls(props: {
                       onPress={() => void decision(packet, "approve")}
                     />
                     <Button
-                      label="Block packet"
+                      label={gt("Block packet")}
                       disabled={!props.canOperate || busy}
                       onPress={() => void decision(packet, "block")}
                     />
@@ -163,13 +171,13 @@ export function PrivateControls(props: {
                       {packet.artifact}
                     </Text>
                     <Text className="text-foreground-muted">
-                      Review privately before applying or executing this artifact.
+                      <T>Review privately before applying or executing this artifact.</T>
                     </Text>
                   </>
                 )}
               </View>
             ))}
-            <Button label="Close" onPress={() => setOpen(false)} />
+            <Button label={gt("Close")} onPress={() => setOpen(false)} />
           </ScrollView>
         </SafeAreaView>
       </Modal>

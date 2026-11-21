@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -28,18 +29,21 @@ const BriefNavigation = createContext<{
 } | null>(null);
 
 export function SidebarProjectBriefButton({ children }: { readonly children: ReactNode }) {
+  const gt = useGT();
   const navigation = useContext(BriefNavigation);
   return (
     <button
       type="button"
       ref={navigation?.projectButton}
-      aria-label={`View project brief for ${typeof children === "string" ? children : "this project"}`}
+      aria-label={gt("View project brief for {value1}", {
+        value1: typeof children === "string" ? children : "this project",
+      })}
       onClick={navigation?.open}
       className="group/brief-link flex min-w-0 flex-1 flex-col items-start rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <span className="max-w-full truncate text-foreground/75">{children}</span>
       <span className="hidden text-xs text-primary group-hover/brief-link:block group-focus-visible/brief-link:block pointer-coarse:block">
-        View project brief
+        <T>View project brief</T>
       </span>
     </button>
   );
@@ -66,6 +70,7 @@ export function SidebarThreadPopover({
   readonly disabled?: boolean | undefined;
   readonly children: ReactNode;
 }) {
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const [persistent, setPersistent] = useState(false);
   const [view, setView] = useState<"metadata" | "brief">("metadata");
@@ -165,7 +170,7 @@ export function SidebarThreadPopover({
           <PopoverTrigger
             ref={detailsRef}
             disabled={disabled}
-            aria-label="Thread details"
+            aria-label={gt("Thread details")}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
             render={<Button size="icon-micro" variant="ghost-muted" />}
@@ -191,7 +196,7 @@ export function SidebarThreadPopover({
                   <Button
                     size="icon-micro"
                     variant="ghost-muted"
-                    aria-label="Close details"
+                    aria-label={gt("Close details")}
                     onClick={close}
                   >
                     <XIcon aria-hidden />
@@ -204,12 +209,12 @@ export function SidebarThreadPopover({
             <div className="flex min-w-0 flex-col gap-3 py-1 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <Button size="xs" variant="ghost-muted" onClick={goBack}>
-                  <ArrowLeftIcon aria-hidden /> Back
+                  <ArrowLeftIcon aria-hidden /> <T>Back</T>
                 </Button>
                 <Button
                   size="icon-xs"
                   variant="ghost-muted"
-                  aria-label="Close project brief"
+                  aria-label={gt("Close project brief")}
                   onClick={close}
                 >
                   <XIcon aria-hidden />
@@ -220,31 +225,31 @@ export function SidebarThreadPopover({
                 tabIndex={-1}
                 className="min-w-0 wrap-break-word font-medium outline-none"
               >
-                {project?.title ?? "Project"} brief
+                {project?.title ?? gt("Project")} brief
               </h2>
               {saved ? (
                 <p className="whitespace-pre-wrap wrap-break-word text-foreground">{saved.text}</p>
               ) : !busy && state.value ? (
                 <p className="text-muted-foreground">
-                  This project has no saved brief. Generate one from its selected sources.
+                  <T>This project has no saved brief. Generate one from its selected sources.</T>
                 </p>
               ) : !busy ? (
                 <p className="text-muted-foreground">
-                  Saved brief status is unavailable. Connect to this environment and retry.
+                  <T>Saved brief status is unavailable. Connect to this environment and retry.</T>
                 </p>
               ) : null}
               {busy ? (
                 <p role="status" className="text-muted-foreground">
                   {state.pending === "read"
-                    ? "Reading saved brief…"
+                    ? gt("Reading saved brief…")
                     : state.pending === "generate"
-                      ? "Generating project brief…"
-                      : "Saving project brief changes…"}
+                      ? gt("Generating project brief…")
+                      : gt("Saving project brief changes…")}
                 </p>
               ) : null}
               {!connected ? (
                 <p role="status" className="text-muted-foreground">
-                  Environment disconnected. Saved text remains available.
+                  <T>Environment disconnected. Saved text remains available.</T>
                 </p>
               ) : null}
               {state.error ? (
@@ -254,9 +259,15 @@ export function SidebarThreadPopover({
               ) : null}
               {saved ? (
                 <div className="grid gap-1 text-muted-foreground">
-                  <span>Generated {new Date(saved.generatedAt).toLocaleString()}</span>
-                  <span className="wrap-break-word">Sources: {saved.sources.join(", ")}</span>
-                  <span className="wrap-break-word">Model: {saved.modelSelection.model}</span>
+                  <span>
+                    <T>Generated</T> {new Date(saved.generatedAt).toLocaleString()}
+                  </span>
+                  <span className="wrap-break-word">
+                    <T>Sources:</T> {saved.sources.join(", ")}
+                  </span>
+                  <span className="wrap-break-word">
+                    <T>Model:</T> {saved.modelSelection.model}
+                  </span>
                 </div>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
@@ -267,7 +278,7 @@ export function SidebarThreadPopover({
                     disabled={busy || !connected || !canGenerate}
                     onClick={() => void controller.generate()}
                   >
-                    {saved ? "Refresh brief" : "Generate brief"}
+                    {saved ? gt("Refresh brief") : gt("Generate brief")}
                   </Button>
                 ) : (
                   <Button
@@ -276,7 +287,7 @@ export function SidebarThreadPopover({
                     disabled={busy || !connected || !canRead}
                     onClick={() => void controller.open(canGenerate)}
                   >
-                    Retry
+                    <T>Retry</T>
                   </Button>
                 )}
                 {saved || state.pending === "generate" ? (
@@ -286,24 +297,28 @@ export function SidebarThreadPopover({
                     disabled={!connected || !canClear || state.pending === "clear"}
                     onClick={() => void controller.clear()}
                   >
-                    Clear brief
+                    <T>Clear brief</T>
                   </Button>
                 ) : null}
               </div>
               {connected && !canGenerate ? (
                 <p className="text-muted-foreground">
-                  Generation requires filesystem read and project operation permissions.
+                  <T>Generation requires filesystem read and project operation permissions.</T>
                 </p>
               ) : null}
               <p className="text-muted-foreground">
-                Uses one documentation excerpt (up to 4 KB), sent to your project’s text-generation
-                provider. Saved briefs are visible to authorized project readers.
+                <T>
+                  Uses one documentation excerpt (up to 4 KB), sent to your project’s
+                  text-generation provider. Saved briefs are visible to authorized project readers.
+                </T>
               </p>
               <details className="text-muted-foreground">
-                <summary className="cursor-pointer">README source</summary>
+                <summary className="cursor-pointer">
+                  <T>README source</T>
+                </summary>
                 <div className="mt-2 grid gap-2">
                   <label htmlFor={contextId}>
-                    Canonical README to use instead of the root README
+                    <T>Canonical README to use instead of the root README</T>
                   </label>
                   <Input
                     id={contextId}
@@ -323,14 +338,16 @@ export function SidebarThreadPopover({
                         )
                       }
                     >
-                      Save source
+                      <T>Save source</T>
                     </Button>
                   </div>
                   <p>
-                    This file replaces the README. Use a README in the root, docs, or documentation
-                    folder. Keep confidential details out of it. Recognizable credentials block
-                    generation; financial or personal prose may still be sent. Saving clears the
-                    brief until you generate again.
+                    <T>
+                      This file replaces the README. Use a README in the root, docs, or
+                      documentation folder. Keep confidential details out of it. Recognizable
+                      credentials block generation; financial or personal prose may still be sent.
+                      Saving clears the brief until you generate again.
+                    </T>
                   </p>
                 </div>
               </details>

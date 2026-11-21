@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -85,6 +86,7 @@ function AccountRow({
   readonly historyEnvironments: readonly UsageAccountHistoryEnvironment[];
   readonly showEnvironment: boolean;
 }) {
+  const gt = useGT();
   const { limits } = account;
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
@@ -150,7 +152,7 @@ function AccountRow({
               >
                 {remaining}%{" "}
                 <span className="text-xs font-normal text-muted-foreground">
-                  left{remaining === 0 ? " · Exhausted" : ""}
+                  left{remaining === 0 ? gt(" · Exhausted") : ""}
                 </span>
               </dd>
             </div>
@@ -209,7 +211,10 @@ function AccountRow({
                 <span className="inline-flex items-center gap-1">
                   <TicketIcon className="size-3" aria-hidden />
                   {limits.resetCredits.availableCount}
-                  <span className="sr-only"> quota resets available</span>
+                  <span className="sr-only">
+                    {" "}
+                    <T>quota resets available</T>
+                  </span>
                 </span>
               ) : null}
             </p>
@@ -238,20 +243,22 @@ function AccountRow({
           ))}
           {credits ? (
             <div className="min-w-0">
-              <dt className="sr-only">Credits remaining</dt>
+              <dt className="sr-only">
+                <T>Credits remaining</T>
+              </dt>
               <dd>
                 <button
                   type="button"
-                  aria-label={`Credit details for ${account.label}`}
+                  aria-label={gt("Credit details for {label}", { label: account.label })}
                   aria-expanded={expanded}
                   aria-controls={detailsId}
                   onClick={() => setExpanded((value) => !value)}
                   className="min-h-11 min-w-0 max-w-full cursor-pointer rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   <span className="flex items-center gap-1 text-xs text-muted-foreground wrap-anywhere">
-                    Credits remaining
+                    <T>Credits remaining</T>
                     {prepaidBalance && limits?.unavailable?.reason === "probeFailed"
-                      ? " · stale"
+                      ? gt(" · stale")
                       : ""}
                     <ChevronDownIcon
                       aria-hidden
@@ -263,8 +270,8 @@ function AccountRow({
                   </span>
                   {credits.hasCredits && !credits.unlimited && credits.balance === undefined ? (
                     <span className="block text-xs text-muted-foreground wrap-anywhere">
-                      {providerLabel} confirms credits are available; the account balance is not
-                      disclosed.
+                      {providerLabel}{" "}
+                      <T>confirms credits are available; the account balance is not disclosed.</T>
                     </span>
                   ) : null}
                 </button>
@@ -274,20 +281,23 @@ function AccountRow({
           {isApi ? (
             <div className="min-w-0 space-y-0.5">
               <dt className="text-xs text-muted-foreground">
-                Dollars remaining
-                {prepaidBalance && limits?.unavailable?.reason === "probeFailed" ? " · stale" : ""}
+                <T>Dollars remaining</T>
+                {prepaidBalance && limits?.unavailable?.reason === "probeFailed"
+                  ? gt(" · stale")
+                  : ""}
               </dt>
               <dd className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tabular-nums">
-                {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : "Unavailable"}
+                {prepaidBalance ? formatUsd(prepaidBalance.remainingUsd) : gt("Unavailable")}
                 {creditPercent !== null ? (
                   <span className="text-xs font-normal text-muted-foreground">
-                    {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}% left
+                    {creditPercent.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                    <T>% left</T>
                   </span>
                 ) : null}
               </dd>
               {prepaidBalance && balanceCheckedAt ? (
                 <dd className="text-xs text-muted-foreground wrap-anywhere">
-                  Updated{" "}
+                  <T>Updated</T>{" "}
                   <time dateTime={balanceCheckedAt}>
                     {new Date(balanceCheckedAt).toLocaleString()}
                   </time>
@@ -296,11 +306,15 @@ function AccountRow({
               {creditPercent !== null ? (
                 <div
                   role="meter"
-                  aria-label={`Credits remaining for ${account.label}`}
+                  aria-label={gt("Credits remaining for {label}", { label: account.label })}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={creditPercent}
-                  aria-valuetext={`${formatUsd(prepaidBalance!.remainingUsd)} remaining, ${creditPercent.toFixed(1)}% of ${formatUsd(prepaidBalance!.totalGrantedUsd!)}`}
+                  aria-valuetext={gt("{value1} remaining, {value2}% of {value3}", {
+                    value1: formatUsd(prepaidBalance!.remainingUsd),
+                    value2: creditPercent.toFixed(1),
+                    value3: formatUsd(prepaidBalance!.totalGrantedUsd!),
+                  })}
                   className="h-1 max-w-56 overflow-hidden rounded-full bg-foreground/10"
                 >
                   <div
@@ -315,19 +329,21 @@ function AccountRow({
               {!prepaidBalance ? (
                 <p className="text-xs text-muted-foreground">
                   {limits?.unavailable?.message ??
-                    "Connect account billing access to read the balance."}
+                    gt("Connect account billing access to read the balance.")}
                 </p>
               ) : null}
             </div>
           ) : null}
           {!windows.length && !credits && !isApi ? (
             <div>
-              <dt className="sr-only">Usage status</dt>
+              <dt className="sr-only">
+                <T>Usage status</T>
+              </dt>
               <dd className="text-xs text-muted-foreground">
                 {limits?.unavailable?.message ??
                   (limits?.unavailable?.reason === "probeFailed"
-                    ? "Usage could not be refreshed. Check this connection’s sign-in."
-                    : "This connection has not reported account usage.")}
+                    ? gt("Usage could not be refreshed. Check this connection’s sign-in.")
+                    : gt("This connection has not reported account usage."))}
               </dd>
             </div>
           ) : null}
@@ -335,14 +351,14 @@ function AccountRow({
         <Button
           variant="ghost-muted"
           size="sm"
-          aria-label={`Details for ${account.label}`}
+          aria-label={gt("Details for {label}", { label: account.label })}
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={() => setExpanded((value) => !value)}
           className="order-3 min-h-11 min-w-11 justify-self-end @min-[18rem]/usage-accounts:order-2 @min-[48rem]/usage-accounts:order-3"
         >
           <span className="@min-[18rem]/usage-accounts:hidden @min-[30rem]/usage-accounts:inline">
-            Details
+            <T>Details</T>
           </span>
           <ChevronDownIcon aria-hidden className={cn("size-3.5", expanded && "rotate-180")} />
         </Button>
@@ -355,27 +371,35 @@ function AccountRow({
         <div className="min-w-0 space-y-3">
           {windows.length ? <div className="min-w-0">{quotaRows(windows)}</div> : null}
           {prepaidBalance ? (
-            <p className="text-xs text-muted-foreground">Balance covers all account usage.</p>
+            <p className="text-xs text-muted-foreground">
+              <T>Balance covers all account usage.</T>
+            </p>
           ) : null}
           {monthlySpend ? (
             <div className="max-w-sm space-y-1.5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
                 <span className="text-muted-foreground">
-                  Monthly API spending{monthlySpend.stale ? " · stale" : ""}
+                  <T>Monthly API spending</T>
+                  {monthlySpend.stale ? gt(" · stale") : ""}
                 </span>
                 <span className="font-medium tabular-nums">
-                  {monthlySpend.spentUsd === null ? "Unknown" : formatUsd(monthlySpend.spentUsd)} /{" "}
-                  {formatUsd(monthlySpend.budgetUsd)}
+                  {monthlySpend.spentUsd === null
+                    ? gt("Unknown")
+                    : formatUsd(monthlySpend.spentUsd)}{" "}
+                  / {formatUsd(monthlySpend.budgetUsd)}
                 </span>
               </div>
               {monthlySpend.percentUsed !== null ? (
                 <div
                   role="meter"
-                  aria-label={`Monthly spending for ${account.label}`}
+                  aria-label={gt("Monthly spending for {label}", { label: account.label })}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={monthlySpend.percentUsed}
-                  aria-valuetext={`${formatUsd(monthlySpend.spentUsd!)} spent of ${formatUsd(monthlySpend.budgetUsd)} monthly budget`}
+                  aria-valuetext={gt("{value1} spent of {value2} monthly budget", {
+                    value1: formatUsd(monthlySpend.spentUsd!),
+                    value2: formatUsd(monthlySpend.budgetUsd),
+                  })}
                   className="h-1 overflow-hidden rounded-full bg-foreground/10"
                 >
                   <div
@@ -390,15 +414,19 @@ function AccountRow({
               ) : null}
               <p className="text-xs text-muted-foreground">
                 {monthlySpend.spentUsd === null
-                  ? "Monthly usage unavailable. Refresh to check."
+                  ? gt("Monthly usage unavailable. Refresh to check.")
                   : monthlySpend.overBudgetUsd! > 0
-                    ? `${formatUsd(monthlySpend.overBudgetUsd!)} over budget.`
-                    : `${formatUsd(monthlySpend.remainingUsd!)} left in budget.`}{" "}
-                Account-wide · Calendar month (UTC) · Tracking only.
+                    ? gt("{value1} over budget.", {
+                        value1: formatUsd(monthlySpend.overBudgetUsd!),
+                      })
+                    : gt("{value1} left in budget.", {
+                        value1: formatUsd(monthlySpend.remainingUsd!),
+                      })}{" "}
+                <T>Account-wide · Calendar month (UTC) · Tracking only.</T>
               </p>
               {monthlySpend.spentUsd !== null ? (
                 <p className="text-xs text-muted-foreground">
-                  Updated{" "}
+                  <T>Updated</T>{" "}
                   <time dateTime={monthlySpend.checkedAt}>
                     {new Date(monthlySpend.checkedAt).toLocaleString()}
                   </time>
@@ -414,33 +442,39 @@ function AccountRow({
           >
             {credits ? (
               <p>
-                Credits remaining:{" "}
+                <T>Credits remaining:</T>{" "}
                 <span className="font-medium text-foreground">{creditValue}</span>
               </p>
             ) : null}
             {account.plan ? <p>{account.plan}</p> : null}
             {showEnvironment ? <p>{account.environmentLabel}</p> : null}
-            {isApi ? <p>Spend estimates cover this connection’s recorded runs.</p> : null}
+            {isApi ? (
+              <p>
+                <T>Spend estimates cover this connection’s recorded runs.</T>
+              </p>
+            ) : null}
             {limits?.creditBalance?.hasCredits && limits.creditBalance.balance === undefined ? (
               <p>
-                The provider confirms credits are available and omits the balance and monthly
-                allotment.
+                <T>
+                  The provider confirms credits are available and omits the balance and monthly
+                  allotment.
+                </T>
               </p>
             ) : null}
             {history.state === "ready" && isApi ? (
               <>
                 <p>
-                  Estimated spend:{" "}
+                  <T>Estimated spend:</T>{" "}
                   {history.records === 0
-                    ? "Unknown"
+                    ? gt("Unknown")
                     : history.unpriced && history.costUsd === 0
-                      ? "Unpriced"
+                      ? gt("Unpriced")
                       : `${formatUsd(history.costUsd)}${history.unpriced ? "+" : ""}`}
                 </p>
                 <p>
                   {history.records
                     ? `${formatTokens(history.tokens)} tokens${history.partial ? " · Partial history" : ""}`
-                    : "No recorded activity"}
+                    : gt("No recorded activity")}
                 </p>
                 <p>
                   {history.sinceDay} – {history.untilDay}
@@ -454,10 +488,13 @@ function AccountRow({
                 variant="outline"
                 size="sm-multiline"
                 className="max-w-full"
-                aria-label={`Open ${external.label} for ${account.label}`}
+                aria-label={gt("Open {label} for {label2}", {
+                  label: external.label,
+                  label2: account.label,
+                })}
                 onClick={() => void ensureLocalApi().shell.openExternal(external.url)}
               >
-                Billing
+                <T>Billing</T>
               </Button>
             ) : null}
             {limits?.resetCredits && account.resetCreditInput ? (
@@ -492,6 +529,7 @@ function SortableAccount({
   readonly onFocus: () => void;
   readonly children: React.ReactNode;
 }) {
+  const gt = useGT();
   const {
     attributes,
     listeners,
@@ -520,7 +558,7 @@ function SortableAccount({
             className="min-h-11 min-w-11 touch-none cursor-grab"
             {...attributes}
             {...listeners}
-            aria-label={`Drag ${account.label}`}
+            aria-label={gt("Drag {label}", { label: account.label })}
           >
             <GripVerticalIcon aria-hidden />
           </Button>
@@ -532,7 +570,7 @@ function SortableAccount({
             onClick={() => {
               if (index > 0) onMove(index - 1);
             }}
-            aria-label={`Move ${account.label} up`}
+            aria-label={gt("Move {label} up", { label: account.label })}
           >
             <ArrowUpIcon aria-hidden />
           </Button>
@@ -544,7 +582,7 @@ function SortableAccount({
             onClick={() => {
               if (index < count - 1) onMove(index + 1);
             }}
-            aria-label={`Move ${account.label} down`}
+            aria-label={gt("Move {label} down", { label: account.label })}
           >
             <ArrowDownIcon aria-hidden />
           </Button>
@@ -572,6 +610,7 @@ export function UsageAccounts({
   readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly historyEnvironments?: readonly UsageAccountHistoryEnvironment[];
 }) {
+  const gt = useGT();
   const [arranging, setArranging] = useState(false);
   const [moveAnnouncement, setMoveAnnouncement] = useState({ text: "", sequence: 0 });
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
@@ -590,7 +629,11 @@ export function UsageAccounts({
     if (next) {
       if (announce) {
         setMoveAnnouncement((previous) => ({
-          text: `Moved from position ${visibleKeys.indexOf(from) + 1} to position ${visibleKeys.indexOf(to) + 1} of ${visibleKeys.length}.`,
+          text: gt("Moved from position {value1} to position {value2} of {length}.", {
+            value1: visibleKeys.indexOf(from) + 1,
+            value2: visibleKeys.indexOf(to) + 1,
+            length: visibleKeys.length,
+          }),
           sequence: previous.sequence + 1,
         }));
       }
@@ -645,7 +688,7 @@ export function UsageAccounts({
     <section ref={section} className="@container/usage-accounts space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id={headingId} className="text-sm font-medium">
-          Accounts <span className="text-muted-foreground">({accounts.length})</span>
+          <T>Accounts</T> <span className="text-muted-foreground">({accounts.length})</span>
         </h2>
         <div className="flex flex-wrap items-center gap-2">
           {arranging ? (
@@ -658,14 +701,14 @@ export function UsageAccounts({
                 setArranging(false);
               }}
             >
-              Done
+              <T>Done</T>
             </Button>
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={<Button ref={orderButton} variant="secondary" size="sm" />}
               >
-                Order <ChevronDownIcon aria-hidden />
+                <T>Order</T> <ChevronDownIcon aria-hidden />
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
@@ -684,31 +727,31 @@ export function UsageAccounts({
                   }}
                 >
                   <DropdownMenuRadioItem value="default" closeOnClick>
-                    Default
+                    <T>Default</T>
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="name" closeOnClick>
-                    Name A–Z
+                    <T>Name A–Z</T>
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="provider" closeOnClick>
-                    Provider
+                    <T>Provider</T>
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem
                     value="custom"
                     disabled={!preferences.accountOrder?.length}
                     closeOnClick
                   >
-                    My order
+                    <T>My order</T>
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={accounts.length < 2} onClick={() => setArranging(true)}>
-                  Arrange accounts
+                  <T>Arrange accounts</T>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
           <ToggleGroup
-            aria-label="Usage density"
+            aria-label={gt("Usage density")}
             className="min-w-0 max-w-full flex-wrap"
             value={[density]}
             onValueChange={(values) => {
@@ -717,17 +760,17 @@ export function UsageAccounts({
             }}
           >
             <Toggle value="compact" className="max-sm:min-h-11">
-              Compact
+              <T>Compact</T>
             </Toggle>
             <Toggle value="comfortable" className="max-sm:min-h-11">
-              Comfortable
+              <T>Comfortable</T>
             </Toggle>
           </ToggleGroup>
         </div>
       </div>
       {arranging ? (
         <p className="text-xs text-muted-foreground">
-          Drag to reorder, or use the arrows. Saved on this device.
+          <T>Drag to reorder, or use the arrows. Saved on this device.</T>
         </p>
       ) : null}
       <p className="sr-only" aria-live="polite" aria-atomic="true">

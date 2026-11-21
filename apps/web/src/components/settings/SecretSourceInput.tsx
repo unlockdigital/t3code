@@ -240,7 +240,6 @@ export function SecretSourceInput({
   sources,
   onSecretChange,
   onProviderPick,
-  onReferenceReject,
   onValidityChange,
   children,
   ...rest

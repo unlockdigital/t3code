@@ -15,6 +15,7 @@ import { Command } from "effect/cli";
 import { vi } from "vite-plus/test";
 
 import { cli } from "../binCli.ts";
+import { defaultServerHomeName } from "../os-jank.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
@@ -87,7 +88,8 @@ describe("t3 theme", () => {
   it.effect("sets the theme of a dev server running in the default home", () =>
     Effect.gen(function* () {
       const home = makeBaseDir();
-      const devStateDir = NodePath.join(home, ".t3", "dev");
+      const baseDir = NodePath.join(home, defaultServerHomeName);
+      const devStateDir = NodePath.join(baseDir, "dev");
       NodeFS.mkdirSync(devStateDir, { recursive: true });
       NodeFS.writeFileSync(
         NodePath.join(devStateDir, "server-runtime.json"),
@@ -101,20 +103,14 @@ describe("t3 theme", () => {
         })}\n`,
       );
 
-      const result = yield* runCli(["theme", "set", "ocean"]).pipe(
+      yield* runCli(["theme", "set", "ocean"]).pipe(
         Effect.provideService(HostProcess.HomeDirectory, home),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
-        Effect.result,
       );
 
-      assert.equal(
-        NodeFS.existsSync(NodePath.join(home, ".t3", "userdata", "settings.json")),
-        false,
-      );
-      if (result._tag === "Success") {
-        const devSettings = NodePath.join(devStateDir, "settings.json");
-        assert.equal(JSON.parse(NodeFS.readFileSync(devSettings, "utf8")).defaultTheme, "ocean");
-      }
+      assert.isFalse(NodeFS.existsSync(settingsPathFor(baseDir)));
+      const devSettings = NodePath.join(devStateDir, "settings.json");
+      assert.equal(JSON.parse(NodeFS.readFileSync(devSettings, "utf8")).defaultTheme, "ocean");
     }),
   );
 

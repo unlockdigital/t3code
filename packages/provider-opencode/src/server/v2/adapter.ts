@@ -3101,17 +3101,13 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           // OpenCode types an empty balance as provider.quota too, but it answers
           // that with HTTP 402 and it never resets. Usage windows and budgets are 429.
           const claudeLimit = claudeUsageLimit(message);
-          const usageLimit =
-            (type === "provider.quota" && status !== 402) ||
-            type === "provider.rate-limit" ||
-            claudeLimit !== undefined;
           return yield* endExecution(state, turn, {
             status: "failed",
             failure: makeProviderFailure({
               message: readableProviderErrorMessage(message, status, response?.body),
               code: type,
               class: isUsageLimit(event.data.error) ? "usage_limit" : "provider_error",
-              resetAt: claudeUsageLimit(message)?.resetAt ?? null,
+              resetAt: claudeLimit?.resetAt ?? null,
             }),
           });
         }

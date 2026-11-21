@@ -12,7 +12,6 @@ import type {
   ProjectScript as ContractProjectScript,
   ProviderInteractionMode,
   RunId,
-  RuntimeMode,
   OrchestrationV2LinkedSender,
   ScheduledTaskId,
   ThreadId,

@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import { useState } from "react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -22,6 +23,7 @@ export function HomeThreadRenameDialog({
   readonly thread: EnvironmentThreadShell;
   readonly onClose: () => void;
 }) {
+  const gt = useGT();
   const [title, setTitle] = useState(thread.title);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function HomeThreadRenameDialog({
             if (pending) return;
             const trimmed = title.trim();
             if (!trimmed) {
-              setError("Enter a thread title.");
+              setError(gt("Enter a thread title."));
               return;
             }
             if (trimmed === thread.title) {
@@ -58,19 +60,23 @@ export function HomeThreadRenameDialog({
               setPending(false);
               if (result._tag === "Failure") {
                 const cause = squashAtomCommandFailure(result);
-                setError(cause instanceof Error ? cause.message : "Rename failed. Try again.");
+                setError(cause instanceof Error ? cause.message : gt("Rename failed. Try again."));
               } else onClose();
             });
           }}
         >
           <DialogHeader>
-            <DialogTitle>Rename thread</DialogTitle>
-            <DialogDescription>Update the title shown in Home and the sidebar.</DialogDescription>
+            <DialogTitle>
+              <T>Rename thread</T>
+            </DialogTitle>
+            <DialogDescription>
+              <T>Update the title shown in Home and the sidebar.</T>
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <Input
               autoFocus
-              aria-label="Thread title"
+              aria-label={gt("Thread title")}
               value={title}
               disabled={pending}
               onChange={(event) => setTitle(event.target.value)}
@@ -83,10 +89,10 @@ export function HomeThreadRenameDialog({
           </DialogPanel>
           <DialogFooter>
             <Button variant="outline" type="button" disabled={pending} onClick={onClose}>
-              Cancel
+              <T>Cancel</T>
             </Button>
             <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : "Save"}
+              {pending ? gt("Saving…") : gt("Save")}
             </Button>
           </DialogFooter>
         </form>

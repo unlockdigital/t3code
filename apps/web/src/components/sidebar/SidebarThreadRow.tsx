@@ -69,7 +69,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { msg, T, useGT, useMessages, Var } from "gt-react";
+import { msg, T, useGT, useMessages } from "gt-react";
 
 import type { MessageResolver } from "../../i18n/messages";
 
@@ -331,7 +331,7 @@ function SidebarThreadMetadata({
         <div className="flex min-w-0 items-start gap-2 text-warning">
           <CircleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
           <div className="min-w-0 flex-1 wrap-break-word">
-            You're currently checked out on another branch.
+            <T>You're currently checked out on another branch.</T>
           </div>
         </div>
       ) : null}
@@ -362,7 +362,7 @@ function SidebarThreadMetadata({
         <div className="flex min-w-0 items-center gap-2">
           <ArrowRightLeftIcon className="size-3 shrink-0 stroke-muted-foreground" />
           <div className="min-w-0 truncate text-foreground/75">
-            Handed off from {previousProviderNames.join(", ")}
+            <T>Handed off from</T> {previousProviderNames.join(", ")}
           </div>
         </div>
       ) : null}
@@ -384,8 +384,8 @@ function SidebarThreadMetadata({
           <CircleAlertIcon className="size-3 shrink-0 stroke-current" />
           <div className="min-w-0 truncate">
             {thread.runtime.lastErrorClass === "usage_limit"
-              ? "Usage limit reached"
-              : "Error occurred"}
+              ? gt("Usage limit reached")
+              : gt("Error occurred")}
           </div>
         </div>
       ) : null}
@@ -1841,7 +1841,6 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
     JSON.stringify([thread.environmentId, gitCwd]),
     gitStatus.data,
   );
-  const checkoutThread = withoutRemovedCheckout(thread, visibleGitStatus);
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
     activeWorktreePath: thread.worktreePath,

@@ -1,3 +1,5 @@
+import { m } from "../../i18n/messages";
+import { msg } from "gt-react";
 import type { ProjectBriefState } from "@t3tools/contracts";
 
 interface ProjectBriefApi {
@@ -81,7 +83,8 @@ export class ProjectBriefController {
           this.publish({
             ...this.state,
             pending: null,
-            error: error instanceof Error ? error.message : "The project brief request failed.",
+            error:
+              error instanceof Error ? error.message : m(msg("The project brief request failed.")),
           });
       } finally {
         if (epoch === this.epoch) this.active = undefined;

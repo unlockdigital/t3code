@@ -37,6 +37,7 @@ it.effect.each([0, 68, 69, 76])(
       assert.lengthOf(indexes, 1);
       const before =
         yield* sql`SELECT migration_id,name FROM effect_sql_migrations ORDER BY migration_id`;
+      yield* sql`PRAGMA query_only = ON`;
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(
         yield* sql`SELECT migration_id,name FROM effect_sql_migrations ORDER BY migration_id`,

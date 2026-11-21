@@ -926,10 +926,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "upstream-updates",
-    title: "Upstream Updates",
+    title: msg("Upstream Updates"),
     to: "/settings/upstream-updates",
     scope: "environment",
-    searchTerms: ["fork maintenance stable release security advisories prepare candidate"],
+    searchTerms: [msg("fork maintenance stable release security advisories prepare candidate")],
   },
   {
     id: "thread-title-instructions",

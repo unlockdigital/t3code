@@ -886,7 +886,7 @@ function ProviderRetryStatus({
       </Text>
       <Text className="text-xs text-foreground-muted">{item.failure.message}</Text>
       <Text className="text-xs text-foreground-muted">
-        Continuing automatically. Use Stop to cancel.
+        <T>Continuing automatically. Use Stop to cancel.</T>
       </Text>
     </View>
   );

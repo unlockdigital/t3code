@@ -12,8 +12,10 @@ export function usageAccountOrderId(key: string): string {
 
 function providerLabel(account: UsageAccount) {
   return account.driver === "antigravity"
-    ? "Google"
-    : (providerClients.get(account.driver)?.label ?? "Custom provider");
+    ? // oxlint-disable-next-line t3code/no-untranslated-copy -- A provider name is also a stable comparison key.
+      "Google"
+    : // oxlint-disable-next-line t3code/no-untranslated-copy -- The fallback sorts unknown providers consistently across UI languages.
+      (providerClients.get(account.driver)?.label ?? "Custom provider");
 }
 
 type Sort = NonNullable<UsagePagePreferences["accountSort"]>;
