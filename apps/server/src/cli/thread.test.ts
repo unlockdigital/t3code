@@ -237,6 +237,7 @@ it.effect("export reads every message page and every long-text chunk in order", 
       threadId,
       itemId: "assistant-1",
       textOffset: 5,
+      maxCharsPerItem: 20_000,
       runLimit: 1,
     });
   }),
