@@ -27,7 +27,7 @@ export const resolveSettingsSecrets = Effect.fn("SettingsSecrets.resolve")(funct
   if (pending.length === 0) return settings;
   const values = yield* resolver.read(
     pending.map(({ reference }) => reference),
-    providersSnapshot,
+    { providersSnapshot },
   );
   return withSettingsSecrets(
     settings,

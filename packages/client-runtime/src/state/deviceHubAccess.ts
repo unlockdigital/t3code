@@ -27,6 +27,27 @@ const isRemoteEnvironmentAuthUndeclaredStatusError = Schema.is(
   RemoteEnvironmentAuthUndeclaredStatusError,
 );
 
+/** Reusable across media requests until it expires; only for connections that send credentials. */
+export const mintMediaTicket = Effect.fn("clientRuntime.state.mintMediaTicket")(function* (
+  prepared: PreparedConnection,
+) {
+  const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
+  const remoteAuthorization = yield* Effect.serviceOption(
+    RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+  );
+  return yield* executeAuthenticatedEnvironmentHttpRequest({
+    prepared,
+    signer,
+    remoteAuthorization,
+    group: "auth",
+    method: "POST",
+    url: (urls) => urls.webSocketTicketFor({ params: { use: "media" } }),
+    timeoutMs: TICKET_TIMEOUT_MS,
+    request: ({ client, headers }) =>
+      client.webSocketTicketFor({ headers, params: { use: "media" } }),
+  });
+});
+
 export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDeviceHubAccess")(
   function* (input: {
     readonly prepared: PreparedConnection;
@@ -37,37 +58,7 @@ export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDevi
     if (input.prepared.httpAuthorization === null) {
       return { httpBase, wsBase, query: {}, credentials: true };
     }
-    const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
-    const remoteAuthorization = yield* Effect.serviceOption(
-      RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
-    );
-    const ticket = yield* executeAuthenticatedEnvironmentHttpRequest({
-      prepared: input.prepared,
-      signer,
-      remoteAuthorization,
-      group: "auth",
-      method: "POST",
-      url: (urls) => urls.webSocketTicketFor({ params: { use: "media" } }),
-      timeoutMs: TICKET_TIMEOUT_MS,
-      request: ({ client, headers }) =>
-        client.webSocketTicketFor({ headers, params: { use: "media" } }),
-    }).pipe(
-      Effect.catchIf(
-        (error) => isRemoteEnvironmentAuthUndeclaredStatusError(error) && error.status === 404,
-        // Older servers expose the bare route; signing again binds the proof to that URL.
-        () =>
-          executeAuthenticatedEnvironmentHttpRequest({
-            prepared: input.prepared,
-            signer,
-            remoteAuthorization,
-            group: "auth",
-            method: "POST",
-            url: (urls) => urls.webSocketTicket(),
-            timeoutMs: TICKET_TIMEOUT_MS,
-            request: ({ client, headers }) => client.webSocketTicket({ headers }),
-          }),
-      ),
-    );
+    const ticket = yield* mintMediaTicket(input.prepared);
     return {
       httpBase,
       wsBase,

@@ -1,25 +1,27 @@
-import { useRef } from "react";
+import { msg, T, useGT } from "gt-react";
 
 import { APP_VERSION } from "../../branding";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { showAnchoredCopySuccessToast } from "../ui/anchoredCopyToast";
 import { InlineButton } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export function AboutVersionTitle({
-  label = "Version",
+  label,
   version = APP_VERSION,
 }: { readonly label?: string; readonly version?: string } = {}) {
-  const copyButtonRef = useRef<HTMLButtonElement>(null);
+  const gt = useGT();
   const { copyToClipboard } = useCopyToClipboard<void>({
-    target: "version",
-    onCopy: () => showAnchoredCopySuccessToast(copyButtonRef),
+    target: {
+      target: "version",
+      unavailableMessage: msg("Clipboard API is unavailable while copying version."),
+      failureMessage: msg("Failed to copy version to the clipboard."),
+    },
     onError: (error) => {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not copy version",
+          title: gt("Could not copy version"),
           description: error.message,
         }),
       );
@@ -28,22 +30,23 @@ export function AboutVersionTitle({
 
   return (
     <span className="inline-flex items-baseline gap-2">
-      <span>{label}</span>
+      <span>{label ?? <T>Version</T>}</span>
       <code className="text-2xs font-medium">
         <Tooltip>
           <TooltipTrigger
             render={
               <InlineButton
-                ref={copyButtonRef}
                 tone="muted"
-                aria-label={`Copy version ${version}`}
+                aria-label={gt("Copy version {version}", { version })}
                 onClick={() => copyToClipboard(version, undefined)}
               >
                 {version}
               </InlineButton>
             }
           />
-          <TooltipPopup>Copy version</TooltipPopup>
+          <TooltipPopup>
+            <T>Copy version</T>
+          </TooltipPopup>
         </Tooltip>
       </code>
     </span>

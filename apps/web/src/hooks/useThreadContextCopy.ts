@@ -11,7 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
-import { writeTextToClipboard } from "./useCopyToClipboard";
+import { namedClipboardTarget, writeTextToClipboard } from "./useCopyToClipboard";
 import { serverEnvironment } from "../state/server";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readEnvironmentScope } from "../state/session";
@@ -63,7 +63,7 @@ function createThreadContextCopyAction({
         if (
           !(await writeTextToClipboard(
             format === "handoff" ? snapshot.handoff : snapshot.markdown,
-            "thread context",
+            namedClipboardTarget("thread context"),
           ))
         ) {
           await removeHandoff({
@@ -110,7 +110,7 @@ function createThreadContextCopyAction({
       } else {
         value = threadLinkHref(target);
       }
-      if (await writeTextToClipboard(value, "thread context")) {
+      if (await writeTextToClipboard(value, namedClipboardTarget("thread context"))) {
         toastManager.add({
           type: "success",
           title:

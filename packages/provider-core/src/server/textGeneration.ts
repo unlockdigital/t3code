@@ -71,6 +71,7 @@ export interface ThreadTitleGenerationInput extends ModelRequestContext {
   linkedContext?: string | undefined;
   cwd: string;
   message: string;
+  projectTitle?: string | undefined;
   previousTitle?: string | undefined;
   forkSource?: ThreadTitleForkSource | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;

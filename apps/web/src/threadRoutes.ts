@@ -65,7 +65,7 @@ export function buildThreadRouteParams(ref: ScopedThreadRef): {
   };
 }
 
-/** Whether a location pathname identifies this thread, including router-encoded IDs. */
+/** The router keeps reserved characters encoded in location.pathname. */
 export function isThreadRoutePathname(pathname: string, ref: ScopedThreadRef): boolean {
   const parts = pathname.replace(/\/$/, "").split("/");
   if (parts.length !== 3 || parts[0] !== "") return false;
@@ -118,12 +118,13 @@ export function resolveThreadRouteTarget(
 export function resolveActiveThreadRouteRef(
   target: ThreadRouteTarget | null,
   draftThread: DraftThreadRouteState | null,
+  promotedDraftRedirect: ScopedThreadRef | null = null,
 ): ScopedThreadRef | null {
   if (target?.kind === "server") {
     return target.threadRef;
   }
-  if (target?.kind !== "draft" || !draftThread?.promotedTo) {
+  if (target?.kind !== "draft") {
     return null;
   }
-  return draftThread.promotedTo;
+  return draftThread?.promotedTo ?? promotedDraftRedirect;
 }

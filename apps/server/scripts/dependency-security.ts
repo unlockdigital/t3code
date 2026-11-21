@@ -138,11 +138,11 @@ export async function checkInstalledClaudeSdk() {
   }
 }
 
-const cursorSdkVersion = "1.2.0";
+const cursorSdkVersion = "1.3.1";
 const cursorSdkHashes = {
   "dist/cjs/587.js": "b2754f5c2fdf90e6e45b78b8f1d342eb07c904bc06201c0e23fcf7e9c7ccb8df",
   "dist/esm/587.js": "9164550549529f46cda0edd00a6c5e2502c28d3b1a8763827796c7185fec7d32",
-  "dist/bundled/index.js": "011fe3f52749b0ba29b979b7a73baf0e3f479ee126ef1e8166f5fb71aae9efa5",
+  "dist/bundled/index.js": "7ee009c319c344acab1a6b98396b66b9d10af390f535ce96ecd72314461e1c9f",
 };
 
 export function resolveCursorSdkRoot() {

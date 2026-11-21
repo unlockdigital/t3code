@@ -1,5 +1,5 @@
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as SkillLibrary from "../../../skills/SkillLibrary.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -14,6 +14,7 @@ export function skillToolkit(catalog: string) {
       dependencies: [SkillLibrary.SkillLibrary, McpInvocationContext.McpInvocationContext],
     })
       .annotate(Tool.Readonly, true)
-      .annotate(Tool.Destructive, false),
+      .annotate(Tool.Destructive, false)
+      .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients),
   );
 }

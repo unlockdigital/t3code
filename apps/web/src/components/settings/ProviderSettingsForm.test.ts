@@ -23,14 +23,17 @@ describe("ProviderSettingsForm helpers", () => {
       "tinfoilAdminKey",
     );
     expect(
-      deriveProviderSettingsFields(opencode, tinfoil, true).find(
+      deriveProviderSettingsFields(opencode, tinfoil, undefined, true).find(
         (field) => field.key === "tinfoilAdminKey",
       ),
     ).toMatchObject({ secret: true, control: "password" });
     expect(
-      deriveProviderSettingsFields(opencode, { customModels: ["opencode/gpt-5"] }, true).map(
-        (field) => field.key,
-      ),
+      deriveProviderSettingsFields(
+        opencode,
+        { customModels: ["opencode/gpt-5"] },
+        undefined,
+        true,
+      ).map((field) => field.key),
     ).not.toContain("tinfoilAdminKey");
   });
 
@@ -68,6 +71,24 @@ describe("ProviderSettingsForm helpers", () => {
     );
 
     expect(next).toEqual({ forkOwned: 1 });
+  });
+
+  it("does not store a text value its field's schema rejects", () => {
+    const claude = providerClients.get(ProviderDriverKind.make("claudeAgent"));
+    expect(claude).toBeDefined();
+    const autoCompactWindow = deriveProviderSettingsFields(claude!).find(
+      (field) => field.key === "autoCompactWindow",
+    );
+    expect(autoCompactWindow).toBeDefined();
+
+    for (const invalid of ["300k", "50000"]) {
+      expect(
+        nextProviderConfigWithFieldValue({ launchArgs: "--x" }, autoCompactWindow!, invalid),
+      ).toEqual({ launchArgs: "--x" });
+    }
+    expect(
+      nextProviderConfigWithFieldValue({ launchArgs: "--x" }, autoCompactWindow!, "300000"),
+    ).toEqual({ launchArgs: "--x", autoCompactWindow: "300000" });
   });
 
   it("stores false boolean fields when true is the default", () => {

@@ -15,7 +15,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  formatResetsIn,
   remainingPercent,
   prepaidCreditPercent,
   monthlySpendProgress,
@@ -25,6 +24,7 @@ import {
   usageAccountHistory,
   type UsageAccountHistoryEnvironment,
 } from "@t3tools/shared/usageLimits";
+import { formatResetsIn } from "@t3tools/shared/usageLimitsCopy";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import {
   ChevronDownIcon,
