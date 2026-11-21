@@ -33,9 +33,13 @@ const snapshot: ServerProvider = {
 const serving = (response: Response) =>
   HttpClient.make((request) => Effect.succeed(HttpClientResponse.fromWeb(request, response)));
 
-const maintenanceLayer = Layer.merge(
+const maintenanceLayer = Layer.mergeAll(
   NodeServices.layer,
   Layer.succeed(HostProcess.KernelRelease, "24.0.0"),
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make(() => Effect.die("Unexpected HTTP request")),
+  ),
 );
 
 it.layer(maintenanceLayer)("fx maintenance", (it) => {
