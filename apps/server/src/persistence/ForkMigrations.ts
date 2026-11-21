@@ -30,6 +30,24 @@ const hasBriefColumn = tableColumns("projection_projects").pipe(
   Effect.map((rows) => rows.some((row) => row.name === "brief_state_json")),
 );
 
+const ledgerTable = "unlock_digital_schema_migrations";
+const workflowReviewMigration = "WorkflowReviews";
+const projectBriefMigration = "ProjectBrief";
+const shellStopIndexMigration = "upstream-68-ShellStopRequestIndex";
+const messageSearchMigration = "upstream-69-ThreadMessageSearch";
+
+const hasRecordedMigrations = Effect.fn("ForkMigrations.hasRecordedMigrations")(function* (
+  names: ReadonlyArray<string>,
+) {
+  if ((yield* tableColumns(ledgerTable)).length === 0) return false;
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{
+    readonly name: string;
+  }>`SELECT name FROM unlock_digital_schema_migrations`;
+  const recorded = new Set(rows.map((row) => row.name));
+  return names.every((name) => recorded.has(name));
+});
+
 const ledger = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`CREATE TABLE IF NOT EXISTS unlock_digital_schema_migrations (
@@ -62,15 +80,20 @@ export const bridgeLegacyForkMigrations = Effect.fn("ForkMigrations.bridgeLegacy
     (throughId === undefined || throughId >= 69) &&
     rows.some((row) => row.migration_id === 69 && row.name === "ProjectBrief");
   if (!workflow && !brief) return;
+  if (workflow) yield* validateWorkflowReviews;
+  if (brief && !(yield* hasBriefColumn))
+    return yield* badState("ProjectBrief was recorded without brief_state_json.");
+  const bridgeNames = [
+    ...(workflow ? [shellStopIndexMigration] : []),
+    ...(brief ? [messageSearchMigration] : []),
+  ];
+  if (yield* hasRecordedMigrations(bridgeNames)) return;
   yield* sql.withTransaction(
     Effect.gen(function* () {
-      if (workflow) yield* validateWorkflowReviews;
-      if (brief && !(yield* hasBriefColumn))
-        return yield* badState("ProjectBrief was recorded without brief_state_json.");
       const once = yield* ledger;
       if (workflow)
         yield* once(
-          "upstream-68-ShellStopRequestIndex",
+          shellStopIndexMigration,
           Effect.gen(function* () {
             const index =
               yield* sql`SELECT name FROM sqlite_master WHERE name='orchestration_v2_projection_turn_items_stop_request_idx'`;
@@ -79,7 +102,7 @@ export const bridgeLegacyForkMigrations = Effect.fn("ForkMigrations.bridgeLegacy
         );
       if (brief)
         yield* once(
-          "upstream-69-ThreadMessageSearch",
+          messageSearchMigration,
           Effect.gen(function* () {
             const index =
               yield* sql`SELECT name FROM sqlite_master WHERE name='orchestration_v2_message_search'`;
@@ -91,12 +114,14 @@ export const bridgeLegacyForkMigrations = Effect.fn("ForkMigrations.bridgeLegacy
 });
 
 export const ensureForkMigrations = Effect.fn("ForkMigrations.ensure")(function* () {
+  // A CLI attached to an existing server can check a current database without a write lock.
+  if (yield* hasRecordedMigrations([workflowReviewMigration, projectBriefMigration])) return;
   const sql = yield* SqlClient.SqlClient;
   yield* sql.withTransaction(
     Effect.gen(function* () {
       const once = yield* ledger;
       yield* once(
-        "WorkflowReviews",
+        workflowReviewMigration,
         Effect.gen(function* () {
           const columns = yield* tableColumns("workflow_reviews");
           if (columns.length === 0) yield* WorkflowReviews;
@@ -104,7 +129,7 @@ export const ensureForkMigrations = Effect.fn("ForkMigrations.ensure")(function*
         }),
       );
       yield* once(
-        "ProjectBrief",
+        projectBriefMigration,
         Effect.gen(function* () {
           if (!(yield* hasBriefColumn)) yield* ProjectBrief;
         }),

@@ -52,12 +52,13 @@ function loadWebpackFastUri(source: string): FastUri {
 }
 
 function loadBunFastUri(source: string): FastUri {
-  const loader = source.match(/,b=(\(\$,J\)=>\(\)=>[^;]+);/)?.[1];
-  const start = source.indexOf("var hX1=b(");
-  const end = source.indexOf("var a18=b(", start);
+  // These factory boundaries match the checksum-pinned Cursor SDK bundle.
+  const loader = source.match(/,b=(\(\$,Z\)=>\(\)=>[^;]+);/)?.[1];
+  const start = source.indexOf("var SQ1=b(");
+  const end = source.indexOf("var U$8=b(", start);
   NodeAssert.ok(loader && start >= 0 && end > start, "Missing Bun fast-uri factory group");
   return NodeVM.compileFunction(
-    `const b = ${loader};${source.slice(start, end)}\nreturn l18();`,
+    `const b = ${loader};${source.slice(start, end)}\nreturn F$8();`,
   )() as FastUri;
 }
 

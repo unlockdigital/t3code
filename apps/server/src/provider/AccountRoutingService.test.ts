@@ -37,6 +37,7 @@ const policy = Schema.decodeSync(AccountRoutingPolicy)({
 const project = {
   projectId,
   title: "Test",
+  hasCustomTitle: false,
   workspaceRoot: "/private/local-project",
   defaultModelSelection: null,
   defaultThreadEnvMode: null,

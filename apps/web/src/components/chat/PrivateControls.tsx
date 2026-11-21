@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import type {
   EnvironmentId,
   PrivateHelperPacket,
@@ -30,6 +31,7 @@ export function PrivateControls(props: {
   policy: PrivateHelpersPolicy;
   canOperate: boolean;
 }) {
+  const gt = useGT();
   const { environments } = useEnvironments();
   const [open, setOpen] = useState(false);
   const [packets, setPackets] = useState<readonly PrivateHelperPacket[]>([]);
@@ -76,7 +78,7 @@ export function PrivateControls(props: {
   return (
     <>
       <ComposerControl
-        aria-label="Private controls"
+        aria-label={gt("Private controls")}
         onClick={() => {
           setOpen(true);
           void refresh();
@@ -84,22 +86,26 @@ export function PrivateControls(props: {
       >
         <ComposerControlIcon icon={LockKeyholeIcon} />
         <span data-composer-control-label>
-          {props.policy === "disabled" ? "Private" : "Private + helpers"}
+          {props.policy === "disabled" ? gt("Private") : gt("Private + helpers")}
         </span>
       </ComposerControl>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>Private controls</DialogTitle>
+            <DialogTitle>
+              <T>Private controls</T>
+            </DialogTitle>
             <DialogDescription>
-              Full conversation context uses the approved Tinfoil connection. Helpers receive only a
-              packet you review and approve. Start a fresh Standard conversation to change this
-              thread’s routing policy.
+              <T>
+                Full conversation context uses the approved Tinfoil connection. Helpers receive only
+                a packet you review and approve. Start a fresh Standard conversation to change this
+                thread’s routing policy.
+              </T>
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="min-w-0">
             <label className="grid gap-2 text-sm">
-              External coding helpers
+              <T>External coding helpers</T>
               <Select
                 value={props.policy}
                 onValueChange={(value) => {
@@ -113,29 +119,37 @@ export function PrivateControls(props: {
               >
                 <SelectTrigger>
                   <SelectValue>
-                    {props.policy === "disabled" ? "Private only" : "Private + helpers"}
+                    {props.policy === "disabled" ? gt("Private only") : gt("Private + helpers")}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value="disabled">Private only</SelectItem>
-                  <SelectItem value="review">Private + helpers · review every packet</SelectItem>
+                  <SelectItem value="disabled">
+                    <T>Private only</T>
+                  </SelectItem>
+                  <SelectItem value="review">
+                    <T>Private + helpers · review every packet</T>
+                  </SelectItem>
                 </SelectPopup>
               </Select>
             </label>
             <p className="text-sm text-muted-foreground">
-              Helpers return code for private review. They receive no parent history, workspace,
-              tools, T3 access, or credentials. Their provider’s data terms apply to the approved
-              packet. Auto action permissions stay separate.
+              <T>
+                Helpers return code for private review. They receive no parent history, workspace,
+                tools, T3 access, or credentials. Their provider’s data terms apply to the approved
+                packet. Auto action permissions stay separate.
+              </T>
             </p>
             <div>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void refresh()}>
-                Refresh helper packets
+                <T>Refresh helper packets</T>
               </Button>
             </div>
             {packets.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Your private coordinator can prepare a self-contained helper packet. Pending reviews
-                expire after 15 minutes or a server restart.
+                <T>
+                  Your private coordinator can prepare a self-contained helper packet. Pending
+                  reviews expire after 15 minutes or a server restart.
+                </T>
               </p>
             ) : null}
             {packets.map((packet) => (
@@ -152,7 +166,7 @@ export function PrivateControls(props: {
                   }}
                 >
                   <summary className="cursor-pointer text-sm font-medium">
-                    Inspect exact outbound packet
+                    <T>Inspect exact outbound packet</T>
                   </summary>
                   <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">
                     {packet.prompt}
@@ -170,7 +184,7 @@ export function PrivateControls(props: {
                       }
                       onClick={() => void decision(packet, "approve")}
                     >
-                      Approve packet once
+                      <T>Approve packet once</T>
                     </Button>
                     <Button
                       size="sm"
@@ -178,20 +192,22 @@ export function PrivateControls(props: {
                       disabled={!props.canOperate || busy}
                       onClick={() => void decision(packet, "block")}
                     >
-                      Block packet
+                      <T>Block packet</T>
                     </Button>
                   </div>
                 ) : null}
                 {packet.artifact === undefined ? null : (
                   <details>
                     <summary className="cursor-pointer text-sm font-medium">
-                      Inspect returned artifact
+                      <T>Inspect returned artifact</T>
                     </summary>
                     <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">
                       {packet.artifact}
                     </pre>
                     <p className="text-sm text-muted-foreground">
-                      The private coordinator reviews this artifact before applying or running it.
+                      <T>
+                        The private coordinator reviews this artifact before applying or running it.
+                      </T>
                     </p>
                   </details>
                 )}

@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, UpstreamRequest, UpstreamStatus } from "@t3tools/contracts";
 import { useEffect, useEffectEvent, useState } from "react";
@@ -9,6 +10,7 @@ import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsRow, SettingsSearchTarget } from "./settingsLayout";
 
 export function UpstreamUpdatesSettings() {
+  const gt = useGT();
   const { environment } = useSettingsScope();
   const environmentId = environment?.environmentId;
   return (
@@ -18,11 +20,15 @@ export function UpstreamUpdatesSettings() {
         <UpstreamEnvironmentPanel key={environmentId} environmentId={environmentId} />
       ) : (
         <SettingsRow
-          title="Upstream Updates"
+          title={gt("Upstream Updates")}
           description={
             environmentId
-              ? "This environment requires a server build with the source upstream service. Packaged app updates remain available through the existing updater."
-              : "Select one environment in the Settings filter to review its source releases and prepared candidates."
+              ? gt(
+                  "This environment requires a server build with the source upstream service. Packaged app updates remain available through the existing updater.",
+                )
+              : gt(
+                  "Select one environment in the Settings filter to review its source releases and prepared candidates.",
+                )
           }
         />
       )}
@@ -31,6 +37,7 @@ export function UpstreamUpdatesSettings() {
 }
 
 function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const gt = useGT();
   const allowed = useAtomValue(serverEnvironment.upstream.permissionAtom(environmentId));
   const execute = useAtomCommand(serverEnvironment.upstream);
   const [status, setStatus] = useState<UpstreamStatus | null>(null);
@@ -62,8 +69,10 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
   return (
     <div className="space-y-3">
       <SettingsRow
-        title="Upstream Updates"
-        description="Review official stable releases and prepare a separate source candidate for the selected environment."
+        title={gt("Upstream Updates")}
+        description={gt(
+          "Review official stable releases and prepare a separate source candidate for the selected environment.",
+        )}
         control={
           <Button
             size="sm"
@@ -71,7 +80,7 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
             disabled={!allowed || busy}
             onClick={() => void run({ action: "refresh" })}
           >
-            {busy ? "Working…" : "Check upstream"}
+            {busy ? gt("Working…") : gt("Check upstream")}
           </Button>
         }
       />
@@ -83,23 +92,28 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
       {status && (
         <div className="space-y-3 px-3 text-sm">
           <p>
-            Upstream release base: {status.baseTag} · <code>{status.baseCommit.slice(0, 12)}</code>{" "}
-            · {status.customCommits} commits ahead
+            <T>Upstream release base:</T> {status.baseTag} ·{" "}
+            <code>{status.baseCommit.slice(0, 12)}</code> · {status.customCommits}{" "}
+            <T>commits ahead</T>
           </p>
-          <p>Last successful release check: {status.checkedAt ?? "Never"}</p>
+          <p>
+            <T>Last successful release check:</T> {status.checkedAt ?? gt("Never")}
+          </p>
           {status.releaseError && <p role="alert">{status.releaseError}</p>}
           {status.latest && (
             <p>
               <a className="underline" href={status.latest.url} target="_blank" rel="noreferrer">
-                Latest official stable: {status.latest.tag} · Release notes
+                <T>Latest official stable:</T> {status.latest.tag} <T>· Release notes</T>
               </a>{" "}
-              · {status.updateAvailable ? "Update available" : "Up to date"}
+              · {status.updateAvailable ? gt("Update available") : gt("Up to date")}
             </p>
           )}
           {status.dirty && (
             <p>
-              Local changes present. Commit or preserve them before preparing; candidates start from
-              committed HEAD.
+              <T>
+                Local changes present. Commit or preserve them before preparing; candidates start
+                from committed HEAD.
+              </T>
             </p>
           )}
           <Button
@@ -115,20 +129,29 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
               })
             }
           >
-            Prepare update
+            <T>Prepare update</T>
           </Button>
           <p>
-            Preparation creates a separate worktree and merges the official release with your custom
-            commits. Review, test, and integrate it manually. The current app keeps running.
+            <T>
+              Preparation creates a separate worktree and merges the official release with your
+              custom commits. Review, test, and integrate it manually. The current app keeps
+              running.
+            </T>
           </p>
           <details>
-            <summary>Security and release evidence</summary>
+            <summary>
+              <T>Security and release evidence</T>
+            </summary>
             <div className="space-y-2 py-2">
-              <p>Public advisories checked: {status.security.checkedAt ?? "Never"}</p>
+              <p>
+                <T>Public advisories checked:</T> {status.security.checkedAt ?? gt("Never")}
+              </p>
               {status.security.error ? (
                 <p role="alert">{status.security.error}</p>
               ) : status.security.checkedAt && status.security.advisories.length === 0 ? (
-                <p>Successfully checked: no published upstream advisories returned.</p>
+                <p>
+                  <T>Successfully checked: no published upstream advisories returned.</T>
+                </p>
               ) : null}
               {status.security.advisories.map((item) => (
                 <p key={item.url}>
@@ -149,7 +172,7 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Official security advisories
+                  <T>Official security advisories</T>
                 </a>{" "}
                 ·{" "}
                 <a
@@ -158,27 +181,40 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Fork Dependabot alerts
+                  <T>Fork Dependabot alerts</T>
                 </a>
               </p>
               <p>
-                Dependabot data is available through GitHub sign-in. This panel checks public
-                upstream advisories. Review advisory fixed versions and release notes for available
-                fixes; deployed-runtime applicability requires separate assessment.
+                <T>
+                  Dependabot data is available through GitHub sign-in. This panel checks public
+                  upstream advisories. Review advisory fixed versions and release notes for
+                  available fixes; deployed-runtime applicability requires separate assessment.
+                </T>
               </p>
-              <p>The existing daily release/security watch continues on its configured schedule.</p>
+              <p>
+                <T>
+                  The existing daily release/security watch continues on its configured schedule.
+                </T>
+              </p>
               {status.latest && (
                 <>
-                  <p>Security mentions in official {status.latest.tag} notes:</p>
+                  <p>
+                    <T>Security mentions in official</T> {status.latest.tag} notes:
+                  </p>
                   {status.latest.securityNotes.length === 0 ? (
                     <p>
-                      No security mentions found in these release notes. Review public advisories
-                      separately.
+                      <T>
+                        No security mentions found in these release notes. Review public advisories
+                        separately.
+                      </T>
                     </p>
                   ) : (
                     status.latest.securityNotes.map((note) => <p key={note}>{note}</p>)
                   )}
-                  <p>Official {status.latest.tag} release notes (GitHub release evidence):</p>
+                  <p>
+                    <T>Official</T> {status.latest.tag}{" "}
+                    <T>release notes (GitHub release evidence):</T>
+                  </p>
                   <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs">
                     {status.latest.notes || "Release has no notes."}
                   </pre>
@@ -187,25 +223,30 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
             </div>
           </details>
           <details open={status.candidates.length > 0}>
-            <summary>Prepared candidates ({status.candidates.length})</summary>
+            <summary>
+              <T>Prepared candidates (</T>
+              {status.candidates.length})
+            </summary>
             <Button
               size="sm"
               variant="ghost"
               disabled={busy || !allowed}
               onClick={() => void run({ action: "read" })}
             >
-              Reload candidates
+              <T>Reload candidates</T>
             </Button>
             {status.candidates.map((candidate) => (
               <div key={candidate.id} className="space-y-1 border-t py-3">
                 <p>
-                  {candidate.tag} · {candidate.status} · Awaiting verification
+                  {candidate.tag} · {candidate.status} <T>· Awaiting verification</T>
                 </p>
                 <p className="break-all">{candidate.path}</p>
                 <p className="break-all">{candidate.branch}</p>
                 <p>
-                  Conflicts and local edits stay in the candidate for manual review. Clean up
-                  removes an unchanged worktree and keeps its branch for recovery.
+                  <T>
+                    Conflicts and local edits stay in the candidate for manual review. Clean up
+                    removes an unchanged worktree and keeps its branch for recovery.
+                  </T>
                 </p>
                 <Button
                   size="sm"
@@ -213,7 +254,7 @@ function UpstreamEnvironmentPanel({ environmentId }: { readonly environmentId: E
                   disabled={busy || !allowed || candidate.status !== "clean"}
                   onClick={() => void run({ action: "cleanup", candidateId: candidate.id })}
                 >
-                  Clean up unused candidate
+                  <T>Clean up unused candidate</T>
                 </Button>
               </div>
             ))}

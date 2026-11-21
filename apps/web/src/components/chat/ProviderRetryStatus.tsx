@@ -1,3 +1,4 @@
+import { T } from "gt-react";
 import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
 import { providerRetryCountdown } from "@t3tools/shared/orchestrationV2ThreadError";
 import { RotateCcwIcon } from "lucide-react";
@@ -26,7 +27,7 @@ export function ProviderRetryStatus({
       }
     >
       <p className="pl-6 text-xs text-muted-foreground">
-        Continuing automatically. Use Stop to cancel.
+        <T>Continuing automatically. Use Stop to cancel.</T>
       </p>
     </WorkLogRow>
   );

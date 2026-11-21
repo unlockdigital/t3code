@@ -1,3 +1,4 @@
+import { useGT, T, useMessages } from "gt-react";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { selectAgentAutoTargets } from "./agentPermissions";
@@ -59,6 +60,7 @@ function TeddyIcon() {
 }
 
 export function SidebarAgentNavigation() {
+  const gt = useGT();
   const shortcut = useClientSettings((settings) => settings.agentShortcut ?? null);
   const hydrated = useClientSettingsHydrated();
   const { setOpenMobile } = useSidebar();
@@ -75,7 +77,7 @@ export function SidebarAgentNavigation() {
 
   return (
     <>
-      <SidebarMenu aria-label="Personal agent">
+      <SidebarMenu aria-label={gt("Personal agent")}>
         <SidebarMenuItem>
           <div className="flex items-center gap-1">
             <div className="min-w-0 flex-1">
@@ -92,7 +94,7 @@ export function SidebarAgentNavigation() {
                 onClick={shortcut ? undefined : () => setOpen(true)}
                 disabled={!hydrated}
                 isActive={active}
-                title={shortcut ? `Open ${name}` : "Choose Teddy’s conversation"}
+                title={shortcut ? gt("Open {name}", { name }) : gt("Choose Teddy’s conversation")}
               >
                 <TeddyIcon />
                 <span className="min-w-0 flex-1 truncate">{name}</span>
@@ -102,8 +104,8 @@ export function SidebarAgentNavigation() {
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label={`Customize ${name}`}
-              title="Change name or conversation"
+              aria-label={gt("Customize {name}", { name })}
+              title={gt("Change name or conversation")}
               onClick={() => setOpen(true)}
               disabled={!hydrated}
             >
@@ -142,6 +144,7 @@ function AgentShortcutEditor({
   saving: boolean;
   setSaving: (saving: boolean) => void;
 }) {
+  const gt = useGT();
   const shortcut = useClientSettings((settings) => settings.agentShortcut ?? null);
   const removeCoordinator = useAtomCommand(serverEnvironment.setApprovalCoordinator, {
     reportFailure: false,
@@ -195,7 +198,9 @@ function AgentShortcutEditor({
       if (saved) onClose();
     } catch {
       setError(
-        "Could not revoke the previous agent’s approval authority or save the shortcut. Check the environment connection and try again.",
+        gt(
+          "Could not revoke the previous agent’s approval authority or save the shortcut. Check the environment connection and try again.",
+        ),
       );
     }
     setSaving(false);
@@ -204,10 +209,14 @@ function AgentShortcutEditor({
   return (
     <DialogPopup>
       <DialogHeader>
-        <DialogTitle>Your agent</DialogTitle>
+        <DialogTitle>
+          <T>Your agent</T>
+        </DialogTitle>
         <DialogDescription>
-          A permanent place below Home. Choose a name and an existing conversation. This shortcut is
-          saved on this device.
+          <T>
+            A permanent place below Home. Choose a name and an existing conversation. This shortcut
+            is saved on this device.
+          </T>
         </DialogDescription>
       </DialogHeader>
       <form
@@ -219,7 +228,9 @@ function AgentShortcutEditor({
         <DialogPanel>
           <div className="flex flex-col gap-4">
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium">Name</span>
+              <span className="text-sm font-medium">
+                <T>Name</T>
+              </span>
               <Input
                 value={name}
                 maxLength={80}
@@ -229,17 +240,19 @@ function AgentShortcutEditor({
               />
             </label>
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium">Find a conversation</span>
+              <span className="text-sm font-medium">
+                <T>Find a conversation</T>
+              </span>
               <Input
                 type="search"
-                placeholder="Search conversation titles"
+                placeholder={gt("Search conversation titles")}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
             <Select value={selected || null} onValueChange={(value) => setSelected(value ?? "")}>
-              <SelectTrigger aria-label="Agent conversation">
-                <SelectValue>{choice?.label ?? "Choose a conversation"}</SelectValue>
+              <SelectTrigger aria-label={gt("Agent conversation")}>
+                <SelectValue>{choice?.label ?? gt("Choose a conversation")}</SelectValue>
               </SelectTrigger>
               <SelectPopup>
                 {matching.map((item) => (
@@ -248,7 +261,7 @@ function AgentShortcutEditor({
                     <span className="ml-2 text-xs text-muted-foreground">
                       {environments.find(
                         (environment) => environment.environmentId === item.environmentId,
-                      )?.label ?? "Disconnected environment"}
+                      )?.label ?? gt("Disconnected environment")}
                     </span>
                   </SelectItem>
                 ))}
@@ -256,7 +269,7 @@ function AgentShortcutEditor({
             </Select>
             {matching.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                No matching conversations. Open the conversation in T3, then return here.
+                <T>No matching conversations. Open the conversation in T3, then return here.</T>
               </p>
             )}
             {shortcut && <AgentAutoPermissions threadRef={shortcut} />}
@@ -273,14 +286,14 @@ function AgentShortcutEditor({
         <DialogFooter>
           {shortcut && (
             <Button type="button" variant="ghost" disabled={saving} onClick={() => void save(true)}>
-              Reset shortcut
+              <T>Reset shortcut</T>
             </Button>
           )}
           <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
+            <T>Cancel</T>
           </Button>
           <Button type="submit" disabled={saving || !name.trim() || !choice}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? gt("Saving…") : gt("Save")}
           </Button>
         </DialogFooter>
       </form>
@@ -292,7 +305,8 @@ function AgentStatus({ threadRef }: { threadRef: ScopedThreadRef }) {
   const thread = useQuietThreadShell(threadRef);
   const key = scopedThreadKey(threadRef);
   const localVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[key]);
-  const status = resolveAgentStatus(thread, localVisitedAt);
+  const messages = useMessages();
+  const status = resolveAgentStatus(thread, localVisitedAt, messages);
   return (
     <span
       role="status"
@@ -313,6 +327,7 @@ function AgentApprovalAuthority({
   actions: ReturnType<typeof createAgentShortcutActions>;
   saving: boolean;
 }) {
+  const gt = useGT();
   const granted = useEnvironmentSettings(
     threadRef.environmentId,
     (settings) => settings.approvalCoordinatorThreadIds ?? [],
@@ -323,7 +338,7 @@ function AgentApprovalAuthority({
   return (
     <div className="flex items-start gap-3">
       <Switch
-        aria-label="Review routine approvals"
+        aria-label={gt("Review routine approvals")}
         checked={enabled}
         disabled={!writable || saving}
         onCheckedChange={(checked) =>
@@ -336,11 +351,15 @@ function AgentApprovalAuthority({
         }
       />
       <div className="space-y-1 text-sm">
-        <p className="font-medium">Review routine approvals</p>
+        <p className="font-medium">
+          <T>Review routine approvals</T>
+        </p>
         <p className="text-muted-foreground">
-          Applies immediately to this agent’s own assignments. Reads, searches, tests and reversible
-          edits can be approved one at a time. Publishing, deletion, spending, credentials,
-          permission changes and private-data sharing come to you.
+          <T>
+            Applies immediately to this agent’s own assignments. Reads, searches, tests and
+            reversible edits can be approved one at a time. Publishing, deletion, spending,
+            credentials, permission changes and private-data sharing come to you.
+          </T>
         </p>
       </div>
     </div>
@@ -348,6 +367,7 @@ function AgentApprovalAuthority({
 }
 
 function AgentAutoPermissions({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const gt = useGT();
   const threads = useQuietThreadShells();
   const agent = useQuietThreadShell(threadRef);
   const writable = useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope);
@@ -372,24 +392,30 @@ function AgentAutoPermissions({ threadRef }: { threadRef: ScopedThreadRef }) {
         });
         if (result._tag === "Failure") {
           setError(
-            `Could not change ${thread.title}. Earlier changes were saved; retry to finish.`,
+            gt("Could not change {title}. Earlier changes were saved; retry to finish.", {
+              title: thread.title,
+            }),
           );
           break;
         }
       }
     } catch {
-      setError("Could not finish changing permissions. Retry to finish the remaining threads.");
+      setError(gt("Could not finish changing permissions. Retry to finish the remaining threads."));
     }
     setSaving(false);
   };
   return (
     <div className="space-y-2 text-sm">
-      <p className="font-medium">Sub-agent permissions</p>
+      <p className="font-medium">
+        <T>Sub-agent permissions</T>
+      </p>
       <p className="text-muted-foreground">
-        Auto lets the provider review routine actions. Apply it to this agent and its existing
-        direct sub-agents; future sub-agents inherit it. Providers without Auto support can still
-        ask. Existing approval cards may need one final response. Change an individual thread’s mode
-        in its composer.
+        <T>
+          Auto lets the provider review routine actions. Apply it to this agent and its existing
+          direct sub-agents; future sub-agents inherit it. Providers without Auto support can still
+          ask. Existing approval cards may need one final response. Change an individual thread’s
+          mode in its composer.
+        </T>
       </p>
       <Button
         type="button"
@@ -398,10 +424,10 @@ function AgentAutoPermissions({ threadRef }: { threadRef: ScopedThreadRef }) {
         onClick={() => void apply()}
       >
         {saving
-          ? "Applying Auto…"
+          ? gt("Applying Auto…")
           : targets.length === 0 && agent
-            ? "Agent and sub-agents use Auto"
-            : "Use Auto for agent and sub-agents"}
+            ? gt("Agent and sub-agents use Auto")
+            : gt("Use Auto for agent and sub-agents")}
       </Button>
       {error && (
         <p role="alert" className="text-destructive">

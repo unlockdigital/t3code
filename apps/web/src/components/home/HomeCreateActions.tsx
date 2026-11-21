@@ -1,3 +1,4 @@
+import { useGT, T } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import { FolderPlusIcon, SquarePenIcon } from "lucide-react";
 import type { MouseEvent } from "react";
@@ -15,6 +16,7 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export function HomeCreateActions() {
+  const gt = useGT();
   const context = useHandleNewThread();
   const projectGroups = useSidebarProjectGroups();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -41,8 +43,8 @@ export function HomeCreateActions() {
     }).catch((error: unknown) => {
       toastManager.add({
         type: "error",
-        title: "Could not start a thread",
-        description: error instanceof Error ? error.message : "Try creating the thread again.",
+        title: gt("Could not start a thread"),
+        description: error instanceof Error ? error.message : gt("Try creating the thread again."),
       });
     });
   };
@@ -56,12 +58,12 @@ export function HomeCreateActions() {
               size="sm"
               disabled={projectGroups.length === 0}
               onClick={createThread}
-              aria-label="New thread"
+              aria-label={gt("New thread")}
             />
           }
         >
           <SquarePenIcon />
-          New thread
+          <T>New thread</T>
           {shortcut && (
             <span aria-hidden className="hidden sm:inline-flex">
               <Kbd>{shortcut}</Kbd>
@@ -70,12 +72,14 @@ export function HomeCreateActions() {
         </TooltipTrigger>
         <TooltipPopup side="bottom">
           {projectGroups.length > 1
-            ? `Shift+click to use the current project${localShortcut ? ` (${localShortcut})` : ""}`
+            ? gt("Shift+click to use the current project{value1}", {
+                value1: localShortcut ? ` (${localShortcut})` : "",
+              })
             : projectGroups.length === 0
-              ? "Add a project to start a thread"
+              ? gt("Add a project to start a thread")
               : shortcut
-                ? `New thread (${shortcut})`
-                : "New thread"}
+                ? gt("New thread ({shortcut})", { shortcut })
+                : gt("New thread")}
         </TooltipPopup>
       </Tooltip>
       <Button
@@ -84,7 +88,7 @@ export function HomeCreateActions() {
         onClick={() => openCommandPalette({ open: "add-project" })}
       >
         <FolderPlusIcon />
-        Add project
+        <T>Add project</T>
       </Button>
     </div>
   );

@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettingsService from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -53,6 +54,7 @@ it.effect("denies a disabled effective project brief provider before invoking it
   }).pipe(
     Effect.provide(
       Layer.effect(TextGeneration.TextGeneration, TextGeneration.make).pipe(
+        Layer.provide(ProviderInstallationGate.layer),
         Layer.provide(
           Layer.succeed(TextGenerators.TextGenerators, {
             runner: () => Effect.undefined,
@@ -245,6 +247,7 @@ const fixture = Effect.fn("ModelRouting.test.fixture")(function* (
   const project: ProjectStore.ProjectRow = {
     projectId,
     title: "Synthetic project",
+    hasCustomTitle: false,
     workspaceRoot: cwd,
     defaultModelSelection: null,
     defaultThreadEnvMode: null,
@@ -316,6 +319,7 @@ it.effect(
         };
       };
       const layerGeneration = Layer.effect(TextGeneration.TextGeneration, TextGeneration.make).pipe(
+        Layer.provide(ProviderInstallationGate.layer),
         Layer.provide(
           Layer.succeed(TextGenerators.TextGenerators, {
             runner: () => Effect.undefined,

@@ -1,3 +1,4 @@
+import { msg, T, useGT, useMessages } from "gt-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ActivityIcon,
@@ -63,10 +64,10 @@ import styles from "./HomeActivity.module.css";
 import { cn } from "../../lib/utils";
 
 const GROUPS = [
-  { kind: "attention", title: "Needs attention", hint: "Your next move" },
-  { kind: "working", title: "Working", hint: "Agents in motion" },
-  { kind: "unread", title: "Unread", hint: "Completed and waiting for you" },
-  { kind: "done", title: "Done", hint: "Read and resting" },
+  { kind: "attention", title: msg("Needs attention"), hint: msg("Your next move") },
+  { kind: "working", title: msg("Working"), hint: msg("Agents in motion") },
+  { kind: "unread", title: msg("Unread"), hint: msg("Completed and waiting for you") },
+  { kind: "done", title: msg("Done"), hint: msg("Read and resting") },
 ] as const;
 const STATUS_COLOR: Record<HomeActivityKind, string> = {
   attention: "text-warning",
@@ -76,6 +77,8 @@ const STATUS_COLOR: Record<HomeActivityKind, string> = {
 };
 
 export function HomeActivity() {
+  const gt = useGT();
+  const messages = useMessages();
   const threads = useDeferredValue(useThreadShells());
   const projects = useProjects();
   const { environments } = useEnvironments();
@@ -120,9 +123,9 @@ export function HomeActivity() {
       .catch((error: unknown) => {
         toastManager.add({
           type: "error",
-          title: "Thread action failed",
+          title: gt("Thread action failed"),
           description:
-            error instanceof Error ? error.message : "Try opening the thread menu again.",
+            error instanceof Error ? error.message : gt("Try opening the thread menu again."),
         });
       })
       .finally(() => setHeld(null));
@@ -163,7 +166,9 @@ export function HomeActivity() {
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-3">
-          <h1 className="text-sm font-medium">Workspace activity</h1>
+          <h1 className="text-sm font-medium">
+            <T>Workspace activity</T>
+          </h1>
           <HomeCreateActions />
         </div>
         <p className="text-xs text-muted-foreground">
@@ -176,26 +181,28 @@ export function HomeActivity() {
             <p className={cn("text-lg font-medium tabular-nums", STATUS_COLOR[group.kind])}>
               {rows.filter((row) => row.kind === group.kind).length}
             </p>
-            <p className="text-xs text-muted-foreground">{group.title}</p>
+            <p className="text-xs text-muted-foreground">{messages(group.title)}</p>
           </div>
         ))}
       </div>
       {!bootstrapped && (
         <p role="status" className="text-xs text-muted-foreground">
-          Syncing activity from your environments…
+          <T>Syncing activity from your environments…</T>
         </p>
       )}
       {environments.length > connected && (
         <p className="text-xs text-muted-foreground">
-          Offline environments retain their last known activity.
+          <T>Offline environments retain their last known activity.</T>
         </p>
       )}
       {rows.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>A quiet workspace</EmptyTitle>
+            <EmptyTitle>
+              <T>A quiet workspace</T>
+            </EmptyTitle>
             <EmptyDescription>
-              Your threads appear here as you work. Start a new thread to get going.
+              <T>Your threads appear here as you work. Start a new thread to get going.</T>
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -204,10 +211,10 @@ export function HomeActivity() {
           const items = visible.filter((row) => row.kind === group.kind);
           if (items.length === 0) return null;
           return (
-            <section key={group.kind} aria-label={group.title} className="space-y-3">
+            <section key={group.kind} aria-label={messages(group.title)} className="space-y-3">
               <div className="flex items-baseline justify-between gap-3 px-1">
-                <h2 className="text-sm font-semibold">{group.title}</h2>
-                <span className="text-2xs text-muted-foreground">{group.hint}</span>
+                <h2 className="text-sm font-semibold">{messages(group.title)}</h2>
+                <span className="text-2xs text-muted-foreground">{messages(group.hint)}</span>
               </div>
               <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
                 {items.map((row) => {
@@ -246,7 +253,8 @@ export function HomeActivity() {
             variant="outline"
             onClick={() => setVisibleCount((count) => count + 24)}
           >
-            Show more threads ({rows.length - visibleCount})
+            <T>Show more threads (</T>
+            {rows.length - visibleCount})
           </Button>
         </div>
       )}
@@ -254,7 +262,7 @@ export function HomeActivity() {
         <HomeThreadRenameDialog thread={renaming.thread} onClose={() => setRenaming(null)} />
       )}
       <p className="text-center text-2xs text-muted-foreground">
-        Viewing Home preserves unread activity. Opening a thread marks it read as usual.
+        <T>Viewing Home preserves unread activity. Opening a thread marks it read as usual.</T>
       </p>
     </div>
   );
@@ -279,6 +287,7 @@ function ActivityRow({
   readonly onOpen: (event: MouseEvent) => void;
   readonly onMenu: (position: { x: number; y: number }, at: string) => void;
 }) {
+  const gt = useGT();
   const thread = row.thread;
   const draft = useComposerDraftModelState(scopeThreadRef(thread.environmentId, thread.id));
   const settings = useEnvironmentSettings(thread.environmentId);
@@ -315,6 +324,7 @@ function ActivityRow({
         settings,
         selectedProvider: selectedProviderEntry.driverKind,
         selectedInstanceId: instanceId,
+        threadStarted: thread.latestRun != null,
         threadModelSelection: thread.modelSelection,
         projectModelSelection,
       }).selectedModel
@@ -403,7 +413,7 @@ function ActivityRow({
             {row.unread && (
               <span
                 className="size-1.5 shrink-0 rounded-full bg-info"
-                aria-label="Unread completion"
+                aria-label={gt("Unread completion")}
               />
             )}
           </div>
@@ -419,7 +429,10 @@ function ActivityRow({
             {row.agentCount > 1 && (
               <span
                 className="inline-flex items-center gap-1.5"
-                aria-label={`Known roster: ${row.members.length} linked thread agents, ${row.nativeAgentCount} additional provider-reported background agents`}
+                aria-label={gt(
+                  "Known roster: {length} linked thread agents, {nativeAgentCount} additional provider-reported background agents",
+                  { length: row.members.length, nativeAgentCount: row.nativeAgentCount },
+                )}
               >
                 <span className="inline-flex -space-x-1">
                   {roster.slice(0, 3).map((provider) => (
@@ -452,12 +465,14 @@ function ActivityRow({
             )}
           >
             <Icon className="size-3" />
-            {online ? row.label : "Offline"}
+            {online ? row.label : gt("Offline")}
           </span>
           <span
             className="text-xs tabular-nums text-muted-foreground"
             aria-label={
-              online ? "Elapsed time for the latest task" : `Last known status: ${row.label}`
+              online
+                ? gt("Elapsed time for the latest task")
+                : gt("Last known status: {label}", { label: row.label })
             }
           >
             {online && row.startedAt ? (
@@ -470,9 +485,9 @@ function ActivityRow({
                 }}
               />
             ) : online ? (
-              "Unknown"
+              gt("Unknown")
             ) : (
-              "Last known"
+              gt("Last known")
             )}
           </span>
           <ArrowUpRightIcon
@@ -484,7 +499,7 @@ function ActivityRow({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={`Actions for ${row.thread.title}`}
+        aria-label={gt("Actions for {title}", { title: row.thread.title })}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           onMenu({ x: rect.left, y: rect.bottom }, new Date(Date.now()).toISOString());

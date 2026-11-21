@@ -1,3 +1,5 @@
+import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
+import type { N2itionGrant } from "@t3tools/contracts/n2itionConnection";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Layer from "effect/Layer";
@@ -6,6 +8,7 @@ import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
@@ -22,10 +25,11 @@ const fakeEnvironment = ServerEnvironment.ServerEnvironment.of({
   getDescriptor: Effect.die("unused"),
 });
 
-const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
+// Without `now`, the registry reads the Effect Clock (TestClock in these tests).
+const makeRegistry = (now: (() => number) | undefined, httpServer = fakeHttpServer) =>
   McpSessionRegistry.__testing
     .make({
-      now,
+      ...(now ? { now } : {}),
       livenessWindowMs: 100,
     })
     .pipe(
@@ -51,7 +55,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
     const resolved = yield* registry.resolve(token);
     expect(resolved?.thread.threadId).toBe(threadId);
     expect(resolved?.capabilities).toEqual(
-      new Set(["preview", "orchestration", "worktree", "pull-requests"]),
+      new Set(["preview", "orchestration", "worktree", "pull-requests", "issues"]),
     );
 
     yield* registry.revokeThread(threadId);
@@ -85,18 +89,21 @@ it.effect("always grants pull-requests and gates browser and device access indep
         .pipe(Effect.map((scope) => [...(scope?.capabilities ?? [])].sort()));
 
     expect(yield* capabilitiesOf(withPreview)).toEqual([
+      "issues",
       "orchestration",
       "preview",
       "pull-requests",
       "worktree",
     ]);
     expect(yield* capabilitiesOf(withoutPreview)).toEqual([
+      "issues",
       "orchestration",
       "pull-requests",
       "worktree",
     ]);
     expect(yield* capabilitiesOf(withDevice)).toEqual([
       "device",
+      "issues",
       "orchestration",
       "pull-requests",
       "worktree",
@@ -139,6 +146,40 @@ it.effect("expires credentials once their session stops showing signs of life", 
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
     timestamp += 101;
     expect(yield* registry.resolve(token)).toBeUndefined();
+    // Once a request found it expired, clocks moving back don't bring it back; a provider turn does.
+    timestamp = 1_000;
+    expect(yield* registry.resolve(token)).toBeUndefined();
+    yield* registry.touch(ThreadId.make("thread-2"));
+    expect((yield* registry.resolve(token))?.thread.threadId).toBe("thread-2");
+  }),
+);
+
+it.effect("a backward wall clock step neither extends nor revives credentials", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(undefined);
+    const issueToken = (threadId: string) =>
+      registry
+        .issue({
+          threadId: ThreadId.make(threadId),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          capabilities: new Set(["preview"]),
+        })
+        .pipe(Effect.map((issued) => issued.config.authorizationHeader.replace(/^Bearer\s+/, "")));
+
+    yield* TestClock.setTime(10_000);
+    const extended = yield* issueToken("thread-extended");
+    // setTime backwards moves wall time only; adjust moves both clocks.
+    yield* TestClock.setTime(1_000);
+    yield* TestClock.adjust(101);
+    expect(yield* registry.resolve(extended)).toBeUndefined();
+
+    const revived = yield* issueToken("thread-revived");
+    yield* TestClock.adjust(101);
+    expect(yield* registry.resolve(revived)).toBeUndefined();
+    const active = yield* issueToken("thread-active");
+    yield* TestClock.setTime(0);
+    expect(yield* registry.resolve(revived)).toBeUndefined();
+    expect((yield* registry.resolve(active))?.thread.threadId).toBe("thread-active");
   }),
 );
 
@@ -221,4 +262,90 @@ it.effect.each(["provider-session", "thread", "all"] as const)(
       yield* registry.touch(threadId);
       expect(yield* registry.resolve(token)).toBeUndefined();
     }),
+);
+
+it.effect.each(["expired", "paused", "revoked"] as const)(
+  "keeps ordinary Teddy tools available when N2ITION consent is %s",
+  (condition) =>
+    Effect.gen(function* () {
+      const grant: N2itionGrant = {
+        version: 1,
+        environmentId,
+        threadId: ThreadId.make("teddy"),
+        providerInstanceId: ProviderInstanceId.make("hermes-dot"),
+        model: "synthetic-model",
+        source: "synthetic",
+        origin: "http://127.0.0.1",
+        mode: condition === "expired" ? "active" : condition,
+        epoch: 6,
+        expiresAt: condition === "expired" ? "1970-01-01T00:00:01Z" : "2099-01-01T00:00:00Z",
+        cadenceHours: 1,
+        privacyVerified: false,
+        sharedProcessAccepted: false,
+        routeFiles: [],
+      };
+      const registry = yield* makeRegistry(() => 1_000).pipe(
+        Effect.provideService(N2itionGrantStore.N2itionGrantStore, {
+          read: Effect.succeed(grant),
+          control: () => Effect.die("unused"),
+          checkRouteFiles: () => Effect.die("consent must be validated first"),
+        }),
+      );
+      const issued = yield* registry.issue({
+        threadId: grant.threadId,
+        providerInstanceId: grant.providerInstanceId,
+        capabilities: new Set(["n2ition-read"]),
+      });
+      const scope = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(scope?.capabilities).toEqual(
+        new Set(["orchestration", "worktree", "pull-requests", "issues"]),
+      );
+      expect(scope?.n2itionGrantEpoch).toBeUndefined();
+    }),
+);
+
+it.effect("mints N2ITION capability only for the consented thread and provider", () =>
+  Effect.gen(function* () {
+    const grant: N2itionGrant = {
+      version: 1,
+      environmentId,
+      threadId: ThreadId.make("teddy"),
+      providerInstanceId: ProviderInstanceId.make("hermes-dot"),
+      model: "synthetic-model",
+      source: "synthetic",
+      origin: "http://127.0.0.1",
+      mode: "active",
+      epoch: 6,
+      expiresAt: "2099-01-01T00:00:00Z",
+      cadenceHours: 1,
+      privacyVerified: false,
+      sharedProcessAccepted: false,
+      routeFiles: [],
+    };
+    const registry = yield* makeRegistry(() => 1000).pipe(
+      Effect.provideService(N2itionGrantStore.N2itionGrantStore, {
+        read: Effect.succeed(grant),
+        control: () => Effect.die("unused"),
+        checkRouteFiles: () => Effect.void,
+      }),
+    );
+    for (const [thread, provider, allowed] of [
+      ["teddy", "hermes-dot", true],
+      ["child", "hermes-dot", false],
+      ["teddy", "codex", false],
+    ] as const) {
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make(thread),
+        providerInstanceId: ProviderInstanceId.make(provider),
+        capabilities: new Set(["n2ition-read"]),
+      });
+      const scope = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(scope?.capabilities.has("n2ition-read")).toBe(allowed);
+      expect(scope?.n2itionGrantEpoch).toBe(allowed ? 6 : undefined);
+    }
+  }),
 );
