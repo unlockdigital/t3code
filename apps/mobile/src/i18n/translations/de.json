@@ -4891,8 +4891,6 @@
   "27cd137302298f71": "Segment {index}, {account}, {remaining} % übrig, {resetsIn}, {credits, plural, one {{credits} Reset-Guthaben angespart} other {{credits} Reset-Guthaben angespart}}",
   "288ade531cfcf90c": "Segment {index}, {account}, {remaining} % übrig, {resetsIn}",
   "f78edbddd70ee41d": "Segment {index}, {account}, {remaining} % übrig, {credits, plural, one {{credits} Reset-Guthaben angespart} other {{credits} Reset-Guthaben angespart}}",
-  "d2d071e45a2d6b89": "Wähle eine Umgebung, um Limits zu sehen.",
-  "f411a8cef140a5ea": "Kein Anbieter in den ausgewählten Umgebungen meldet Abo-Limits.",
   "b29a752dd8ee9aa7": "Konto",
   "55a38e69338c54ee": "Konto-E-Mail ausblenden",
   "0d3e9f1f27c0e780": "Konto-E-Mail anzeigen",

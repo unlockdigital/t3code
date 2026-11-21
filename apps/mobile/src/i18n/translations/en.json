@@ -4892,8 +4892,6 @@
   "27cd137302298f71": "Segment {index}, {account}, {remaining}% left, {resetsIn}, {credits, plural, other {{credits} reset credits banked}}",
   "288ade531cfcf90c": "Segment {index}, {account}, {remaining}% left, {resetsIn}",
   "f78edbddd70ee41d": "Segment {index}, {account}, {remaining}% left, {credits, plural, other {{credits} reset credits banked}}",
-  "d2d071e45a2d6b89": "Select an environment to see limits.",
-  "f411a8cef140a5ea": "No provider on the selected environments reports subscription limits.",
   "b29a752dd8ee9aa7": "Account",
   "55a38e69338c54ee": "Hide account email",
   "0d3e9f1f27c0e780": "Reveal account email",

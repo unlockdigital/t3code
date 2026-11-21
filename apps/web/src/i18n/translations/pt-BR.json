@@ -2409,8 +2409,6 @@
   "e7a50ab49cdfd076": "Gerando novamente… ({count})",
   "6523a0ca24b57fde": "Gerar títulos novamente ({count})",
   "96adc8bf3106015d": "Desafixar ({count})",
-  "ae7ca1b255c0177f": "Aprovação pendente",
-  "a28d4938d473c33f": "Aguardando resposta",
   "c7c6c2345a741768": "Pedido de convidado",
   "c37d2b47b70c3f7c": "Conectando",
   "04ab29f86a91dd64": "Plano pronto",
@@ -3746,8 +3744,6 @@
     " tokens"
   ],
   "5e304d3afa0b58f1": "Interrompido por um redirecionamento",
-  "60a0764e22592973": "Novo modelo",
-  "67daabe2b2e6e200": "Novo",
   "c87cfa43e7dd640d": "Remover dos favoritos",
   "45fd74f7e1c728ba": "Adicionar aos favoritos",
   "5c07d8f2e865bc06": "Indisponível",
@@ -11720,7 +11716,6 @@
   "bcda2ccaa871dc46": "Nova thread no projeto atual: Shift+clique ({shortcut})",
   "aa5c379423baace1": "Nova thread no projeto atual: Shift+clique",
   "9d9d32b401d2931a": "{count, plural, one {{count} processo de terminal em execução} other {{count} processos de terminal em execução}}",
-  "ade06f6723949b39": "Ocorreu um erro",
   "021fe65858278fe9": "Adiar thread",
   "e7c18f33bc1326f7": "Configurando",
   "26375cafb52d0503": "Meta",
@@ -11738,15 +11733,6 @@
   "8cf699ae75fd8067": "Fixadas",
   "be451f475c514b37": "Dispensar notificação de despertar",
   "e9ced65134f2f36c": "Despertar thread agora",
-  "aca5896600bf173e": "Você está com outro branch em checkout no momento.",
-  "f665b5be60d8c144": [
-    "Transferida de ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    }
-  ],
   "4b53176b7af3d87a": "Adiar thread",
   "9f20632581a1de90": "Fixar",
   "fcd14f3717170dae": "Desafixar",
@@ -11914,10 +11900,7 @@
   "4df3ff1be768a7ab": "{name}: {remaining}% restante",
   "7aaaff1c6484f25c": "Segmento",
   "8bcab2ef61de6518": "Limite de $0",
-  "a16b48709357a5a7": "Gerenciar uso",
   "a00e74aaa421c524": "restante",
-  "8bd6f07136317c8f": "Nenhum provedor nos ambientes selecionados informa limites de assinatura.",
-  "87f5d0c61b335f38": "Veja o uso no ChatGPT com sua conta conectada.",
   "5b4c71b36b979e80": "Custo",
   "fce17caaa0d1a45b": "Sem preço",
   "8f01f72ab87d0628": "Tokens",
@@ -12195,5 +12178,6 @@
   "27d76249d09eb69f": "Guia de revisão pronto",
   "faa3bb26abb39c93": "O guia de revisão falhou",
   "b7df38b7d8792d78": "Abrir guia",
-  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão"
+  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão",
+  "697d99ca14483678": "Atualizações do projeto original"
 }

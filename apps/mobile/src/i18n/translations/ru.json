@@ -4963,8 +4963,6 @@
   "27cd137302298f71": "Сегмент {index}, {account}, осталось {remaining}%, {resetsIn}, {credits, plural, one {накоплен {credits} кредит на сброс} few {накоплено {credits} кредита на сброс} many {накоплено {credits} кредитов на сброс} other {накоплено {credits} кредита на сброс}}",
   "288ade531cfcf90c": "Сегмент {index}, {account}, осталось {remaining}%, {resetsIn}",
   "f78edbddd70ee41d": "Сегмент {index}, {account}, осталось {remaining}%, {credits, plural, one {накоплен {credits} кредит на сброс} few {накоплено {credits} кредита на сброс} many {накоплено {credits} кредитов на сброс} other {накоплено {credits} кредита на сброс}}",
-  "d2d071e45a2d6b89": "Выберите окружение, чтобы увидеть лимиты.",
-  "f411a8cef140a5ea": "Ни один провайдер в выбранных окружениях не сообщает лимиты подписки.",
   "b29a752dd8ee9aa7": "Аккаунт",
   "55a38e69338c54ee": "Скрыть email аккаунта",
   "0d3e9f1f27c0e780": "Показать email аккаунта",

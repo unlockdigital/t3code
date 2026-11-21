@@ -2409,8 +2409,6 @@
   "e7a50ab49cdfd076": "Regenerating… ({count})",
   "6523a0ca24b57fde": "Regenerate titles ({count})",
   "96adc8bf3106015d": "Unpin ({count})",
-  "ae7ca1b255c0177f": "Pending Approval",
-  "a28d4938d473c33f": "Awaiting Input",
   "c7c6c2345a741768": "Guest Request",
   "c37d2b47b70c3f7c": "Connecting",
   "04ab29f86a91dd64": "Plan Ready",
@@ -3747,8 +3745,6 @@
     " tokens"
   ],
   "5e304d3afa0b58f1": "Cut off by a steer",
-  "60a0764e22592973": "New model",
-  "67daabe2b2e6e200": "New",
   "c87cfa43e7dd640d": "Remove from favorites",
   "45fd74f7e1c728ba": "Add to favorites",
   "5c07d8f2e865bc06": "Unavailable",
@@ -11731,7 +11727,6 @@
   "bcda2ccaa871dc46": "New thread in current project: Shift+click ({shortcut})",
   "aa5c379423baace1": "New thread in current project: Shift+click",
   "9d9d32b401d2931a": "{count, plural, one {{count} terminal process running} other {{count} terminal processes running}}",
-  "ade06f6723949b39": "Error occurred",
   "021fe65858278fe9": "Snooze thread",
   "e7c18f33bc1326f7": "Setting up",
   "26375cafb52d0503": "Goal",
@@ -11749,15 +11744,6 @@
   "8cf699ae75fd8067": "Pinned",
   "be451f475c514b37": "Dismiss Woke notification",
   "e9ced65134f2f36c": "Wake thread now",
-  "aca5896600bf173e": "You're currently checked out on another branch.",
-  "f665b5be60d8c144": [
-    "Handed off from ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    }
-  ],
   "4b53176b7af3d87a": "Snooze thread",
   "9f20632581a1de90": "Pin",
   "fcd14f3717170dae": "Unpin",
@@ -11925,10 +11911,7 @@
   "4df3ff1be768a7ab": "{name}: {remaining}% left",
   "7aaaff1c6484f25c": "Segment",
   "8bcab2ef61de6518": "$0 cap",
-  "a16b48709357a5a7": "Manage usage",
   "a00e74aaa421c524": "left",
-  "8bd6f07136317c8f": "No provider on the selected environments reports subscription limits.",
-  "87f5d0c61b335f38": "View usage in ChatGPT with your connected account.",
   "5b4c71b36b979e80": "Cost",
   "fce17caaa0d1a45b": "Unpriced",
   "8f01f72ab87d0628": "Tokens",
@@ -12205,5 +12188,6 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "697d99ca14483678": "Upstream Updates"
 }

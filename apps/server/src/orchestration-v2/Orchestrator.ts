@@ -15843,7 +15843,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.metadata.update": {
         const continuation = metadataUpdateContinuation(command);
         if (continuation !== undefined) yield* refuseNativeSubagentMessage(command);
-        yield* dispatchThreadMutation(command, events, effects);
+        yield* dispatchThreadMutation(command, events, effects, routingThread);
         if (continuation !== undefined) {
           cancelUnsettledEffects = yield* dispatchMessage(continuation, events, effects);
           yield* recordSubagentFollowup(continuation, events).pipe(mapDispatchError(command));

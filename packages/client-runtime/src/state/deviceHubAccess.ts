@@ -35,17 +35,30 @@ export const mintMediaTicket = Effect.fn("clientRuntime.state.mintMediaTicket")(
   const remoteAuthorization = yield* Effect.serviceOption(
     RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
   );
-  return yield* executeAuthenticatedEnvironmentHttpRequest({
+  const options = {
     prepared,
     signer,
     remoteAuthorization,
     group: "auth",
     method: "POST",
-    url: (urls) => urls.webSocketTicketFor({ params: { use: "media" } }),
     timeoutMs: TICKET_TIMEOUT_MS,
+  } as const;
+  return yield* executeAuthenticatedEnvironmentHttpRequest({
+    ...options,
+    url: (urls) => urls.webSocketTicketFor({ params: { use: "media" } }),
     request: ({ client, headers }) =>
       client.webSocketTicketFor({ headers, params: { use: "media" } }),
-  });
+  }).pipe(
+    Effect.catchIf(
+      (error) => isRemoteEnvironmentAuthUndeclaredStatusError(error) && error.status === 404,
+      () =>
+        executeAuthenticatedEnvironmentHttpRequest({
+          ...options,
+          url: (urls) => urls.webSocketTicket(),
+          request: ({ client, headers }) => client.webSocketTicket({ headers }),
+        }),
+    ),
+  );
 });
 
 export const resolveDeviceHubAccess = Effect.fn("clientRuntime.state.resolveDeviceHubAccess")(
