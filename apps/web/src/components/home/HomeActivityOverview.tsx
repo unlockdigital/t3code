@@ -315,6 +315,7 @@ function ActivityRow({
         settings,
         selectedProvider: selectedProviderEntry.driverKind,
         selectedInstanceId: instanceId,
+        threadStarted: thread.latestRun != null,
         threadModelSelection: thread.modelSelection,
         projectModelSelection,
       }).selectedModel

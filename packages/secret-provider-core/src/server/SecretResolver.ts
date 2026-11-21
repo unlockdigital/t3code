@@ -1,5 +1,6 @@
 // Reads secrets that settings point at through a configured secret provider. Each read, including
-// a failed one, is cached until the provider changes or Settings refresh invalidates it.
+// a failed one, is held for the server's life so rebuilds never re-prompt an unlock; `invalidate`
+// (the Settings refresh) and a `fresh` read are the only ways to read again.
 import type { SecretReference, ServerSettings } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -13,10 +14,17 @@ import type { SecretProviderDriver, SecretProviderDriverServices } from "./drive
 export class SecretResolver extends Context.Service<
   SecretResolver,
   {
-    /** Reads from the supplied settings snapshot when present, returning values in input order. */
+    /**
+     * Values in input order; `undefined` marks a reference that could not be read. `fresh` asks the
+     * provider again and returns what it answered, but an unreadable or empty answer does not
+     * replace a value that is already held.
+     */
     readonly read: (
       references: ReadonlyArray<SecretReference>,
-      providersSnapshot?: ServerSettings["secretProviders"],
+      options?: {
+        readonly fresh?: boolean;
+        readonly providersSnapshot?: ServerSettings["secretProviders"] | undefined;
+      },
     ) => Effect.Effect<ReadonlyArray<string | undefined>>;
     /** Forgets the given references, or every reference, so the next read asks the provider again. */
     readonly invalidate: (references?: ReadonlyArray<SecretReference>) => Effect.Effect<void>;
@@ -90,13 +98,14 @@ export const make = Effect.fn("SecretResolver.make")(function* (options: {
   // Cache hits answer without the lock, so a read waiting on an unlock never stalls a cached one.
   const read: SecretResolver["Service"]["read"] = Effect.fn("SecretResolver.read")(function* (
     references,
-    providersSnapshot,
+    readOptions,
   ) {
-    const providers = providersSnapshot ?? (yield* options.secretProviders);
+    const fresh = readOptions?.fresh === true;
+    const providers = readOptions?.providersSnapshot ?? (yield* options.secretProviders);
     const plans = references.map((reference) => planFor(providers, reference));
     const isMissing = (reference: SecretReference, index: number) => {
       const plan = plans[index];
-      return plan !== undefined && !isCached(reference, plan);
+      return plan !== undefined && (fresh || !isCached(reference, plan));
     };
     if (!references.some(isMissing)) return answer(references, plans);
 
@@ -119,15 +128,23 @@ export const make = Effect.fn("SecretResolver.make")(function* (options: {
           ]);
           wanted.set(reference.provider, group);
         });
+        const answered = new Map<string, string | undefined>();
         for (const { plan, byReference } of wanted.values()) {
           const values = yield* plan.driver.read(plan.config, [...byReference.keys()]);
           [...byReference.values()].forEach((sameReference, index) => {
+            const value = values[index];
+            const readable = value !== undefined && value.trim() !== "";
             for (const reference of sameReference) {
-              cache.set(cacheKey(reference), { configKey: plan.configKey, value: values[index] });
+              answered.set(cacheKey(reference), value);
+              if (!fresh || readable || !isCached(reference, plan)) {
+                cache.set(cacheKey(reference), { configKey: plan.configKey, value });
+              }
             }
           });
         }
-        return answer(references, plans);
+        return fresh
+          ? references.map((reference) => answered.get(cacheKey(reference)))
+          : answer(references, plans);
       }),
     );
   }, Effect.provideContext(context));

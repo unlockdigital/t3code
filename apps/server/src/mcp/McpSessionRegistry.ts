@@ -1,3 +1,5 @@
+import { N2itionConnectionError } from "@t3tools/contracts/n2itionConnection";
+import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as N2itionGrantStore from "../n2ition/N2itionGrantStore.ts";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
@@ -14,6 +16,8 @@ import * as NetAddress from "effect/net/NetAddress";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+
+const isN2itionConnectionError = Schema.is(N2itionConnectionError);
 
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
@@ -44,10 +48,17 @@ export class McpSessionRegistry extends Context.Service<
   McpSessionRegistryShape
 >()("t3/mcp/McpSessionRegistry") {}
 
+interface AliveMark {
+  readonly wallMs: number;
+  readonly monotonicMs: number;
+}
+
 interface CredentialRecord {
   readonly tokenHash: string;
   readonly scope: McpInvocationContext.McpThreadInvocationScope;
-  readonly lastAliveAt: number;
+  readonly lastAlive: AliveMark;
+  /** Set when a request finds the token idle; only `touch` clears it, whatever the clocks do. */
+  readonly expired: boolean;
 }
 
 interface RegistryState {
@@ -56,6 +67,7 @@ interface RegistryState {
 
 export interface McpSessionRegistryOptions {
   readonly livenessWindowMs?: number;
+  /** Drives both the wall and monotonic readings. */
   readonly now?: () => number;
 }
 
@@ -70,6 +82,11 @@ const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const tokenFromBytes = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
+
+// The larger elapsed reading wins: stepping the wall clock back cannot extend a token,
+// and wall time that passes while the host sleeps still counts.
+const idleMs = (since: AliveMark, now: AliveMark): number =>
+  Math.max(now.wallMs - since.wallMs, now.monotonicMs - since.monotonicMs);
 
 const getHttpMcpEndpointHost = (address: NetAddress.IpAddress): string =>
   NetAddress.isUnspecified(address)
@@ -86,7 +103,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const environmentId = yield* environment.getEnvironmentId;
   const httpServer = yield* HttpServer.HttpServer;
   const state = yield* SynchronizedRef.make<RegistryState>({ records: new Map() });
-  const currentTimeMillis = options.now ? Effect.sync(options.now) : Clock.currentTimeMillis;
+  const { now } = options;
+  const currentAliveMark: Effect.Effect<AliveMark> = now
+    ? Effect.sync(() => {
+        const timestamp = now();
+        return { wallMs: timestamp, monotonicMs: timestamp };
+      })
+    : Effect.all({
+        wallMs: Clock.currentTimeMillis,
+        monotonicMs: Clock.monotonicTimeNanos.pipe(
+          Effect.map((nanos) => Number(nanos / 1_000_000n)),
+        ),
+      });
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
   const endpoint = NetAddress.isInetAddress(httpServer.address)
     ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}/mcp`
@@ -99,7 +127,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
-      const issuedAt = yield* currentTimeMillis;
+      const issuedAlive = yield* currentAliveMark;
       const providerSessionId = yield* random.uuidV4();
       const rawToken = yield* random.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
@@ -114,7 +142,13 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           grant.providerInstanceId !== request.providerInstanceId
         )
           return undefined;
-        yield* Effect.sync(() => N2itionGrantStore.validateGrant(grant, issuedAt));
+        yield* Effect.try({
+          try: () => N2itionGrantStore.validateGrant(grant, issuedAlive.wallMs),
+          catch: (cause) =>
+            isN2itionConnectionError(cause)
+              ? cause
+              : new N2itionConnectionError({ reason: "invalid_data" }),
+        });
         yield* n2itionGrants.value.checkRouteFiles(grant);
         return grant.epoch;
       }).pipe(Effect.orElseSucceed(() => undefined));
@@ -132,17 +166,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           "orchestration",
           "worktree",
           "pull-requests",
+          "issues",
           ...[
             ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
           ].filter((capability) => capability !== "n2ition-read"),
           ...(n2itionGrantEpoch === undefined ? [] : ["n2ition-read" as const]),
         ]),
         ...(n2itionGrantEpoch === undefined ? {} : { n2itionGrantEpoch }),
-        issuedAt,
+        issuedAt: issuedAlive.wallMs,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
-        next.set(tokenHash, { tokenHash, scope, lastAliveAt: issuedAt });
+        next.set(tokenHash, { tokenHash, scope, lastAlive: issuedAlive, expired: false });
         return { records: next };
       });
       return {
@@ -164,14 +199,17 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     function* (rawToken) {
       if (rawToken.length === 0) return undefined;
       const tokenHash = yield* hashToken(rawToken);
-      const timestamp = yield* currentTimeMillis;
+      const alive = yield* currentAliveMark;
       return yield* SynchronizedRef.modify(state, ({ records }) => {
         const record = records.get(tokenHash);
-        if (!record || timestamp - record.lastAliveAt > livenessWindowMs) {
-          return [undefined, { records }] as const;
+        if (!record || record.expired) return [undefined, { records }] as const;
+        if (idleMs(record.lastAlive, alive) > livenessWindowMs) {
+          const next = new Map(records);
+          next.set(tokenHash, { ...record, expired: true });
+          return [undefined, { records: next }] as const;
         }
         const next = new Map(records);
-        next.set(tokenHash, { ...record, lastAliveAt: timestamp });
+        next.set(tokenHash, { ...record, lastAlive: alive });
         return [record.scope, { records: next }] as const;
       });
     },
@@ -179,12 +217,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const touch: McpSessionRegistryShape["touch"] = Effect.fn("McpSessionRegistry.touch")(
     function* (threadId) {
-      const timestamp = yield* currentTimeMillis;
+      const alive = yield* currentAliveMark;
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
         for (const [tokenHash, record] of records) {
           if (record.scope.thread.threadId === threadId) {
-            next.set(tokenHash, { ...record, lastAliveAt: timestamp });
+            next.set(tokenHash, { ...record, lastAlive: alive, expired: false });
           }
         }
         return { records: next };
