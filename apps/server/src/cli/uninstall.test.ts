@@ -1,5 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off - The test observes a real cleanup-shell spawn failure.
-import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Config from "effect/Config";
@@ -24,7 +22,11 @@ import {
   uninstallCommand,
 } from "./uninstall.ts";
 
-vi.mock("node:child_process", { spy: true });
+// These cases exercise managed uninstall independently of preview branding.
+vi.mock("../../package.json", async (importOriginal) => {
+  const actual = await importOriginal<{ default: Record<string, unknown> }>();
+  return { default: { ...actual.default, version: "0.1.11" } };
+});
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -53,18 +55,6 @@ it.live("reports failure when the Windows cleanup shell cannot start", () =>
         }),
       ),
     );
-    const actual = yield* Effect.promise(() =>
-      vi.importActual<typeof import("node:child_process")>("node:child_process"),
-    );
-    const spawn = actual.spawn;
-    const failedSpawn = new Promise<Error>((resolve) => {
-      vi.spyOn(NodeChildProcess, "spawn").mockImplementation((...args) => {
-        const child = spawn(...args);
-        // Observe the real spawn error without letting it terminate the test runner.
-        child.once("error", resolve);
-        return child;
-      });
-    });
     const result = yield* Command.runWith(uninstallCommand, { version: packageJson.version })([
       "--base-dir",
       baseDir,
@@ -83,8 +73,11 @@ it.live("reports failure when the Windows cleanup shell cannot start", () =>
         ),
       ),
     );
-    yield* Effect.promise(() => failedSpawn);
-    expect(result._tag, "an unavailable cleanup shell must fail uninstall").toBe("Failure");
+    assert(result._tag === "Failure", "an unavailable cleanup shell must fail uninstall");
+    expect(result.failure).toMatchObject({
+      _tag: "CliUninstallError",
+      reason: expect.stringContaining("Could not schedule removal"),
+    });
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NetService.layer))),
 );
 
