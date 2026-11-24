@@ -7,6 +7,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -148,7 +149,9 @@ const sendFor = (
   record: Effect.Effect<
     void,
     never,
-    AnalyticsService.AnalyticsService | Effect.Services<typeof getTelemetryIdentity>
+    | AnalyticsService.AnalyticsService
+    | Effect.Services<typeof getTelemetryIdentity>
+    | ServerConfig.ServerConfig
   > = recordTwentyEvents,
   policy?: ManagedPolicyDocument,
 ) =>
@@ -177,6 +180,124 @@ const sendFor = (
   });
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService test", (it) => {
+  it.effect.each([
+    {
+      label: "unset (fresh install)",
+      preference: null,
+      existing: false,
+      managed: undefined,
+      sends: false,
+    },
+    {
+      label: "unset (upgrade with an existing install ID)",
+      preference: null,
+      existing: true,
+      managed: undefined,
+      sends: false,
+    },
+    {
+      label: "explicit opt-out",
+      preference: "false",
+      existing: false,
+      managed: undefined,
+      sends: false,
+    },
+    {
+      label: "unrecognized preference",
+      preference: "yes",
+      existing: false,
+      managed: undefined,
+      sends: false,
+    },
+    {
+      label: "managed opt-out overrides opt-in",
+      preference: "true",
+      existing: false,
+      managed: false,
+      sends: false,
+    },
+    {
+      label: "managed allow does not opt in",
+      preference: null,
+      existing: false,
+      managed: true,
+      sends: false,
+    },
+    {
+      label: "explicit opt-in",
+      preference: "true",
+      existing: false,
+      managed: undefined,
+      sends: true,
+    },
+  ])("gates analytics and identity with $label", ({ preference, existing, managed, sends }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const identityReads: Array<string> = [];
+      const requests: Array<string> = [];
+      const fakeIdentityFileSystem = {
+        ...fileSystem,
+        readFileString: (
+          path: string,
+          encoding?: Parameters<typeof fileSystem.readFileString>[1],
+        ) => {
+          identityReads.push(path);
+          return fileSystem.readFileString(path, encoding);
+        },
+      };
+      const serverConfig = ServerConfig.ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-telemetry-preference-",
+      });
+      const environment = {
+        ...(preference === null ? {} : { T3CODE_TELEMETRY_ENABLED: preference }),
+        T3CODE_POSTHOG_KEY: "phc_test_key",
+        T3CODE_POSTHOG_HOST: "http://telemetry.test",
+      };
+      const client = HttpClient.make((request) => {
+        requests.push(request.url);
+        return respondWithStatus(204)(request);
+      });
+      const consentLayer = AnalyticsService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: environment })),
+            Layer.succeed(HostProcess.Environment, environment),
+            Layer.succeed(HostProcess.HomeDirectory, "/isolated-telemetry-test"),
+            Layer.succeed(HttpClient.HttpClient, client),
+            ManagedPolicy.layerTest(
+              managed === undefined
+                ? undefined
+                : {
+                    schemaVersion: 1,
+                    organization: "Example Corp",
+                    limits: { telemetry: managed },
+                  },
+            ),
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const { anonymousIdPath } = yield* ServerConfig.ServerConfig;
+        if (existing) yield* fileSystem.writeFileString(anonymousIdPath, "existing-test-id");
+        yield* Effect.gen(function* () {
+          const analytics = yield* AnalyticsService.AnalyticsService;
+          yield* analytics.record("server.boot.heartbeat");
+          yield* analytics.recordOwners([{ source: "connect", ownerId: "a".repeat(64) }], "server");
+          yield* analytics.record("test.normal-use");
+          yield* analytics.flush;
+          yield* TestClock.adjust("10 seconds");
+        }).pipe(Effect.provide(consentLayer));
+        assert.equal(yield* fileSystem.exists(anonymousIdPath), existing || sends);
+      }).pipe(
+        Effect.provide(serverConfig),
+        Effect.provideService(FileSystem.FileSystem, fakeIdentityFileSystem),
+      );
+      if (sends) assert.isNotEmpty(identityReads);
+      else assert.deepEqual(identityReads, []);
+      assert.deepEqual(requests, sends ? ["http://telemetry.test/batch/"] : []);
+    }),
+  );
+
   it.effect("waits for desktop shell consent and honors a late telemetry opt-out", () =>
     Effect.gen(function* () {
       const env: NodeJS.ProcessEnv = { T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING: "1" };
@@ -185,12 +306,16 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
         respondWithStatus(204),
         Effect.gen(function* () {
           const analytics = yield* AnalyticsService.AnalyticsService;
+          const { anonymousIdPath } = yield* ServerConfig.ServerConfig;
+          const fs = yield* FileSystem.FileSystem;
           yield* analytics.record("test.before-discovery");
           yield* analytics.flush;
+          assert.isFalse(yield* fs.exists(anonymousIdPath).pipe(Effect.orDie));
           env.T3CODE_TELEMETRY_ENABLED = "false";
           delete env.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING;
           yield* analytics.record("test.opted-out");
           yield* analytics.flush;
+          assert.isFalse(yield* fs.exists(anonymousIdPath).pipe(Effect.orDie));
           env.T3CODE_TELEMETRY_ENABLED = "true";
           yield* analytics.record("test.allowed");
           yield* analytics.flush;

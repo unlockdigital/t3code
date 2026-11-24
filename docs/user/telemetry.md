@@ -1,16 +1,24 @@
 # Product usage data
 
-The T3 Code server sends product usage events to T3 Code's own endpoint at `ingest.t3.codes`,
-associated with a hashed account or installation identifier. To count how many installations one person
-uses, the server also sends hashed account identifiers: your T3 Connect account, your OpenAI and
-Claude accounts when you are signed in, and a random identifier for each device that connects. The endpoint keeps a copy of each
-event and forwards events to PostHog. Events include the provider, model, reasoning effort,
-permission mode, turn and request results, duration, release channel, and token counts when
-available. Child-agent token counts are reported separately from the main agent's. Model names
-are sent only when they appear in a provider's public model list.
+Product analytics are off by default in the Unlock Digital fork, including after an upgrade
+with no explicit preference. While off, the server skips analytics identity reads, event collection,
+and transmission. Sign-in and T3 Connect continue to use the credentials and device identifiers
+they need to operate.
 
-Product events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
-raw provider events, or child-agent output.
+To opt in, set `T3CODE_TELEMETRY_ENABLED=true` in the environment that launches the server,
+then restart T3 Code. On macOS and Linux, desktop also reads this setting from your login shell
+profile. On Windows, set it as a user environment variable. For a background server, set it in
+the service’s environment. To opt out, remove the setting or set
+`T3CODE_TELEMETRY_ENABLED=false` and restart. An administrator’s
+[managed policy](./managed-policy.md#other-capabilities) with `limits.telemetry: false`
+takes precedence over an opt-in. A policy that allows telemetry leaves the choice to the user.
+
+When enabled, the server sends product usage events to `ingest.t3.codes`. The endpoint keeps
+a copy and forwards events to PostHog. Usage events use a hashed random installation ID. An opted-in
+server can also report the hash of its linked T3 Connect account. Events can include provider, model,
+reasoning effort, permission mode, duration, turn results, and token counts. Unlock Digital clients
+omit product analytics account and device IDs from their connection URLs. Product events exclude prompts, responses, file contents, authentication tokens,
+conversation IDs, raw provider events, and child-agent output.
 
 ## Relay connection diagnostics
 
@@ -19,16 +27,10 @@ separate from product events. Depending on the client version, traces can includ
 timings, environment identifiers and the connected machine's name. Failed spans can include error
 messages and stack traces; error text can quote a value the app was handling.
 
-To disable product events and relay tracing from the server, set
-`T3CODE_TELEMETRY_ENABLED=false` in its environment before starting it. Relay tracing also stops
-when `T3CODE_OTEL_SDK_DISABLED` or `OTEL_SDK_DISABLED` turns OpenTelemetry export off.
-
-An administrator can turn product events and relay tracing off in the server and desktop app with
-a [managed policy](./managed-policy.md#other-capabilities). This does not control traces sent by
-separate browser or mobile clients.
-
-The desktop app reads `T3CODE_TELEMETRY_ENABLED` from your shell profile (for example `~/.zshrc`) on macOS and
-Linux, so export it there and restart the app. On Windows, set it as a user environment variable.
+Relay tracing keeps its own default. An explicit `T3CODE_TELEMETRY_ENABLED=false` also stops
+server and desktop relay tracing. Relay tracing also stops when `T3CODE_OTEL_SDK_DISABLED` or
+`OTEL_SDK_DISABLED` turns OpenTelemetry export off. A managed policy can stop server and
+desktop relay tracing. Separate browser and mobile clients follow their own diagnostics settings.
 
 The web app in a browser, including one the `t3` CLI opens, does not read these environment
 variables. When its build has relay tracing configured, it sends its own connection traces even
@@ -54,7 +56,7 @@ managed policy do not disable mobile tracing.
 When **Publish agent activity** is enabled on a host, it sends project and thread titles, model
 names, activity status, and environment and thread identifiers to the T3 Connect relay for
 [mobile notifications and live activities](./mobile-notifications.md). This is separate from
-product events and relay diagnostics. The telemetry opt-out does not disable it.
+product events and relay diagnostics. Agent activity publishing has its own setting.
 
 To stop publishing, turn off **Publish agent activity** under **Settings > Sharing & access** on
 the host. Turning off notifications on a phone controls that phone's alerts, not the host's

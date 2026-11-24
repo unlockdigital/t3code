@@ -407,9 +407,13 @@ export const layer = Layer.effect(
     );
     return {
       runStarted: Effect.fn("ProviderTurnAnalytics.runStarted")((input) =>
-        Effect.sync(() => ledger.start(input.runId, input.driver, input.context)),
+        Effect.when(
+          Effect.sync(() => ledger.start(input.runId, input.driver, input.context)),
+          analytics.enabled,
+        ).pipe(Effect.asVoid),
       ),
       turnCompleted: Effect.fn("ProviderTurnAnalytics.turnCompleted")(function* (report) {
+        if (!(yield* analytics.enabled)) return;
         ledger.add(report);
         yield* analytics.record(
           "provider.turn.completed",
@@ -417,6 +421,7 @@ export const layer = Layer.effect(
         );
       }),
       runSettled: Effect.fn("ProviderTurnAnalytics.runSettled")(function* (report) {
+        if (!(yield* analytics.enabled)) return;
         const properties = ledger.settle(report, yield* labeler);
         if (properties !== undefined) {
           yield* analytics.record("provider.request.completed", properties);
