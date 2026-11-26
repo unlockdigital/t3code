@@ -36,7 +36,7 @@ const make = Effect.gen(function* () {
     function* (event: SubagentEvent) {
       const task = event.payload;
       if (task.origin !== "app_owned" || !FINAL_STATUSES.has(task.status)) return;
-      if (reported.has(task.id)) return;
+      if (reported.has(task.id) || !(yield* analytics.enabled)) return;
       const parent = yield* orchestrator.getThreadShell(task.threadId);
       const providers = yield* registry.getProviders;
       const parentDimensions =

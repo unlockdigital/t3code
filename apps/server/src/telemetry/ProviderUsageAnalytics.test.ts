@@ -104,6 +104,7 @@ describe("provider usage reporting", () => {
         Layer.provide(
           Layer.mergeAll(
             Layer.mock(AnalyticsService.AnalyticsService)({
+              enabled: Effect.succeed(true),
               record: (event, properties) =>
                 Effect.sync(() => void recorded.push([event, properties])),
             }),

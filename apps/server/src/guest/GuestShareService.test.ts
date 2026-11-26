@@ -130,6 +130,7 @@ const layerAnalytics = Layer.effectContext(
       Context.add(
         AnalyticsService.AnalyticsService,
         AnalyticsService.AnalyticsService.of({
+          enabled: Effect.succeed(true),
           record: (event, properties) =>
             Ref.update(recorded, (events) => [...events, { event, ...properties }]),
           flush: Effect.void,

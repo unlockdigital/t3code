@@ -3827,7 +3827,9 @@ export const layer = Layer.unwrap(
           ];
         }
         const clientAnalyticsProps = readClientAnalyticsProps(request);
-        yield* analytics.recordOwners(readClientOwners(request), "client");
+        if (yield* analytics.enabled) {
+          yield* analytics.recordOwners(readClientOwners(request), "client");
+        }
         const reportProfiles = yield* serverBrowser.profileReporter;
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;

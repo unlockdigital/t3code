@@ -1131,6 +1131,7 @@ const withToolAnalytics =
           result: McpSchema.CallToolResult | undefined,
           durationMs: number,
         ) {
+          if (!(yield* analytics.value.enabled)) return;
           const handoff =
             HANDOFF_TOOLS.has(tool) ||
             isInputTargetHandoff(tool, args) ||
